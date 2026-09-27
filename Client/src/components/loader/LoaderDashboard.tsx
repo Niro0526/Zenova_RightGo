@@ -1,4 +1,5 @@
-import { BadgeAlert, ListChecks, MapPin, ShieldCheck, TriangleAlert, Truck } from 'lucide-react';
+import LoaderNavigation from './LoaderNavigation';
+import { BadgeAlert, MapPin, TriangleAlert } from 'lucide-react';
 
 type Status = 'Ready to Load' | 'Loading' | 'Attention';
 type Trip = {
@@ -20,11 +21,6 @@ const trips: Trip[] = [
   { vehicle: 'PEL-V01', id: 'S1-T004', area: 'Colombo North', departure: '07:00', outlets: 2, orders: 2, plan: 2, status: 'Ready to Load', issue: false },
 ];
 
-const navigation = [
-  { label: 'Assigned Trips' as const, icon: Truck },
-  { label: 'Load Sequence' as const, icon: ListChecks },
-  { label: 'Trip Readiness' as const, icon: ShieldCheck },
-];
 const primaryButton = 'min-h-[45px] w-full rounded-lg bg-[#F97316] px-4 py-3 text-sm font-bold leading-[21px] text-white transition-colors hover:bg-[#EA580C] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F97316] disabled:cursor-not-allowed disabled:hover:bg-[#F97316]';
 
 function TripStatus({ status }: { status: Status }) {
@@ -59,14 +55,7 @@ export default function LoaderDashboard() {
           </div>
         </div>
         <div className="h-px bg-[#232A2E]" />
-        <nav className="flex gap-2 overflow-x-auto md:flex-col" aria-label="Loader sections">
-          {navigation.map(({ label, icon: Icon }) => (
-            <button key={label} type="button" disabled={label !== 'Assigned Trips'} aria-current={label === 'Assigned Trips' ? 'page' : undefined}
-              className={`flex min-h-11 shrink-0 items-center gap-3 rounded-lg p-3 text-left text-[13px] leading-5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${label === 'Assigned Trips' ? 'bg-[#F97316] font-semibold text-white' : 'cursor-not-allowed font-medium text-[#8A9BB0]'}`}>
-              <Icon size={18} aria-hidden="true" />{label}
-            </button>
-          ))}
-        </nav>
+        <LoaderNavigation active="Assigned Trips" />
       </aside>
 
       <main id="loader-main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 outline-none md:p-6">
