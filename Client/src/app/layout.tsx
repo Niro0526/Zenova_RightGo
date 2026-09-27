@@ -8,8 +8,8 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  title: "RightGo",
-  description: "RightGo Logistics Platform",
+  title: 'RightGo Pulse - Store Operations',
+  description: 'RightGo Store Manager and Logistics Operations Console',
 };
 
 export default function RootLayout({

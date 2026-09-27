@@ -1,8 +1,7 @@
+'use client';
+
+import StoreManagerPage from './store-manager/page';
+
 export default function Home() {
-  return (
-    <main>
-      <h1>RightGo</h1>
-      <p>Logistics Platform — coming soon.</p>
-    </main>
-  );
+  return <StoreManagerPage />;
 }
