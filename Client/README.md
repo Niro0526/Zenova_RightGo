@@ -12,11 +12,20 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-The loader dashboard is at [http://localhost:3000/loader](http://localhost:3000/loader).
-It reproduces the supplied Assigned Trips design and includes responsive navigation,
-trip selection, loading checklists, issue resolution, and pre-departure checks.
-Trip data and order checklists are frontend demos; changes last until the page reloads.
-The existing store manager remains available at `/` and `/store-manager`.
+Assigned Trips opens at both `/` and [http://localhost:3000/loader](http://localhost:3000/loader).
+This branch implements only the responsive Assigned Trips page and its four sample trip cards.
+Load Sequence and Trip Readiness are implemented in separate branches. Their sidebar
+items and trip action buttons are disabled until those pages are integrated.
+
+When merging the loader branches, keep Assigned Trips at `/loader`, give Load Sequence
+and Trip Readiness their own routes (for example `/loader/load-sequence` and
+`/loader/trip-readiness`), and connect the navigation and trip buttons with the selected
+trip ID. Resolve any competing changes to `src/app/loader/page.tsx`; merging alone does
+not connect the pages.
+
+The existing store manager remains available at `/store-manager`.
+After switching branches, stop and restart the development server. If using
+`npm start`, run `npm run build` first so it serves the current branch's pages.
 Next.js uses its own build tooling, so a separate Vite setup is not needed.
 
 ## Structure
