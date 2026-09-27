@@ -2,6 +2,7 @@
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  distDir: process.env.RIGHTGO_DIST_DIR || '.next',
 };
 
 export default nextConfig;

@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "build:loader": "RIGHTGO_DIST_DIR=.next-loader next build",
+    "start:loader": "RIGHTGO_DIST_DIR=.next-loader next start --hostname 127.0.0.1 --port 3100",
     "lint": "next lint"
   },
   "dependencies": {
