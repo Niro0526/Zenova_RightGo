@@ -1,0 +1,28 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# ML artefacts
+ml/models/*.pkl
+ml/models/*.pt
+ml/models/*.onnx
+ml/outputs/*
+!ml/outputs/.gitkeep
+
+# Env
+.env
+*.env
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
