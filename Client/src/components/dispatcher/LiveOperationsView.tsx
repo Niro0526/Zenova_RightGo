@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import PageHeader from '@/components/common/PageHeader';
 import { useDispatcherPlan } from '@/store/dispatcher/PlanningContext';
 import type { DeferReasonCode } from '@/types/dispatcher';
 
@@ -28,61 +29,69 @@ const STATUS_STYLE: Record<string, string> = {
 // Real order/outlet pairing from the S1 dataset (S1-023 -> OUT022, Tech, Colombo,
 // mall_bay) used purely as an illustrative example for this simulated panel.
 const SHORTFALL_ORDER_REF = 'S1-023';
-const SHORTFALL_OUTLET_ID = 'OUT022';
 
-type Resolution = 'replace' | 'defer' | null;
+type NotifyState = 'idle' | 'queued' | 'sent-simulated';
 
 export default function LiveOperations() {
-  const { orders, assignments, planChecklist, planVersion, publishPlan, deferOrder } = useDispatcherPlan();
-  const [resolution, setResolution] = useState<Resolution>(null);
+  const { orders, assignments, planChecklist, draftRevision, releasedManifests, publishPlan, deferOrder, shortfallEvents, reportShortfall, setShortfallResolution, acknowledgeManifest } = useDispatcherPlan();
   const [revalidateResult, setRevalidateResult] = useState<string | null>(null);
-  const [notifyResult, setNotifyResult] = useState(false);
-  const [resolvedNote, setResolvedNote] = useState<string | null>(null);
+  const [notifyState, setNotifyState] = useState<NotifyState>('idle');
 
   const shortfallOrder = orders.find(o => o.orderRef === SHORTFALL_ORDER_REF);
   const shortfallDecision = assignments[SHORTFALL_ORDER_REF]?.decision ?? 'unresolved';
+  const activeEvent = shortfallEvents.find(e => e.orderRef === SHORTFALL_ORDER_REF);
+  const lastManifest = releasedManifests[releasedManifests.length - 1];
 
   function handleRevalidate() {
     const fails = planChecklist.filter(r => r.kind === 'checker_fail');
     setRevalidateResult(fails.length === 0
       ? 'Revalidated against current plan state: all checker rules pass.'
       : `Revalidated against current plan state: ${fails.length} checker rule(s) failing - ${fails.map(f => f.label).join(', ')}.`);
-    setNotifyResult(false);
+    setNotifyState('idle');
   }
 
   function handlePublish() {
     publishPlan();
-    setResolvedNote(`Published locally as Plan v${planVersion + 1} (session-local demo, no server release).`);
-    setNotifyResult(false);
+    setNotifyState('idle');
   }
 
   function handleNotify() {
-    setNotifyResult(true);
+    setNotifyState('queued');
+    // Simulated two-step state - no backend exists to actually deliver anything.
+    window.setTimeout(() => setNotifyState('sent-simulated'), 400);
+  }
+
+  function handleReportShortfall() {
+    if (!shortfallOrder) return;
+    reportShortfall(shortfallOrder.orderRef);
   }
 
   function handleReplaceFromStock() {
-    setResolution('replace');
-    setResolvedNote('Marked as "replace from available stock" — this is a UI acknowledgement only; no stock/inventory system exists to actually reserve or issue replacement stock.');
+    if (!activeEvent) return;
+    setShortfallResolution(activeEvent.id, 'replace', 'Marked as "replace from available stock" — this is a UI acknowledgement only; no stock/inventory system exists to actually reserve or issue replacement stock.');
   }
 
   function handleDeferShortfall(reasonCode: DeferReasonCode) {
-    if (!shortfallOrder) return;
+    if (!shortfallOrder || !activeEvent) return;
     deferOrder(shortfallOrder.orderRef, reasonCode, 'Loading shortfall - deferred to next run (Live Operations panel)');
-    setResolution('defer');
-    setResolvedNote(`${shortfallOrder.orderRef} deferred with a real ledger entry - check Decision Ledger.`);
+    setShortfallResolution(activeEvent.id, 'defer', `${shortfallOrder.orderRef} deferred with a real ledger entry - check Decision Ledger.`);
   }
+
+  const manifestSuperseded = activeEvent && activeEvent.manifestVersionAtReport !== null && lastManifest && activeEvent.manifestVersionAtReport !== lastManifest.revision;
 
   return (
     <div className="flex flex-col flex-1 p-6 md:p-10 gap-6 w-full max-w-[1300px] mx-auto bg-[#F9FAFB] font-sans">
 
-      {/* Header */}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h1 className="font-bold text-[28px] text-[#202D2D] leading-[36px] m-0">Live Operations</h1>
-          <span className="py-1 px-2 bg-[#FFF4ED] border border-[#F97316] rounded font-semibold text-[11px] text-[#F97316] uppercase">S1 Peak Day · Plan v{planVersion}</span>
-        </div>
-        <p className="text-sm text-[#485563] m-0">Vehicle/trip status below is a simulated prototype event feed — no live telemetry backend exists.</p>
-      </div>
+      <PageHeader
+        title="Live Operations"
+        subtitle="S1 Peak Day · Vehicle/trip status below is a simulated prototype event feed — no live telemetry backend exists."
+        actions={<span className="py-1 px-2 bg-[#FFF4ED] border border-[#F97316] rounded font-semibold text-[11px] text-[#F97316] uppercase">Draft revision {draftRevision}</span>}
+      />
+      {lastManifest && (
+        <p className="text-xs text-gray-500 -mt-3">
+          Manifest currently in effect: revision {lastManifest.revision} ({lastManifest.acknowledgement === 'acknowledged-simulated' ? 'acknowledged, simulated' : 'acknowledgement pending'}).
+        </p>
+      )}
 
       {/* Trips Table */}
       <div className="bg-white border border-[#CBD5E1] rounded-[10px] overflow-x-auto">
@@ -117,46 +126,58 @@ export default function LiveOperations() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <div>
             <h2 className="font-bold text-[16px] text-[#202D2D] m-0">Loading-shortfall resolution (simulated event)</h2>
-            <p className="text-sm text-[#485563] m-0 mt-1">Illustrative example over real order {SHORTFALL_ORDER_REF} · outlet {SHORTFALL_OUTLET_ID}</p>
+            <p className="text-sm text-[#485563] m-0 mt-1">Illustrative example over real order {SHORTFALL_ORDER_REF}{shortfallOrder ? ` · outlet ${shortfallOrder.outletId}` : ''}</p>
           </div>
-          <span className={`py-1.5 px-3 rounded font-bold text-xs uppercase ${shortfallDecision !== 'unresolved' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-            {shortfallDecision !== 'unresolved' ? `Resolved (${shortfallDecision})` : 'HOLD - awaiting Dispatcher decision'}
+          <span className={`py-1.5 px-3 rounded font-bold text-xs uppercase ${shortfallDecision !== 'unresolved' ? 'bg-green-100 text-green-700' : activeEvent ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
+            {shortfallDecision !== 'unresolved' ? `Resolved (${shortfallDecision})` : activeEvent ? 'ON HOLD - awaiting Dispatcher decision' : 'Not reported'}
           </span>
         </div>
 
-        {shortfallOrder ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="flex flex-col gap-1">
-              <span className="font-semibold text-[11px] text-gray-500 uppercase">Affected Order</span>
-              <span className="font-bold text-sm text-gray-900">{shortfallOrder.orderRef}, {shortfallOrder.outletId} ({shortfallOrder.brand}, {shortfallOrder.district})</span>
-            </div>
-            <div className="flex flex-col gap-1">
-              <span className="font-semibold text-[11px] text-gray-500 uppercase">Reported Issue (simulated)</span>
-              <span className="font-bold text-sm text-gray-900">Loading shortfall — no stock/lot system exists to report a real quantity mismatch, so this is illustrative only.</span>
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-red-600">Order {SHORTFALL_ORDER_REF} not found in the current dataset.</p>
+        {!activeEvent && (
+          <button onClick={handleReportShortfall} className="self-start py-2 px-4 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-xs text-gray-700 transition-colors">
+            Report loading shortfall for {SHORTFALL_ORDER_REF} (simulated)
+          </button>
         )}
 
-        <div className="flex flex-col gap-2">
-          <span className="font-semibold text-[11px] text-gray-500 uppercase">Resolution Options</span>
-          <button
-            onClick={handleReplaceFromStock}
-            className={`flex items-center gap-3 p-3.5 rounded-lg border text-left transition-colors ${resolution === 'replace' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-800 hover:border-gray-300'}`}
-          >
-            <span className={resolution === 'replace' ? 'text-white' : 'text-gray-300'}><DotIcon /></span>
-            <span className="font-semibold text-sm">Replace from available stock (UI acknowledgement only — no inventory system)</span>
-          </button>
-          <button
-            onClick={() => handleDeferShortfall('capacity')}
-            className={`flex items-center gap-3 p-3.5 rounded-lg border text-left transition-colors ${resolution === 'defer' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-800 hover:border-gray-300'}`}
-          >
-            <span className={resolution === 'defer' ? 'text-white' : 'text-gray-300'}><DotIcon /></span>
-            <span className="font-semibold text-sm">Defer whole order to next run (real action — writes to Decision Ledger)</span>
-          </button>
-          {resolvedNote && <p className="text-xs text-gray-500 italic mt-1">{resolvedNote}</p>}
-        </div>
+        {activeEvent && (
+          <>
+            <p className="text-xs text-gray-500">
+              Reported at {activeEvent.reportedAt} against manifest {activeEvent.manifestVersionAtReport !== null ? `revision ${activeEvent.manifestVersionAtReport}` : '(no manifest released yet)'}.
+              {manifestSuperseded && <span className="text-amber-600 font-semibold"> Current released revision is {lastManifest!.revision} (superseded) — instructions issued against the old manifest may be stale.</span>}
+            </p>
+            {shortfallOrder && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1">
+                  <span className="font-semibold text-[11px] text-gray-500 uppercase">Affected Order</span>
+                  <span className="font-bold text-sm text-gray-900">{shortfallOrder.orderRef}, {shortfallOrder.outletId} ({shortfallOrder.brand}, {shortfallOrder.district})</span>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="font-semibold text-[11px] text-gray-500 uppercase">Reported Issue (simulated)</span>
+                  <span className="font-bold text-sm text-gray-900">Loading shortfall — no stock/lot system exists to report a real quantity mismatch, so this is illustrative only.</span>
+                </div>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <span className="font-semibold text-[11px] text-gray-500 uppercase">Resolution Options</span>
+              <button
+                onClick={handleReplaceFromStock}
+                className={`flex items-center gap-3 p-3.5 rounded-lg border text-left transition-colors ${activeEvent.resolution === 'replace' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-800 hover:border-gray-300'}`}
+              >
+                <span className={activeEvent.resolution === 'replace' ? 'text-white' : 'text-gray-300'}><DotIcon /></span>
+                <span className="font-semibold text-sm">Replace from available stock (UI acknowledgement only — no inventory system)</span>
+              </button>
+              <button
+                onClick={() => handleDeferShortfall('capacity')}
+                className={`flex items-center gap-3 p-3.5 rounded-lg border text-left transition-colors ${activeEvent.resolution === 'defer' ? 'bg-orange-500 border-orange-500 text-white' : 'bg-white border-gray-200 text-gray-800 hover:border-gray-300'}`}
+              >
+                <span className={activeEvent.resolution === 'defer' ? 'text-white' : 'text-gray-300'}><DotIcon /></span>
+                <span className="font-semibold text-sm">Defer whole order to next run (real action — writes to Decision Ledger)</span>
+              </button>
+              {activeEvent.resolvedNote && <p className="text-xs text-gray-500 italic mt-1">{activeEvent.resolvedNote}</p>}
+            </div>
+          </>
+        )}
 
         <div className="flex flex-col gap-2 pt-4 border-t border-gray-200">
           <span className="font-semibold text-[11px] text-gray-500 uppercase">After Resolution — each action behaves distinctly</span>
@@ -165,14 +186,20 @@ export default function LiveOperations() {
               Revalidate constraints
             </button>
             <button onClick={handlePublish} className="py-2 px-4 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-xs text-gray-700 transition-colors">
-              Publish Plan v{planVersion + 1} (local demo)
+              Publish current draft (local demo)
             </button>
             <button onClick={handleNotify} className="py-2 px-4 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-xs text-gray-700 transition-colors">
               Notify Loader and Driver
             </button>
+            {lastManifest && lastManifest.acknowledgement === 'pending' && (
+              <button onClick={() => acknowledgeManifest(lastManifest.revision)} className="py-2 px-4 bg-gray-100 hover:bg-gray-200 rounded-lg font-semibold text-xs text-gray-700 transition-colors">
+                Mark manifest v{lastManifest.revision} acknowledged (simulated)
+              </button>
+            )}
           </div>
           {revalidateResult && <p className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg p-2.5">{revalidateResult}</p>}
-          {notifyResult && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">Simulated — no backend exists to actually notify a loader or driver. No message was sent.</p>}
+          {notifyState === 'queued' && <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-2.5">Queued (simulated)...</p>}
+          {notifyState === 'sent-simulated' && <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2.5">Sent (simulated) — no backend exists to actually notify a loader or driver, and no acknowledgement was received. This is not a delivered message.</p>}
         </div>
       </div>
     </div>

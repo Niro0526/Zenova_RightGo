@@ -37,6 +37,7 @@ export default function Planning() {
   const availableVehicles = useMemo(() => fleetVehicles.filter(v => v.status === 'available'), [fleetVehicles]);
   const candidates = selectedRef ? compatibleCandidates(selectedRef) : [];
   const candidateVehicleIds = new Set(candidates.map(c => c.vehicle.vehicleId));
+  const recommended = candidates.find(c => c.recommended);
 
   function pickTripNoFor(vehicleId: string): 1 | 2 {
     const candidate = candidates.find(c => c.vehicle.vehicleId === vehicleId);
@@ -80,7 +81,7 @@ export default function Planning() {
   }
 
   return (
-    <div className="flex flex-col flex-1 p-4 md:p-10 w-full max-w-[1400px] mx-auto bg-[#F9FAFB]">
+    <div className="flex flex-col flex-1 xl:h-full xl:overflow-hidden p-4 md:p-10 w-full max-w-[1400px] mx-auto bg-[#F9FAFB]">
       {/* Top Bar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 py-4 px-6 bg-white border border-[#CBD5E1] rounded-t-[10px]">
         <div className="flex flex-row items-center gap-3 flex-wrap">
@@ -93,10 +94,10 @@ export default function Planning() {
       </div>
 
       {/* 3-Column Split */}
-      <div className="flex flex-col lg:flex-row flex-1 bg-[#CBD5E1] gap-[1px] border-x border-b border-[#CBD5E1] rounded-b-[10px] overflow-hidden min-h-[600px]">
+      <div className="flex flex-col xl:flex-row flex-1 xl:min-h-0 bg-[#CBD5E1] gap-[1px] border-x border-b border-[#CBD5E1] rounded-b-[10px] overflow-hidden">
 
         {/* Left Column - Queue */}
-        <div className="w-full lg:w-[300px] bg-white flex flex-col p-4 gap-4 flex-shrink-0 lg:h-[calc(100vh-170px)] overflow-y-auto">
+        <div className="w-full xl:w-[300px] min-w-0 bg-white flex flex-col p-4 gap-4 flex-shrink-0 xl:h-full overflow-y-auto">
           <h2 className="font-bold text-[15px] text-[#202D2D] m-0">Unallocated Queue ({queue.length})</h2>
           <div className="flex flex-row items-center py-2 px-2.5 gap-2 border border-[#CBD5E1] rounded-md w-full box-border">
             <SearchIcon />
@@ -131,7 +132,7 @@ export default function Planning() {
         </div>
 
         {/* Middle Column - Vehicles & Trips */}
-        <div className="w-full lg:w-[340px] bg-white flex flex-col p-4 gap-3 flex-shrink-0 lg:h-[calc(100vh-170px)] overflow-y-auto">
+        <div className="w-full xl:w-[340px] min-w-0 bg-white flex flex-col p-4 gap-3 flex-shrink-0 xl:h-full overflow-y-auto">
           <h2 className="font-bold text-[15px] text-[#202D2D] m-0">Vehicles &amp; Trips ({availableVehicles.length} available)</h2>
           {!selectedOrder && <p className="text-xs text-gray-400">Select an order from the queue to see compatible vehicles.</p>}
           {selectedOrder && candidates.length === 0 && (
@@ -143,6 +144,7 @@ export default function Planning() {
           {selectedOrder && availableVehicles.map(v => {
             const isSelected = selectedVehicleId === v.vehicleId;
             const isCandidate = candidateVehicleIds.has(v.vehicleId);
+            const isRecommended = recommended?.vehicle.vehicleId === v.vehicleId;
             const t1 = ordersOnTrip(v.vehicleId, 1);
             const t2 = ordersOnTrip(v.vehicleId, 2);
 
@@ -150,7 +152,7 @@ export default function Planning() {
               <div
                 key={v.vehicleId}
                 onClick={() => selectVehicle(v.vehicleId)}
-                className={`flex flex-col p-3 gap-2 border rounded-lg cursor-pointer transition-all ${isSelected ? 'border-[#F97316] bg-[#FFF4ED] shadow-sm' : isCandidate ? 'border-green-300 hover:border-green-400' : 'border-[#CBD5E1] hover:border-gray-400'}`}
+                className={`flex flex-col p-3 gap-2 border rounded-lg cursor-pointer transition-all ${isSelected ? 'border-[#F97316] bg-[#FFF4ED] shadow-sm' : isRecommended ? 'border-green-500 bg-green-50' : isCandidate ? 'border-green-300 hover:border-green-400' : 'border-[#CBD5E1] hover:border-gray-400'}`}
               >
                 <div className="flex flex-row justify-between items-center">
                   <span className="font-bold text-[13px] text-[#202D2D]">{v.vehicleId}</span>
@@ -161,15 +163,18 @@ export default function Planning() {
                   <span>Trip 1: {t1.length ? `${t1.length} order(s)` : 'empty'}</span>
                   <span>·</span>
                   <span>Trip 2: {t2.length ? `${t2.length} order(s)` : 'empty'}</span>
-                  {isCandidate ? <span className="ml-auto text-green-600 font-semibold">✓ candidate</span> : <span className="ml-auto text-gray-400">not eligible</span>}
+                  {isRecommended ? <span className="ml-auto text-green-700 font-bold">★ recommended</span> : isCandidate ? <span className="ml-auto text-green-600 font-semibold">✓ candidate</span> : <span className="ml-auto text-gray-400">not eligible</span>}
                 </div>
+                {isRecommended && recommended!.reasons.length > 0 && (
+                  <p className="text-[10px] text-green-700 italic">{recommended!.reasons.join('; ')}</p>
+                )}
               </div>
             );
           })}
         </div>
 
         {/* Right Column - Order Details View */}
-        <div className="flex-1 bg-white flex flex-col p-6 overflow-y-auto lg:h-[calc(100vh-170px)] relative">
+        <div className="flex-1 min-w-0 bg-white flex flex-col p-6 overflow-y-auto xl:h-full relative">
           {selectedOrder ? (
             <div className="flex flex-col w-full pb-10">
               <div className="flex flex-col gap-1 pb-4 mb-4 border-b border-gray-200">
@@ -196,21 +201,26 @@ export default function Planning() {
               {passport && selectedVehicleId ? (
                 <>
                   <h3 className="font-bold text-[15px] text-[#202D2D] mb-1">Constraint Passport <span className="text-[13px] font-medium text-[#485563]">(vs {selectedVehicleId} · Trip {selectedTripNo})</span></h3>
-                  <div className="flex flex-col gap-2 mb-6">
-                    {passport.results.map((c, i) => (
-                      <div key={i} className="flex items-center p-3 bg-gray-50 border border-gray-200 rounded-lg gap-3">
-                        {c.kind === 'checker_pass' && <div className="w-6 h-6 rounded bg-green-100 text-green-600 flex items-center justify-center flex-shrink-0"><CheckIcon /></div>}
-                        {c.kind === 'checker_fail' && <div className="w-6 h-6 rounded bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0"><AlertIcon /></div>}
-                        {c.kind === 'policy_gap' && <div className="w-6 h-6 rounded bg-gray-200 text-gray-500 flex items-center justify-center flex-shrink-0"><GapIcon /></div>}
-                        <div className="flex flex-col">
-                          <span className="text-[11px] font-bold text-gray-500 uppercase">{c.label}{c.kind === 'policy_gap' && ' — not checker-covered'}</span>
-                          <span className="text-xs font-medium text-gray-900">{c.detail}</span>
-                        </div>
+                  {(['checker', 'operational'] as const).map(group => (
+                    <div key={group} className="mb-4">
+                      <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{group === 'checker' ? 'Checker Rules (C01–C17, matches check_allocation.py)' : 'Operational Checks (beyond the checker)'}</span>
+                      <div className="flex flex-col gap-2 mt-2">
+                        {passport.results.filter(r => r.group === group).map((c, i) => (
+                          <div key={i} className="flex items-center p-3 bg-gray-50 border border-gray-200 rounded-lg gap-3">
+                            {c.kind === 'checker_pass' && <div className="w-6 h-6 rounded bg-green-100 text-green-600 flex items-center justify-center flex-shrink-0"><CheckIcon /></div>}
+                            {c.kind === 'checker_fail' && <div className="w-6 h-6 rounded bg-red-100 text-red-600 flex items-center justify-center flex-shrink-0"><AlertIcon /></div>}
+                            {c.kind === 'unverified' && <div className="w-6 h-6 rounded bg-gray-200 text-gray-500 flex items-center justify-center flex-shrink-0"><GapIcon /></div>}
+                            <div className="flex flex-col">
+                              <span className="text-[11px] font-bold text-gray-500 uppercase">{c.label}{c.kind === 'unverified' && ' — unverified'}</span>
+                              <span className="text-xs font-medium text-gray-900">{c.detail}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                   {passport.operationalFeasible === null && (
-                    <p className="text-xs text-gray-500 italic mb-4">Operational feasibility: unresolved policy gaps above mean this cannot be labeled operationally compliant, only checker-feasible.</p>
+                    <p className="text-xs text-gray-500 italic mb-4">Operational feasibility: unverified operational checks above mean this cannot be labeled operationally compliant yet — supply the missing planning input(s) to resolve them.</p>
                   )}
                 </>
               ) : (
@@ -234,7 +244,7 @@ export default function Planning() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center h-full text-center max-w-md mx-auto">
+            <div className="flex flex-col items-center justify-center h-full w-full max-w-md mx-auto text-center">
               <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
               </div>

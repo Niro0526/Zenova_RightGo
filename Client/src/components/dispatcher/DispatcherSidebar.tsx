@@ -11,7 +11,7 @@ export default function DispatcherSidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex flex-col w-full md:w-[280px] bg-[#171c21] text-white py-8 px-5 flex-shrink-0 font-sans box-border md:h-screen md:sticky md:top-0 overflow-y-auto">
+    <aside className="hidden md:flex flex-col w-full md:w-[240px] bg-[#161A1D] text-white py-8 px-5 flex-shrink-0 font-sans box-border md:h-screen md:sticky md:top-0 overflow-y-auto">
       <div className="mb-10">
         <Logo subtitle="Core Logistics Engine" />
       </div>

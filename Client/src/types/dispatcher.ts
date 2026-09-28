@@ -98,7 +98,7 @@ export interface OrderAssignment {
   reasonNote: string | null;
 }
 
-export type DecisionLedgerAction = 'assigned' | 'deferred' | 'reassigned' | 'published';
+export type DecisionLedgerAction = 'assigned' | 'deferred' | 'reassigned' | 'published' | 'resequenced';
 
 export interface DecisionLedgerEntry {
   id: string;
@@ -116,7 +116,7 @@ export interface DecisionLedgerEntry {
 
 // --- Validation --------------------------------------------------------
 
-/** Every C01-C17 checker rule this app evaluates. */
+/** Every C01-C17 checker rule this app evaluates — byte-for-byte parity with check_allocation.py. */
 export type CheckerRuleCode =
   | 'VEHICLE_UNAVAILABLE'
   | 'DEPOT_MISMATCH'
@@ -130,12 +130,27 @@ export type CheckerRuleCode =
   | 'FRESH_BUDGET'
   | 'DAYTIME_BUDGET';
 
-/** Things the supplied checker does not evaluate — never rendered as pass/fail. */
-export type PolicyGapCode = 'DELIVERY_WINDOW' | 'FUEL_QUOTA' | 'DRIVER_OVERLAP' | 'FAIRNESS_PRIORITY';
+/**
+ * App-only operational rules the booklet requires of the working system (p11-12)
+ * but check_allocation.py does not evaluate (confirmed in docs/SOURCE_REQUIREMENTS.md's
+ * "Not checked by C" list). These are real, partial checks — not decorative —
+ * and can resolve to 'unverified' when an essential planning input (a trip's
+ * planned departure time, a vehicle's confirmed prior weekly fuel usage) hasn't
+ * been captured yet. 'unverified' blocks release exactly like 'checker_fail'
+ * blocks it, until the dispatcher supplies the missing input.
+ */
+export type OperationalRuleCode = 'DELIVERY_WINDOW' | 'FUEL_QUOTA' | 'TRIP_OVERLAP';
 
+/** Not modeled anywhere in this app — no driver roster and no defined fairness objective exist in any supplied source. Documented here for completeness, never rendered as a result. */
+export type NotModeledCode = 'DRIVER_OVERLAP' | 'FAIRNESS_PRIORITY';
+
+export type ResultKind = 'checker_pass' | 'checker_fail' | 'unverified';
+
+/** group: which regime a result belongs to, so the UI can visually separate checker-parity results from app-only operational ones. */
 export interface CheckerCheckResult {
-  kind: 'checker_pass' | 'checker_fail';
-  rule: CheckerRuleCode;
+  kind: ResultKind;
+  group: 'checker' | 'operational';
+  rule: CheckerRuleCode | OperationalRuleCode;
   label: string;
   detail: string;
   orderRef?: string;
@@ -143,17 +158,55 @@ export interface CheckerCheckResult {
   tripNo?: 1 | 2;
 }
 
-export interface PolicyGapResult {
-  kind: 'policy_gap';
-  rule: PolicyGapCode;
-  label: string;
-  detail: string;
-}
-
-export type ValidationResult = CheckerCheckResult | PolicyGapResult;
+export type ValidationResult = CheckerCheckResult;
 
 export interface PassportResult {
   results: ValidationResult[];
-  checkerFeasible: boolean; // true iff every checker_* row passed
-  operationalFeasible: boolean | null; // null whenever a policy_gap is present
+  checkerFeasible: boolean; // true iff every group:'checker' row passed (C01-C17 only)
+  operationalFeasible: boolean | null; // null whenever any row (checker or operational) is 'unverified' or 'checker_fail'; true only when every row passed
+}
+
+// --- Trip metadata (dispatcher-captured operational inputs) ----------------
+
+/** Per (vehicleId, tripNo) dispatcher-entered planning inputs. Missing values are null, never a silent default — see docs/SOURCE_REQUIREMENTS.md. */
+export interface TripMeta {
+  plannedDepartureTime: string | null; // "HH:MM", Asia/Colombo, dispatcher-entered (Fresh trips are pre-filled with a suggested 03:30, editable)
+}
+
+/** Per-vehicle dispatcher-confirmed prior fuel usage. null = not yet confirmed (never defaulted to 0). */
+export interface VehicleFuelInput {
+  priorWeeklyFuelUsageL: number | null;
+}
+
+// --- Order intake validation (Orders page) ---------------------------------
+
+export interface IntakeCheckResult {
+  status: 'confirmed' | 'needs_correction';
+  issues: string[];
+}
+
+// --- Manifest lifecycle (Plan Review / Live Operations) --------------------
+
+export interface ManifestTripSnapshot {
+  vehicleId: string;
+  tripNo: 1 | 2;
+  stopOutletIds: string[]; // physical stop sequence at the moment of release
+  orderRefs: string[];
+}
+
+export interface Manifest {
+  revision: number; // the draftRevision that was live at publish time
+  publishedAt: string; // HH:MM, session-local clock
+  trips: ManifestTripSnapshot[];
+  acknowledgement: 'pending' | 'acknowledged-simulated';
+}
+
+export interface ShortfallEvent {
+  id: string;
+  orderRef: string;
+  outletId: string;
+  reportedAt: string; // HH:MM, session-local clock
+  manifestVersionAtReport: number | null; // stamped once, inside the reducer, at creation — never recomputed later
+  resolution: 'replace' | 'defer' | null;
+  resolvedNote: string | null;
 }

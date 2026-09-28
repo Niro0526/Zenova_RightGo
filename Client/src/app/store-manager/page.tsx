@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { Package, FilePlus, Truck } from 'lucide-react';
 import Sidebar from '../../components/layout/Sidebar';
 import TopNavbar from '../../components/layout/TopNavbar';
+import MobileNavDrawer from '../../components/common/MobileNavDrawer';
 import DashboardView from '../../components/store-manager/DashboardView';
 import PlaceOrderView from '../../components/store-manager/PlaceOrderView';
 import OrderDetailView from '../../components/store-manager/OrderDetailView';
@@ -384,6 +386,10 @@ export default function StoreManagerPage({ initialView }: StoreManagerPageProps)
     }
   };
 
+  const isOrdersActive = currentView === 'dashboard' || currentView === 'orders' || currentView === 'my-orders';
+  const isPlaceOrderActive = currentView === 'place-order';
+  const isDeliveriesActive = currentView === 'confirm-receipt' || currentView === 'deliveries';
+
   return (
     <div className="app-container">
       {/* 240px Dark Sidebar */}
@@ -395,6 +401,11 @@ export default function StoreManagerPage({ initialView }: StoreManagerPageProps)
 
       {/* Main Content Area */}
       <main className="main-content-viewport">
+        <MobileNavDrawer items={[
+          { href: '/store-manager/my-orders', label: 'My Orders', icon: Package, active: isOrdersActive, onClick: () => navigateTo('dashboard') },
+          { href: '/store-manager/place-order', label: 'Place Order', icon: FilePlus, active: isPlaceOrderActive, onClick: () => navigateTo('place-order') },
+          { href: '/store-manager/deliveries', label: 'Deliveries', icon: Truck, active: isDeliveriesActive, onClick: () => navigateTo('confirm-receipt') },
+        ]} />
         {/* Top Header Bar & Profile */}
         <TopNavbar
           selectedOutlet={selectedOutlet}

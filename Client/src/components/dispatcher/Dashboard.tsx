@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import PageHeader from '@/components/common/PageHeader';
 import { useDispatcherPlan } from '@/store/dispatcher/PlanningContext';
 
 const AlertTriangle = ({ className }: { className?: string }) => (
@@ -31,21 +32,21 @@ const ArrowRight = ({ className }: { className?: string }) => (
 );
 
 export default function Dashboard() {
-  const { counts, planVersion, published } = useDispatcherPlan();
+  const { counts, draftRevision, releasedManifests } = useDispatcherPlan();
+  const lastManifest = releasedManifests[releasedManifests.length - 1];
 
   return (
     <div className="flex flex-col flex-1 p-6 md:p-10 gap-8 w-full max-w-[1160px] mx-auto bg-[#F9FAFB]">
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start gap-4 w-full">
-        <div className="flex flex-col gap-1.5">
-          <h1 className="font-bold text-[26px] md:text-[28px] text-[#202D2D] leading-[36px] md:leading-[42px] m-0">RightGo · Core Logistics Engine</h1>
-          <h2 className="font-medium text-[14px] text-[#485563] m-0">Run Date: 8 January 2026</h2>
-        </div>
-        <div className="flex flex-row items-center py-1.5 px-3 gap-2 bg-white border border-[#F97316] rounded-md w-fit flex-shrink-0">
-          <span className="font-semibold text-xs text-[#F97316]">Scenario S1 · Plan v{planVersion}{published ? ' (published, local demo)' : ' (draft)'}</span>
-        </div>
-      </div>
+      <PageHeader
+        title="Operations Dashboard"
+        subtitle="S1 Peak Day Scenario (no calendar date supplied by the dataset)"
+        actions={
+          <div className="flex flex-row items-center py-1.5 px-3 gap-2 bg-white border border-[#F97316] rounded-md w-fit flex-shrink-0">
+            <span className="font-semibold text-xs text-[#F97316]">Draft revision {draftRevision}{lastManifest ? ` (released as of v${lastManifest.revision})` : ' (never released)'}</span>
+          </div>
+        }
+      />
 
       {/* Plan Readiness Row (4 Metrics) — all four derive from shared session-local plan state */}
       <div className="flex flex-col sm:flex-row gap-5 w-full">
