@@ -77,6 +77,7 @@ export default function DispatcherSidebar() {
           <IconChevron />
         </button>
         <span className="text-[11px] text-gray-500">v2.4.12 · Peliyagoda Depot</span>
+        <span className="text-[10px] text-gray-600 leading-snug">Session-local demo data — resets on refresh. No backend is connected.</span>
       </div>
     </aside>
   );
