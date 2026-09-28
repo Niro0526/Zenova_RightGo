@@ -3,6 +3,7 @@ node_modules/
 
 # next
 .next/
+.next-loader/
 out/
 
 # env
