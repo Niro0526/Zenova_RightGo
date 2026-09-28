@@ -56,11 +56,11 @@ export default function DashboardView({
     ? formatDateLabel(closureStartDate) 
     : `${formatDateLabel(closureStartDate)} to ${formatDateLabel(closureEndDate)}`;
 
-  // Group orders dynamically by section
-  const activeOrders = orders.filter((o: any) => o.section === 'active');
-  const futureOrders = orders.filter((o: any) => o.section === 'future');
-  const deferredOrders = orders.filter((o: any) => o.section === 'deferred');
-  const completedOrders = orders.filter((o: any) => o.section === 'completed');
+  // Group orders dynamically by section or status
+  const activeOrders = orders.filter((o: any) => o.section === 'active' || o.status === 'Out for Delivery' || o.status === 'In Transit');
+  const futureOrders = orders.filter((o: any) => o.section === 'future' || o.status === 'Awaiting Planning' || o.status === 'Queued');
+  const deferredOrders = orders.filter((o: any) => o.section === 'deferred' || o.section === 'degraded' || (o.status && (o.status.toLowerCase().includes('defer') || o.status.toLowerCase().includes('escalat') || o.status.toLowerCase().includes('reschedule'))));
+  const completedOrders = orders.filter((o: any) => o.section === 'completed' || o.section === 'past' || o.status === 'Delivered');
 
   const handleSaveClosure = (e: any) => {
     e.preventDefault();
@@ -330,21 +330,25 @@ export default function DashboardView({
           {deferredOrders.map(order => (
             <div key={order.delivery_id} className="figma-order-row-card">
               <div className="order-left-group">
-                <div className="brand-avatar-box style-brand">
-                  {order.brand_code || 'ST'}
+                <div className={`brand-avatar-box ${order.brand === 'Style' ? 'style-brand' : ''}`}>
+                  {order.brand_code || (order.brand === 'Style' ? 'ST' : 'FR')}
                 </div>
                 <div>
                   <div className="order-id-code">{order.delivery_id}</div>
-                  <div className="order-brand-desc">{order.order_type}</div>
+                  <div className="order-brand-desc">{order.order_type || `Brand ${order.brand || 'Fresh'}`}</div>
                 </div>
               </div>
 
               <div className="order-middle-group">
-                <div className="meta-column-box" style={{ maxWidth: '300px' }}>
+                <div className="meta-column-box" style={{ maxWidth: '320px' }}>
                   <span style={{ fontSize: '11px', fontWeight: 600, color: '#F59E0B' }}>Deferred Reason</span>
-                  <span style={{ fontSize: '12px', color: '#485563' }}>{order.deferral_reason}</span>
+                  <span style={{ fontSize: '12px', color: '#485563', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '300px', display: 'block' }}>
+                    {order.reason || order.deferral_reason || 'Fleet capacity shortage'}
+                  </span>
                 </div>
-                <span className="status-pill-figma deferred">Deferred</span>
+                <span className={`status-pill-figma ${order.status?.toLowerCase().includes('escalat') ? 'escalated' : order.status?.toLowerCase().includes('reschedule') ? 'delivered' : 'deferred'}`}>
+                  {order.status || 'Deferred'}
+                </span>
                 <button 
                   className="btn-view-order-link"
                   onClick={() => {

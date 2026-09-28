@@ -29,7 +29,7 @@ export default function Sidebar({
         {/* Logo and Brand */}
         <div className="brand-logo-row">
           <div className="logo-pin-box">
-            <MapPin size={20} color="#000000" fill="#000000" />
+            <MapPin size={20} color="#FFFFFF" />
           </div>
           <div className="brand-title-box">
             <span className="brand-title-text">RightGo</span>

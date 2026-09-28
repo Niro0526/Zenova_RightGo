@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from '../../components/layout/Sidebar';
 import TopNavbar from '../../components/layout/TopNavbar';
 import DashboardView from '../../components/store-manager/DashboardView';
@@ -11,7 +11,11 @@ import DegradationView from '../../components/store-manager/DegradationView';
 import OrderConfirmationModal from '../../components/store-manager/OrderConfirmationModal';
 import { MOCK_OUTLETS } from '../../data/mockData';
 
-export default function StoreManagerPage() {
+interface StoreManagerPageProps {
+  initialView?: string;
+}
+
+export default function StoreManagerPage({ initialView }: StoreManagerPageProps) {
   const [selectedOutlet, setSelectedOutlet] = useState(MOCK_OUTLETS[0]);
 
   // Master Interactive State for All Store Orders
@@ -73,9 +77,11 @@ export default function StoreManagerPage() {
       status: 'Deferred',
       degradation_level: 'Critical (Tier 3)',
       reason: 'Fleet dry-dock emergency: 2x 10T trucks grounded at Peliyagoda. Prioritised perishables.',
-      section: 'degraded',
+      section: 'deferred',
       items: [
-        { name: 'Keeri Samba Rice (10kg Bags)', qty: 10, unit: 'bags' }
+        { name: 'Keeri Samba Rice (10kg Bags)', qty: 10, unit: 'bags' },
+        { name: 'Pure Ceylon Tea Pack (500g)', qty: 25, unit: 'boxes' },
+        { name: 'Full Cream Milk Powder (400g)', qty: 20, unit: 'pouches' }
       ]
     },
     {
@@ -86,7 +92,7 @@ export default function StoreManagerPage() {
       order_date: '6 Jan 2026',
       status: 'Delivered',
       delivery_time: '7 Jan, 08:45',
-      section: 'past',
+      section: 'completed',
       items: [
         { name: 'Linen Shirts (Box of 20)', qty: 5, unit: 'boxes' },
         { name: 'Cotton Trousers (Box of 15)', qty: 4, unit: 'boxes' }
@@ -100,7 +106,7 @@ export default function StoreManagerPage() {
       order_date: '5 Jan 2026',
       status: 'Delivered',
       delivery_time: '6 Jan, 14:20',
-      section: 'past',
+      section: 'completed',
       items: [
         { name: 'Ceramic Dinner Plates (Set of 6)', qty: 10, unit: 'sets' },
         { name: 'Glass Tumbler Sets (6pk)', qty: 15, unit: 'sets' }
@@ -108,15 +114,105 @@ export default function StoreManagerPage() {
     }
   ]);
 
-  const [currentView, setCurrentView] = useState('dashboard');
+  const [currentView, setCurrentView] = useState(initialView || 'dashboard');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [editingOrder, setEditingOrder] = useState<any>(null);
   const [justConfirmedOrder, setJustConfirmedOrder] = useState<any>(null);
   const [storeClosureNotice, setStoreClosureNotice] = useState<any>(null);
 
+  // Synchronize URL with active view and selected order
+  const navigateTo = (view: string, order?: any) => {
+    setCurrentView(view);
+    if (order) setSelectedOrder(order);
+
+    let path = '/store-manager/my-orders';
+    if (view === 'dashboard' || view === 'my-orders' || view === 'orders') {
+      path = '/store-manager/my-orders';
+    } else if (view === 'place-order') {
+      path = '/store-manager/place-order';
+    } else if (view === 'confirm-receipt' || view === 'deliveries') {
+      path = '/store-manager/deliveries';
+    } else if (view === 'degradation') {
+      const orderId = order?.delivery_id || selectedOrder?.delivery_id || 'RG-F-3180';
+      path = '/store-manager/degradation?id=' + orderId;
+    } else if (view === 'order-detail') {
+      const orderId = order?.delivery_id || selectedOrder?.delivery_id || 'S1-000';
+      path = '/store-manager/order-detail?id=' + orderId;
+    }
+
+    if (typeof window !== 'undefined') {
+      window.history.pushState(null, '', path);
+    }
+  };
+
+  // Sync initial URL on mount and browser navigation
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname;
+      const searchParams = new URLSearchParams(window.location.search);
+      const orderId = searchParams.get('id');
+
+      if (pathname.includes('/place-order')) {
+        setCurrentView('place-order');
+      } else if (pathname.includes('/deliveries') || pathname.includes('/confirm-receipt')) {
+        setCurrentView('confirm-receipt');
+      } else if (pathname.includes('/degradation')) {
+        setCurrentView('degradation');
+        if (orderId) {
+          const ord = orders.find(o => o.delivery_id === orderId);
+          if (ord) setSelectedOrder(ord);
+        }
+      } else if (pathname.includes('/order-detail')) {
+        setCurrentView('order-detail');
+        if (orderId) {
+          const ord = orders.find(o => o.delivery_id === orderId);
+          if (ord) setSelectedOrder(ord);
+        }
+      } else {
+        setCurrentView('dashboard');
+        if (pathname === '/store-manager' || pathname === '/store-manager/') {
+          window.history.replaceState(null, '', '/store-manager/my-orders');
+        }
+      }
+
+      const handlePopState = () => {
+        const path = window.location.pathname;
+        if (path.includes('/place-order')) setCurrentView('place-order');
+        else if (path.includes('/deliveries')) setCurrentView('confirm-receipt');
+        else if (path.includes('/degradation')) setCurrentView('degradation');
+        else if (path.includes('/order-detail')) setCurrentView('order-detail');
+        else setCurrentView('dashboard');
+      };
+
+      window.addEventListener('popstate', handlePopState);
+      return () => window.removeEventListener('popstate', handlePopState);
+    }
+  }, []);
+
   const handleOrderCreated = (newOrder: any) => {
-    setOrders(prev => [newOrder, ...prev]);
+    setOrders(prev => {
+      const existing = prev.find(o => o.delivery_id === newOrder.delivery_id);
+      if (existing) {
+        return prev.map(o => o.delivery_id === newOrder.delivery_id ? newOrder : o);
+      }
+      return [newOrder, ...prev];
+    });
+    setEditingOrder(null);
     setJustConfirmedOrder(newOrder);
-    setCurrentView('order-confirmation');
+    navigateTo('order-confirmation');
+  };
+
+  const handleEditOrder = (orderToEdit: any) => {
+    setEditingOrder(orderToEdit);
+    navigateTo('place-order');
+  };
+
+  const handleCancelOrder = (orderId: string) => {
+    setOrders(prev => prev.filter(o => o.delivery_id !== orderId));
+    setJustConfirmedOrder(null);
+    setEditingOrder(null);
+    alert('✓ Order #' + orderId + ' cancelled and removed from queue.');
+    navigateTo('dashboard');
   };
 
   const handleReceiptConfirmed = (deliveryId: string, receiptData: any) => {
@@ -125,7 +221,7 @@ export default function StoreManagerPage() {
         return {
           ...ord,
           status: 'Delivered',
-          section: 'past',
+          section: 'completed',
           delivery_time: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           receipt_details: receiptData
         };
@@ -133,33 +229,66 @@ export default function StoreManagerPage() {
       return ord;
     }));
     alert('✓ Electronic Proof of Delivery (e-POD) signed and submitted to Central Depot dispatcher!');
-    setCurrentView('dashboard');
+    navigateTo('dashboard');
   };
 
-  const handleAcknowledgeDeferral = (deliveryId: string) => {
+  const handleAcknowledgeDeferral = (deliveryId: string, slot?: string) => {
     setOrders(prev => prev.map(ord => {
       if (ord.delivery_id === deliveryId) {
         return {
           ...ord,
           degradation_level: 'Acknowledged',
-          status: 'Rescheduled (Jan 10)'
+          status: 'Rescheduled (' + (slot || 'Tomorrow Wave 1') + ')',
+          section: 'future'
         };
       }
       return ord;
     }));
-    alert('✓ Deferral acknowledged! Store inventory priority flag logged with Central Logistics Dispatch.');
-    setCurrentView('dashboard');
+    navigateTo('dashboard');
+  };
+
+  const handleEscalateDeferral = (deliveryId: string, escalationData: any) => {
+    setOrders(prev => prev.map(ord => {
+      if (ord.delivery_id === deliveryId) {
+        return {
+          ...ord,
+          status: 'Escalated (' + escalationData.ticketId + ')',
+          degradation_level: 'Critical Escalation',
+          escalation_ticket: escalationData.ticketId,
+          escalation_data: escalationData
+        };
+      }
+      return ord;
+    }));
+    navigateTo('dashboard');
+  };
+
+  const handleCancelDeferral = (deliveryId: string, cancelData: any) => {
+    setOrders(prev => prev.map(ord => {
+      if (ord.delivery_id === deliveryId) {
+        return {
+          ...ord,
+          status: 'Cancelled',
+          degradation_level: 'Cancelled by Store',
+          section: 'completed',
+          cancel_data: cancelData
+        };
+      }
+      return ord;
+    }));
+    navigateTo('dashboard');
   };
 
   const renderContent = () => {
     switch (currentView) {
       case 'dashboard':
+      case 'my-orders':
         return (
           <DashboardView
             selectedOutlet={selectedOutlet}
             orders={orders}
-            setCurrentView={setCurrentView}
-            setSelectedOrder={setSelectedOrder}
+            setCurrentView={(v: string) => navigateTo(v)}
+            setSelectedOrder={(o: any) => setSelectedOrder(o)}
             storeClosureNotice={storeClosureNotice}
             onSetStoreClosureNotice={(notice: any) => {
               setStoreClosureNotice(notice);
@@ -176,19 +305,25 @@ export default function StoreManagerPage() {
           <PlaceOrderView
             selectedOutlet={selectedOutlet}
             onOrderCreated={handleOrderCreated}
-            setCurrentView={setCurrentView}
+            setCurrentView={(v: string) => navigateTo(v)}
             storeClosureNotice={storeClosureNotice}
+            editingOrder={editingOrder}
+            onCancelEdit={() => {
+              setEditingOrder(null);
+              navigateTo('dashboard');
+            }}
           />
         );
       case 'order-confirmation':
         return (
           <OrderConfirmationModal
             order={justConfirmedOrder || orders[0]}
-            onClose={() => setCurrentView('dashboard')}
+            onClose={() => navigateTo('dashboard')}
             onViewDetails={() => {
-              setSelectedOrder(justConfirmedOrder || orders[0]);
-              setCurrentView('order-detail');
+              navigateTo('order-detail', justConfirmedOrder || orders[0]);
             }}
+            onEditOrder={handleEditOrder}
+            onCancelOrder={handleCancelOrder}
           />
         );
       case 'order-detail':
@@ -196,24 +331,25 @@ export default function StoreManagerPage() {
           <OrderDetailView
             order={selectedOrder || orders[1]}
             selectedOutlet={selectedOutlet}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={() => navigateTo('dashboard')}
             onConfirmReceipt={(ord: any) => {
-              setSelectedOrder(ord);
-              setCurrentView('confirm-receipt');
+              navigateTo('confirm-receipt', ord);
             }}
             onInspectDegradation={(ord: any) => {
-              setSelectedOrder(ord);
-              setCurrentView('degradation');
+              navigateTo('degradation', ord);
             }}
+            onEditOrder={handleEditOrder}
+            onCancelOrder={handleCancelOrder}
           />
         );
       case 'confirm-receipt':
+      case 'deliveries':
         return (
           <ConfirmReceiptView
             order={selectedOrder || orders[1]}
             selectedOutlet={selectedOutlet}
             onReceiptConfirmed={handleReceiptConfirmed}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={() => navigateTo('dashboard')}
           />
         );
       case 'degradation':
@@ -221,8 +357,10 @@ export default function StoreManagerPage() {
           <DegradationView
             order={selectedOrder || orders[3]}
             selectedOutlet={selectedOutlet}
-            onBack={() => setCurrentView('dashboard')}
+            onBack={() => navigateTo('dashboard')}
             onAcknowledge={handleAcknowledgeDeferral}
+            onEscalate={handleEscalateDeferral}
+            onCancel={handleCancelDeferral}
           />
         );
       default:
@@ -230,8 +368,8 @@ export default function StoreManagerPage() {
           <DashboardView
             selectedOutlet={selectedOutlet}
             orders={orders}
-            setCurrentView={setCurrentView}
-            setSelectedOrder={setSelectedOrder}
+            setCurrentView={(v: string) => navigateTo(v)}
+            setSelectedOrder={(o: any) => setSelectedOrder(o)}
             storeClosureNotice={storeClosureNotice}
             onSetStoreClosureNotice={setStoreClosureNotice}
             onCancelStoreClosureNotice={() => setStoreClosureNotice(null)}
@@ -245,7 +383,7 @@ export default function StoreManagerPage() {
       {/* 240px Dark Sidebar */}
       <Sidebar
         currentView={currentView}
-        setCurrentView={setCurrentView}
+        setCurrentView={(v: string) => navigateTo(v)}
         selectedOutlet={selectedOutlet}
       />
 
