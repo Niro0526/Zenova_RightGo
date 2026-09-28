@@ -1,10 +1,10 @@
 import React from 'react';
+import RoleSwitcher from './RoleSwitcher';
 import { 
   MapPin, 
   Package, 
   FilePlus, 
-  Truck, 
-  ChevronDown 
+  Truck
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -87,14 +87,7 @@ export default function Sidebar({
           <span className="demo-switcher-label">DEMO SWITCHER</span>
         </div>
 
-        <button 
-          className="role-switcher-btn"
-          onClick={() => alert('Store Manager is the primary active role for this console.')}
-          title="Demo Role Switcher"
-        >
-          <span>Switch Role</span>
-          <ChevronDown size={16} color="#8A9BB0" />
-        </button>
+        <RoleSwitcher active="store-manager" />
       </div>
     </aside>
   );

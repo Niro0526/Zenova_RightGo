@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import RoleSwitcher from '@/components/layout/RoleSwitcher';
 import { usePathname } from 'next/navigation';
 
 const IconDashboard = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>;
@@ -11,7 +12,6 @@ const IconClipboard = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 
 const IconDatabase = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>;
 const IconPlay = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>;
 const IconBarChart = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>;
-const IconChevron = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="6 9 12 15 18 9"></polyline></svg>;
 
 const NAV_ITEMS = [
   { href: '/dispatcher', label: 'Dashboard', Icon: IconDashboard, exact: true },
@@ -68,14 +68,7 @@ export default function DispatcherSidebar() {
           <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
           <span className="font-semibold text-[10px] text-gray-400 uppercase tracking-wider">Demo Switcher</span>
         </div>
-        <button
-          type="button"
-          onClick={() => alert('Dispatcher is the active role for this console.')}
-          className="flex flex-row justify-between items-center py-2.5 px-3.5 bg-[#282f37] border border-[#333c46] rounded-lg text-white font-medium text-[13px] cursor-pointer hover:bg-[#333c46] transition-colors"
-        >
-          <span>Switch to Dispatcher</span>
-          <IconChevron />
-        </button>
+        <RoleSwitcher active="dispatcher" />
         <span className="text-[11px] text-gray-500">v2.4.12 · Peliyagoda Depot</span>
         <span className="text-[10px] text-gray-600 leading-snug">Session-local demo data — resets on refresh. No backend is connected.</span>
       </div>

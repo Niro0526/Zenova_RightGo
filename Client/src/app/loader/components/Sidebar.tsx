@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import RoleSwitcher from "@/components/layout/RoleSwitcher";
 import { useRouter } from "next/navigation";
 import { LocationPinIcon, TruckIcon, ListChecksIcon, ShieldCheckIcon } from "./icons";
 
@@ -84,6 +85,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <span>Trip Readiness</span>
         </button>
       </nav>
+      <div className="mt-auto border-t border-[#232A2E] pt-4"><RoleSwitcher active="loader" /></div>
     </aside>
   );
 };
