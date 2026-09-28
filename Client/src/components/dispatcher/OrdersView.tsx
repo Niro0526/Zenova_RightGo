@@ -1,187 +1,159 @@
 'use client';
+import React, { useState } from 'react';
+import Link from 'next/link';
 
-import React, { useMemo, useState } from 'react';
-import PageHeader from '@/components/common/PageHeader';
-import { useDispatcherPlan } from '@/store/dispatcher/PlanningContext';
-import { validateOrderIntake } from '@/lib/dispatcher/validation';
-import type { Brand, S1Order } from '@/types/dispatcher';
+const IconDashboard = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>;
+const IconList = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>;
+const IconCalendar = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>;
+const IconClipboard = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>;
+const IconDatabase = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>;
+const IconPlay = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>;
+const IconBarChart = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="20" x2="12" y2="10"></line><line x1="18" y1="20" x2="18" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>;
 
-const SearchIcon = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
-const DownloadIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>;
-const SnowflakeIcon = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="2" x2="12" y2="22"/><line x1="12" y1="2" x2="16" y2="6"/><line x1="12" y1="2" x2="8" y2="6"/><line x1="12" y1="22" x2="16" y2="18"/><line x1="12" y1="22" x2="8" y2="18"/><line x1="2.5" y1="9" x2="21.5" y2="15"/><line x1="21.5" y1="9" x2="2.5" y2="15"/></svg>;
-const SunIcon = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>;
 
-type FilterKey = 'All' | 'Fresh' | 'Tech' | 'Style' | 'Chilled' | 'Van Only' | 'Mall Window' | 'Previously Deferred' | 'Needs Correction';
-
-const BRAND_PILL: Record<Brand, string> = {
-  Fresh: 'bg-[#ECFDF5] text-[#10B981] border border-[#10B981]',
-  Tech: 'bg-[#F3E8FF] text-[#8B5CF6] border border-[#8B5CF6]',
-  Style: 'bg-[#FFF4ED] text-[#F97316] border border-[#F97316]',
-};
-
-function toCsv(orders: S1Order[]): string {
-  const header = ['order_ref', 'outlet_id', 'brand', 'district', 'dock_type', 'temp_requirement', 'window_open_time', 'window_close_time', 'order_weight_kg', 'order_volume_m3', 'parking_constraint', 'mall_window'];
-  const rows = orders.map(o => [o.orderRef, o.outletId, o.brand, o.district, o.dockType, o.tempRequirement, o.windowOpenTime, o.windowCloseTime, o.orderWeightKg, o.orderVolumeM3, o.parkingConstraint, o.mallWindow ?? '']);
-  return [header, ...rows].map(r => r.join(',')).join('\n');
-}
 
 export default function Orders() {
-  const { orders, assignments } = useDispatcherPlan();
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('All');
-  const [search, setSearch] = useState('');
+  const [activeFilter, setActiveFilter] = useState('All');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
 
-  const counts = useMemo(() => ({
-    All: orders.length,
-    Fresh: orders.filter(o => o.brand === 'Fresh').length,
-    Tech: orders.filter(o => o.brand === 'Tech').length,
-    Style: orders.filter(o => o.brand === 'Style').length,
-    Chilled: orders.filter(o => o.tempRequirement === 'chilled').length,
-    'Van Only': orders.filter(o => o.parkingConstraint === 'van_only').length,
-    'Mall Window': orders.filter(o => o.mallWindow !== null).length,
-    'Previously Deferred': orders.filter(o => o.deferredYesterday).length,
-    'Needs Correction': orders.filter(o => validateOrderIntake(o).status === 'needs_correction').length,
-  }), [orders]);
+  const initialOrders = [
+    { ref: 'S1-001', brand: 'FRESH', outlet: 'OUT001', temp: 'Cold Chain', weight: '226.4 kg', vol: '1.145 m³', date: '2026-01-08', status: 'Confirmed' },
+    { ref: 'S1-002', brand: 'STYLE', outlet: 'OUT002', temp: 'Ambient', weight: '80.0 kg', vol: '1.200 m³', date: '2026-01-07', status: 'Confirmed' },
+    { ref: 'S1-003', brand: 'TECH', outlet: 'OUT003', temp: 'Ambient', weight: '85.0 kg', vol: '0.500 m³', date: '2026-01-06', status: 'Deferred' },
+    { ref: 'S1-004', brand: 'FRESH', outlet: 'OUT004', temp: 'Cold Chain', weight: '150.0 kg', vol: '0.800 m³', date: '2026-01-08', status: 'Confirmed' },
+    { ref: 'S1-005', brand: 'STYLE', outlet: 'OUT005', temp: 'Ambient', weight: '120.0 kg', vol: '1.500 m³', date: '2026-01-05', status: 'Deferred' },
+    { ref: 'S1-006', brand: 'FRESH', outlet: 'OUT006', temp: 'Cold Chain', weight: '90.0 kg', vol: '0.600 m³', date: '2026-01-09', status: 'Confirmed' },
+    { ref: 'S1-007', brand: 'TECH', outlet: 'OUT007', temp: 'Ambient', weight: '200.0 kg', vol: '2.000 m³', date: '2026-01-10', status: 'Confirmed' },
+  ];
 
-  const filteredOrders = useMemo(() => {
-    let list = orders;
-    switch (activeFilter) {
-      case 'Fresh': list = list.filter(o => o.brand === 'Fresh'); break;
-      case 'Tech': list = list.filter(o => o.brand === 'Tech'); break;
-      case 'Style': list = list.filter(o => o.brand === 'Style'); break;
-      case 'Chilled': list = list.filter(o => o.tempRequirement === 'chilled'); break;
-      case 'Van Only': list = list.filter(o => o.parkingConstraint === 'van_only'); break;
-      case 'Mall Window': list = list.filter(o => o.mallWindow !== null); break;
-      case 'Previously Deferred': list = list.filter(o => o.deferredYesterday); break;
-      case 'Needs Correction': list = list.filter(o => validateOrderIntake(o).status === 'needs_correction'); break;
-      default: break;
+  const filteredOrders = initialOrders.filter(o => {
+    const matchesBrand = activeFilter === 'All' || o.brand.toLowerCase() === activeFilter.toLowerCase();
+
+    let matchesDate = true;
+    if (fromDate && toDate) {
+      matchesDate = o.date >= fromDate && o.date <= toDate;
+    } else if (fromDate) {
+      matchesDate = o.date >= fromDate;
+    } else if (toDate) {
+      matchesDate = o.date <= toDate;
     }
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(o => o.orderRef.toLowerCase().includes(q) || o.outletId.toLowerCase().includes(q) || o.district.toLowerCase().includes(q));
-    }
-    return list;
-  }, [orders, activeFilter, search]);
 
-  function handleExport() {
-    const csv = toCsv(filteredOrders);
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `s1-confirmed-orders-${activeFilter.toLowerCase().replace(/\s+/g, '-')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
+    return matchesBrand && matchesDate;
+  });
 
   return (
-    <div className="flex flex-col flex-1 p-6 md:p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] font-sans">
+    <div className="flex flex-col flex-1 p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
 
-      <PageHeader
-        title="Confirmed Orders"
-        subtitle="S1 scenario orders (data/task2b_peak_day_scenarios.csv)"
-        actions={
-          <>
-            <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg">
-              <SearchIcon />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search orders, outlets..."
-                className="border-none outline-none font-sans text-sm text-[#485563] w-[180px]"
-              />
-            </div>
-            <button onClick={handleExport} className="flex flex-row items-center px-4 py-2 bg-[#F97316] hover:bg-orange-600 rounded-lg gap-2 font-semibold text-sm text-white cursor-pointer transition-colors">
-              <DownloadIcon />
-              Export CSV ({filteredOrders.length})
+        {/* Header */}
+        <div className="flex flex-row justify-between items-center w-full h-[69px]">
+          <div className="flex flex-col gap-1.5">
+            <h1 className="font-bold text-[28px] text-[#202D2D] leading-[42px] m-0">Orders</h1>
+            <h2 className="font-medium text-[11px] text-[#485563] uppercase tracking-wider m-0">842 Ready for Planning</h2>
+          </div>
+          <div className="flex flex-row gap-3">
+            <button className="flex flex-row items-center px-4 py-2 bg-white border border-[#CBD5E1] rounded-lg gap-2 font-semibold text-sm text-[#485563] cursor-pointer">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+              Filter / Sort
             </button>
-          </>
-        }
-      />
-      <p className="text-[11px] text-gray-400 -mt-3 max-w-[720px]">This batch represents orders confirmed after the 4 PM Asia/Colombo cutoff (Booklet p4). The dataset carries no per-order timestamp, so per-order cutoff timing can't be verified here — only the batch-level cutoff rule is stated. Confirmation makes an order eligible for planning; it does not guarantee delivery.</p>
+            <button className="flex flex-row items-center px-4 py-2 bg-[#F97316] rounded-lg gap-2 font-semibold text-sm text-white cursor-pointer">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Export CSV
+            </button>
+          </div>
+        </div>
 
-      {/* Filter Pills */}
-      <div className="flex flex-row gap-3 flex-wrap">
-        {(Object.keys(counts) as FilterKey[]).map((key) => (
-          <button
-            key={key}
-            onClick={() => setActiveFilter(key)}
-            className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === key ? 'bg-[#F97316] border-[#F97316] shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
-          >
-            <span className={`font-semibold text-[13px] ${activeFilter === key ? 'text-white' : 'text-[#485563]'}`}>{key}</span>
-            <span className={`font-bold text-[13px] ${activeFilter === key ? 'text-white' : 'text-[#485563]'}`}>{counts[key]}</span>
-          </button>
-        ))}
-      </div>
+        {/* Filters */}
+        <div className="flex flex-row items-center justify-between w-full">
+          <div className="flex flex-row gap-3">
+            <button
+              onClick={() => setActiveFilter('All')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'All' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'All' ? 'text-white' : 'text-[#485563]'}`}>All</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'All' ? 'text-white' : 'text-[#485563]'}`}>85</span>
+            </button>
+            <button
+              onClick={() => setActiveFilter('Fresh')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Fresh' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'Fresh' ? 'text-white' : 'text-[#485563]'}`}>Fresh</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'Fresh' ? 'text-white' : 'text-[#485563]'}`}>75</span>
+            </button>
+            <button
+              onClick={() => setActiveFilter('Tech')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Tech' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'Tech' ? 'text-white' : 'text-[#485563]'}`}>Tech</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'Tech' ? 'text-white' : 'text-[#485563]'}`}>5</span>
+            </button>
+            <button
+              onClick={() => setActiveFilter('Style')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Style' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'Style' ? 'text-white' : 'text-[#485563]'}`}>Style</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'Style' ? 'text-white' : 'text-[#485563]'}`}>5</span>
+            </button>
+          </div>
 
-      {/* Table Container */}
-      <div className="flex flex-col bg-white border border-[#CBD5E1] rounded-[10px] w-full flex-1 overflow-x-auto">
-        <div className="min-w-[1170px]">
+          {/* Date Range Filter */}
+          <div className="flex flex-row items-center gap-3">
+            <span className="font-semibold text-[13px] text-[#485563]">Date Limit:</span>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
+            <span className="text-[#485563] text-[13px] font-medium">to</span>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
+          </div>
+        </div>
+
+        {/* Table Container */}
+        <div className="flex flex-col bg-white border border-[#CBD5E1] rounded-[10px] w-full flex-1 overflow-hidden">
+
           {/* Table Header */}
-          <div className="flex flex-row items-center py-4 px-6 gap-4 border-b border-[#CBD5E1] bg-[#F9FAFB]">
-            <div className="w-[90px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Order Ref</div>
-            <div className="flex-1 min-w-[140px] font-bold text-[11px] text-[#485563] uppercase tracking-wider">Outlet / District</div>
-            <div className="w-[70px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Brand</div>
-            <div className="w-[110px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Temp Req</div>
-            <div className="w-[110px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Delivery Window</div>
-            <div className="w-[90px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Weight</div>
-            <div className="w-[90px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Volume</div>
-            <div className="w-[180px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Constraints / State</div>
-            <div className="w-[110px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Intake</div>
-            <div className="w-[160px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Allocation</div>
+          <div className="flex flex-row items-center py-4 px-6 gap-6 border-b border-[#CBD5E1] bg-[#F9FAFB]">
+            <div className="w-[100px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">ORDER REF</div>
+            <div className="w-[100px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">BRAND</div>
+            <div className="flex-1 font-bold text-[11px] text-[#485563] uppercase tracking-wider">OUTLET</div>
+            <div className="w-[120px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">TEMP ZONE</div>
+            <div className="w-[100px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">WEIGHT</div>
+            <div className="w-[100px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">VOLUME</div>
+            <div className="w-[100px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">STATUS</div>
+            <div className="w-[120px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">DATE</div>
           </div>
 
           {/* Table Rows */}
-          {filteredOrders.map((order) => {
-            const intake = validateOrderIntake(order);
-            const allocation = assignments[order.orderRef];
-            return (
-            <div key={order.orderRef} className="flex flex-row items-center py-4 px-6 gap-4 border-b border-[#E2E8F0] hover:bg-[#F8FAFC]">
-              <div className="w-[90px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">{order.orderRef}</div>
-              <div className="flex-1 min-w-[140px] flex flex-col">
-                <span className="font-semibold text-sm text-[#202D2D]">{order.outletId}</span>
-                <span className="text-xs text-[#485563]">{order.district} · {order.dockType.replace('_', ' ')}</span>
-              </div>
-              <div className="w-[70px] flex-shrink-0">
-                <span className={`py-1 px-2 rounded font-bold text-[10px] uppercase ${BRAND_PILL[order.brand]}`}>{order.brand}</span>
-              </div>
-              <div className="w-[110px] flex-shrink-0">
-                {order.tempRequirement === 'chilled' ? (
+          {filteredOrders.map((order, i) => (
+            <div key={i} className="flex flex-row items-center py-4 px-6 gap-6 border-b border-[#E2E8F0] hover:bg-[#F8FAFC]">
+              <div className="w-[100px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">{order.ref}</div>
+              <div className="w-[100px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">{order.brand}</div>
+              <div className="flex-1 font-semibold text-sm text-[#202D2D]">{order.outlet}</div>
+              <div className="w-[120px] flex-shrink-0">
+                {order.temp === 'Cold Chain' ? (
                   <div className="flex flex-row items-center py-1 px-2.5 bg-[#ECFDF5] border border-[#10B981] rounded text-[#10B981] font-semibold text-[11px] uppercase w-fit gap-1">
-                    <SnowflakeIcon /> Chilled
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="2" x2="12" y2="22"></line><line x1="12" y1="2" x2="16" y2="6"></line><line x1="12" y1="2" x2="8" y2="6"></line><line x1="12" y1="22" x2="16" y2="18"></line><line x1="12" y1="22" x2="8" y2="18"></line><line x1="2.5" y1="9" x2="21.5" y2="15"></line><line x1="2.5" y1="9" x2="6.5" y2="7.5"></line><line x1="2.5" y1="9" x2="4.5" y2="13"></line><line x1="21.5" y1="15" x2="17.5" y2="16.5"></line><line x1="21.5" y1="15" x2="19.5" y2="11"></line><line x1="2.5" y1="15" x2="21.5" y2="9"></line><line x1="2.5" y1="15" x2="6.5" y2="16.5"></line><line x1="2.5" y1="15" x2="4.5" y2="11"></line><line x1="21.5" y1="9" x2="17.5" y2="7.5"></line><line x1="21.5" y1="9" x2="19.5" y2="13"></line></svg>
+                    Cold Chain
                   </div>
                 ) : (
                   <div className="flex flex-row items-center py-1 px-2.5 bg-[#FFFBEB] border border-[#F59E0B] rounded text-[#F59E0B] font-semibold text-[11px] uppercase w-fit gap-1">
-                    <SunIcon /> Ambient
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+                    Ambient
                   </div>
                 )}
               </div>
-              <div className="w-[110px] flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.windowOpenTime}-{order.windowCloseTime}</div>
-              <div className="w-[90px] text-left flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.orderWeightKg.toFixed(1)} kg</div>
-              <div className="w-[90px] text-left flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.orderVolumeM3.toFixed(3)} m³</div>
-              <div className="w-[180px] flex-shrink-0 font-medium text-[11px] text-[#485563] flex flex-wrap gap-1">
-                {order.parkingConstraint === 'van_only' && <span className="inline-flex py-1 px-2.5 bg-[#FFF4ED] text-[#F97316] border border-[#F97316] rounded-full uppercase font-semibold text-[10px]">van only</span>}
-                {order.parkingConstraint === 'mall_dock' && <span className="inline-flex py-1 px-2.5 bg-[#EEF2FF] text-[#6366F1] border border-[#6366F1] rounded-full uppercase font-semibold text-[10px]">{order.mallWindow}</span>}
-                {order.deferredYesterday && <span className="inline-flex py-1 px-2.5 bg-gray-100 text-gray-500 border border-gray-300 rounded-full uppercase font-semibold text-[10px]">deferred yesterday</span>}
-                {order.parkingConstraint === 'normal' && !order.deferredYesterday && <span className="text-gray-400 italic">None</span>}
+              <div className="w-[100px] text-left flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.weight}</div>
+              <div className="w-[100px] text-left flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.vol}</div>
+              <div className="w-[100px] flex-shrink-0">
+                {order.status === 'Confirmed' ? (
+                  <span className="py-1 px-2.5 bg-green-50 text-green-700 border border-green-200 rounded font-semibold text-[10px] uppercase">Confirmed</span>
+                ) : (
+                  <span className="py-1 px-2.5 bg-gray-100 text-gray-600 border border-gray-300 rounded font-semibold text-[10px] uppercase">Deferred</span>
+                )}
               </div>
-              <div className="w-[110px] flex-shrink-0">
-                <span className={`py-1 px-2 rounded font-bold text-[10px] uppercase ${intake.status === 'confirmed' ? 'bg-[#ECFDF5] text-[#10B981] border border-[#10B981]' : 'bg-[#FEF2F2] text-red-600 border border-red-400'}`} title={intake.issues.join('; ')}>
-                  {intake.status === 'confirmed' ? 'Confirmed' : 'Needs Correction'}
-                </span>
-              </div>
-              <div className="w-[160px] flex-shrink-0 text-xs font-medium">
-                {allocation?.decision === 'served' && <span className="text-[#F97316] font-semibold">Assigned — {allocation.vehicleId} · Trip {allocation.tripNo}</span>}
-                {allocation?.decision === 'deferred' && <span className="text-gray-600 font-semibold">Deferred — {allocation.reasonCode}</span>}
-                {(!allocation || allocation.decision === 'unresolved') && <span className="text-gray-400">Unallocated</span>}
+              <div className="w-[120px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">
+                {order.date}
               </div>
             </div>
-            );
-          })}
-          {filteredOrders.length === 0 && (
-            <div className="p-10 text-center text-gray-400 text-sm font-medium">No orders match this filter.</div>
-          )}
+          ))}
         </div>
       </div>
-    </div>
   );
 }
