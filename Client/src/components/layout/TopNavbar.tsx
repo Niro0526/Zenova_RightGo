@@ -40,27 +40,9 @@ export default function TopNavbar({
 
   return (
     <>
-      <header className="rightgo-top-navbar">
-        {/* Left Side: Store & Operational Hub Connection */}
-        <div className="nav-left-section">
-          {/* Active Depot Status */}
-          <div className="depot-status-chip">
-            <span className="live-pulse-dot"></span>
-            <span>Peliyagoda Central Depot · <strong>Live Sync</strong></span>
-          </div>
-
-          {/* Clean Static Outlet Badge */}
-          <div className="outlet-badge-static">
-            <Store size={15} color="#FF6600" />
-            <span className="outlet-selector-name">
-              {selectedOutlet.outlet_id || 'OUT001'} · {selectedOutlet.name || 'Colpetty Retailer'}
-            </span>
-            <span className="brand-tag-chip">{selectedOutlet.brand || 'Fresh'}</span>
-          </div>
-        </div>
-
+      <header className="rightgo-top-navbar flex justify-end">
         {/* Right Side: Notification Bell + Store Manager Profile */}
-        <div className="nav-right-section">
+        <div className="nav-right-section ml-auto">
           {/* Notification Bell */}
           <div style={{ position: 'relative' }}>
             <button 

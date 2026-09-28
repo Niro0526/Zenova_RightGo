@@ -3,14 +3,28 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { STOPS } from "@/components/driver/today-run/types";
-import { ClockIcon, ExternalLinkIcon, NavigationIcon } from "@/components/driver/today-run/icons";
-import type { Stop } from "@/components/driver/today-run/types";
+import {
+  ClockIcon,
+  ExternalLinkIcon,
+  NavigationIcon,
+  CheckIcon,
+  CheckCircleIcon,
+  HistoryIcon,
+  ArrowRightIcon,
+} from "@/components/driver/today-run/icons";
+import type { Stop, StopStatus } from "@/components/driver/today-run/types";
 import ScreenHeader from "@/components/driver/today-run/ScreenHeader";
 import TripInfoCard from "@/components/driver/today-run/TripInfoCard";
 import ProgressBox from "@/components/driver/today-run/ProgressBox";
 import NextStopCard from "@/components/driver/today-run/NextStopCard";
 import StopsDirectory from "@/components/driver/today-run/StopsDirectory";
 import BottomNav from "@/components/driver/today-run/BottomNav";
+import { useConnectivity } from "@/context/DriverConnectivityContext";
+import {
+  getAllLocalDeliveryRecords,
+  type LocalDeliveryRecord,
+} from "@/lib/driver/driver-offline-db";
+import { CompletedDeliveryModal } from "@/components/driver/today-run/CompletedDeliveryModal";
 
 /* ─── Reusable sub-pieces (fluid, no absolute positioning) ─── */
 
@@ -72,7 +86,7 @@ export function ProgressBanner({
         aria-valuemax={100}
       >
         <div
-          className="h-full bg-[#1D4ED8] rounded transition-all duration-500"
+          className="h-full bg-[#F97316] rounded transition-all duration-500"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -129,37 +143,99 @@ export function NextStopBanner({ stop }: { stop: Stop }) {
   );
 }
 
-export function StopRow({ stop }: { stop: Stop }) {
-  const isNext = stop.status === "next";
+export function StopRow({
+  stop,
+  completedRecord,
+  onViewRecord,
+}: {
+  stop: Stop;
+  completedRecord?: LocalDeliveryRecord;
+  onViewRecord?: (r: LocalDeliveryRecord) => void;
+}) {
+  const isCompleted = stop.status === "completed" || !!completedRecord;
+  const isNext = stop.status === "next" && !isCompleted;
+
   return (
     <div
       id={`stop-card-${stop.id}`}
       role="listitem"
-      className={`flex items-center gap-3 p-3 bg-white border rounded-xl transition-all duration-200 hover:shadow-sm ${
-        isNext ? "border-[#22C55E]" : "border-[#CBD5E1]"
+      className={`flex items-center justify-between p-3.5 bg-white border rounded-xl transition-all duration-200 hover:shadow-sm ${
+        isCompleted
+          ? "border-green-300 bg-green-50/20"
+          : isNext
+          ? "border-[#22C55E] bg-white ring-1 ring-[#22C55E]/20"
+          : "border-[#CBD5E1]"
       }`}
     >
-      <div
-        className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
-          isNext ? "bg-[#E0F2FE]" : "bg-[#F9FAFB]"
-        }`}
-      >
-        {isNext ? (
-          <NavigationIcon className="w-[14px] h-[14px] text-[#22C55E]" />
-        ) : (
-          <span className="w-[10px] h-[10px] rounded-full border-2 border-[#485563] box-border" />
-        )}
+      <div className="flex items-center gap-3 min-w-0">
+        <div
+          className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+            isCompleted
+              ? "bg-[#ECFDF5] text-[#15803D] border border-green-300"
+              : isNext
+              ? "bg-[#E0F2FE] text-[#22C55E]"
+              : "bg-[#F9FAFB]"
+          }`}
+        >
+          {isCompleted ? (
+            <CheckIcon className="w-4 h-4 text-[#15803D]" />
+          ) : isNext ? (
+            <NavigationIcon className="w-[14px] h-[14px] text-[#22C55E]" />
+          ) : (
+            <span className="w-[10px] h-[10px] rounded-full border-2 border-[#485563] box-border" />
+          )}
+        </div>
+        <div className="flex flex-col min-w-0">
+          <div className="flex items-center gap-2">
+            <span
+              className={`font-bold text-[14px] truncate ${
+                isCompleted
+                  ? "text-[#166534]"
+                  : isNext
+                  ? "text-[#202D2D]"
+                  : "text-[#485563]"
+              }`}
+            >
+              Stop {stop.id}: {stop.code} / {stop.name}
+            </span>
+            {isCompleted && (
+              <span className="text-[10px] font-bold text-green-700 bg-green-100 px-1.5 py-0.5 rounded border border-green-300">
+                Completed ✓
+              </span>
+            )}
+            {isNext && (
+              <span className="text-[10px] font-bold text-[#F97316] bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
+                Current Stop
+              </span>
+            )}
+          </div>
+          <span className="text-[#485563] font-medium text-[12px]">
+            {stop.outlets} outlet · {stop.orders.length}{" "}
+            {stop.orders.length === 1 ? "order" : "orders"} • Window: {stop.timeWindow}
+          </span>
+        </div>
       </div>
-      <div className="flex flex-col flex-1 min-w-0">
-        <span className={`font-bold text-[14px] truncate ${isNext ? "text-[#202D2D]" : "text-[#485563]"}`}>
-          Stop {stop.id}: {stop.code} / {stop.name}
-        </span>
-        <span className="text-[#485563] font-semibold text-[12px]">
-          {stop.outlets} outlet · {stop.orders.length} {stop.orders.length === 1 ? "order" : "orders"}
-        </span>
-        <span className={`font-semibold text-[12px] ${isNext ? "text-[#22C55E]" : "text-[#485563]"}`}>
-          ○ {isNext ? "Next" : "Upcoming"}
-        </span>
+
+      {/* Action / Details */}
+      <div className="flex items-center gap-2 shrink-0">
+        {isCompleted && completedRecord && onViewRecord ? (
+          <button
+            type="button"
+            onClick={() => onViewRecord(completedRecord)}
+            className="px-2.5 py-1 rounded-lg bg-white border border-green-300 text-[#15803D] hover:bg-green-50 text-xs font-bold transition-colors cursor-pointer"
+          >
+            View Record
+          </button>
+        ) : isNext ? (
+          <Link
+            href="/driver/current-stop"
+            className="px-3 py-1.5 rounded-lg bg-[#F97316] hover:bg-[#ea6c0a] text-white text-xs font-bold transition-all no-underline shadow-sm"
+          >
+            Go to Stop →
+          </Link>
+        ) : (
+          <span className="text-[11px] text-[#94A3B8] font-semibold">Queued</span>
+        )}
       </div>
     </div>
   );
@@ -169,9 +245,11 @@ export function StopRow({ stop }: { stop: Stop }) {
 export function TodayRunMobileCanvas({
   completedCount,
   nextStop,
+  stops,
 }: {
   completedCount: number;
   nextStop: Stop;
+  stops: Stop[];
 }) {
   return (
     <div
@@ -180,9 +258,9 @@ export function TodayRunMobileCanvas({
     >
       <ScreenHeader isOnline={true} />
       <TripInfoCard vehicleId="PEL-R04" tripPlanId="S1-T001" planVersion="Plan v2" />
-      <ProgressBox completedCount={completedCount} totalCount={STOPS.length} />
+      <ProgressBox completedCount={completedCount} totalCount={stops.length} />
       <NextStopCard stop={nextStop} onOpenStop={(s) => console.log("Opening stop", s.id)} />
-      <StopsDirectory stops={STOPS} />
+      <StopsDirectory stops={stops} />
       <BottomNav activeTab="myRun" onTabChange={() => {}} />
     </div>
   );
@@ -190,9 +268,16 @@ export function TodayRunMobileCanvas({
 
 /* ─── Today Run Workflow Component ───────────────────────────── */
 export function TodayRunWorkflow() {
-  const completedCount = 0;
-  const nextStop = STOPS.find((s) => s.status === "next") ?? STOPS[0];
+  const { connectionState } = useConnectivity();
+  const [completedRecords, setCompletedRecords] = useState<LocalDeliveryRecord[]>([]);
+  const [selectedRecord, setSelectedRecord] = useState<LocalDeliveryRecord | null>(null);
   const [dateStr, setDateStr] = useState<string>("");
+
+  useEffect(() => {
+    getAllLocalDeliveryRecords()
+      .then((records: LocalDeliveryRecord[]) => setCompletedRecords(records))
+      .catch((err: unknown) => console.error("Error loading delivery records:", err));
+  }, [connectionState]);
 
   useEffect(() => {
     setDateStr(
@@ -205,8 +290,30 @@ export function TodayRunWorkflow() {
     );
   }, []);
 
+  // Compute status for stops: if completed in local IndexedDB, mark as completed
+  const stopsWithStatus: Stop[] = STOPS.map((stop) => {
+    const isDone = completedRecords.some(
+      (r) => r.stopId === stop.code || r.stopName.includes(stop.code)
+    );
+    if (isDone) {
+      return { ...stop, status: "completed" as StopStatus };
+    }
+    return stop;
+  });
+
+  const completedCount = stopsWithStatus.filter((s) => s.status === "completed").length;
+  const nextStop =
+    stopsWithStatus.find((s) => s.status === "next" || s.status === "upcoming") ??
+    stopsWithStatus[0];
+
   return (
     <>
+      <CompletedDeliveryModal
+        isOpen={!!selectedRecord}
+        onClose={() => setSelectedRecord(null)}
+        record={selectedRecord}
+      />
+
       {/* ══════════════════════════════════════════
           DESKTOP layout  (md+) — fluid, full-width
           ══════════════════════════════════════════ */}
@@ -219,18 +326,13 @@ export function TodayRunWorkflow() {
               {dateStr}
             </p>
           </div>
-          {/* Online pill */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 border border-green-200 rounded-full">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-green-700 font-semibold text-xs">Online</span>
-          </div>
         </div>
 
         {/* Stat chips */}
         <div className="grid grid-cols-4 gap-4">
           {[
             { label: "Total Stops", value: STOPS.length, color: "text-[#202D2D]" },
-            { label: "Completed", value: completedCount, color: "text-[#1D4ED8]" },
+            { label: "Completed", value: completedCount, color: "text-[#15803D]" },
             { label: "Remaining", value: STOPS.length - completedCount, color: "text-[#F97316]" },
           ].map((stat) => (
             <div
@@ -253,7 +355,7 @@ export function TodayRunWorkflow() {
             </div>
             <div className="w-full h-2 bg-[#F1F5F9] rounded-full overflow-hidden">
               <div
-                className="h-full bg-[#1D4ED8] rounded-full transition-all duration-700"
+                className="h-full bg-[#F97316] rounded-full transition-all duration-700"
                 style={{ width: `${Math.round((completedCount / STOPS.length) * 100)}%` }}
               />
             </div>
@@ -266,22 +368,40 @@ export function TodayRunWorkflow() {
           {/* Next stop card (2 cols) */}
           <div className="col-span-2 flex flex-col gap-4">
             <TripInfoBanner vehicleId="PEL-R04" tripPlanId="S1-T001" planVersion="Plan v2" />
-            <ProgressBanner completedCount={completedCount} totalCount={STOPS.length} />
             <NextStopBanner stop={nextStop} />
           </div>
 
           {/* Stops directory (3 cols) */}
           <div className="col-span-3 bg-white rounded-2xl shadow-sm border border-[#E2E8F0] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-[#F1F5F9]">
-              <h2 className="text-[#202D2D] font-bold text-[16px]">Stops Directory</h2>
-              <span className="text-[#94A3B8] text-[13px] font-semibold">
-                {completedCount}/{STOPS.length} completed
-              </span>
+              <div className="flex items-center gap-2">
+                <h2 className="text-[#202D2D] font-bold text-[16px] m-0">Stops Directory</h2>
+                <span className="text-[#94A3B8] text-[13px] font-semibold">
+                  ({completedCount}/{STOPS.length} completed)
+                </span>
+              </div>
+              <Link
+                href="/driver/history"
+                className="text-xs font-bold text-[#F97316] hover:underline flex items-center gap-1 no-underline"
+              >
+                <span>View Full History</span>
+                <ArrowRightIcon className="w-3.5 h-3.5" />
+              </Link>
             </div>
             <div role="list" className="flex flex-col gap-2 p-4 overflow-auto">
-              {STOPS.map((stop) => (
-                <StopRow key={stop.id} stop={stop} />
-              ))}
+              {stopsWithStatus.map((stop) => {
+                const completedRecord = completedRecords.find(
+                  (r) => r.stopId === stop.code || r.stopName.includes(stop.code)
+                );
+                return (
+                  <StopRow
+                    key={stop.id}
+                    stop={stop}
+                    completedRecord={completedRecord}
+                    onViewRecord={(r) => setSelectedRecord(r)}
+                  />
+                );
+              })}
             </div>
           </div>
         </div>
@@ -291,7 +411,11 @@ export function TodayRunWorkflow() {
           MOBILE layout  (< md) — Figma 412px canvas
           ══════════════════════════════════════════ */}
       <div className="md:hidden flex items-start justify-center min-h-full bg-[#E2E8F0] py-4">
-        <TodayRunMobileCanvas completedCount={completedCount} nextStop={nextStop} />
+        <TodayRunMobileCanvas
+          completedCount={completedCount}
+          nextStop={nextStop}
+          stops={stopsWithStatus}
+        />
       </div>
     </>
   );

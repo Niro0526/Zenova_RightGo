@@ -36,12 +36,6 @@ export default function Sidebar({
             <span className="brand-pulse-text">PULSE</span>
           </div>
         </div>
-
-        {/* Store Manager Profile Box */}
-        <div className="store-profile-box">
-          <span className="store-role-label">STORE MANAGER</span>
-          <span className="store-outlet-name">{selectedOutlet.name || 'Colpetty Retailer'}</span>
-        </div>
       </div>
 
       {/* Navigation List - Exact 3 Items matching Figma screenshot */}
@@ -79,23 +73,6 @@ export default function Sidebar({
           <span>Deliveries</span>
         </button>
       </nav>
-
-      {/* Footer / Demo Switcher matching Figma screenshot */}
-      <div className="sidebar-footer-section">
-        <div className="demo-switcher-header">
-          <div className="status-green-dot"></div>
-          <span className="demo-switcher-label">DEMO SWITCHER</span>
-        </div>
-
-        <button 
-          className="role-switcher-btn"
-          onClick={() => alert('Store Manager is the primary active role for this console.')}
-          title="Demo Role Switcher"
-        >
-          <span>Switch Role</span>
-          <ChevronDown size={16} color="#8A9BB0" />
-        </button>
-      </div>
     </aside>
   );
 }
