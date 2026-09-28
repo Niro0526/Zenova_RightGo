@@ -106,6 +106,7 @@ const availableVehicles = [
 export default function Planning() {
   const [orders, setOrders] = useState(initialOrders);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
+  const [queueTab, setQueueTab] = useState<'unallocated' | 'assigned'>('unallocated');
 
   // Modals state
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -113,11 +114,11 @@ export default function Planning() {
   const [selectedVehicle, setSelectedVehicle] = useState<any>(null);
   const [deferReason, setDeferReason] = useState('');
 
-  const activeOrders = orders.filter(o => o.status === 'unallocated');
+  const activeOrders = orders.filter(o => o.status === queueTab);
 
   const handleAssign = () => {
     if (!selectedVehicle || !selectedOrder) return;
-    setOrders(orders.map(o => o.id === selectedOrder.id ? { ...o, status: 'assigned' } : o));
+    setOrders(orders.map(o => o.id === selectedOrder.id ? { ...o, status: 'assigned', assignedVehicle: selectedVehicle } : o));
     setSelectedOrder(null);
     setShowAssignModal(false);
     setSelectedVehicle(null);
@@ -151,8 +152,19 @@ export default function Planning() {
           
           {/* Left Column - Queue */}
           <div className="w-[340px] bg-white flex flex-col p-4 gap-4 flex-shrink-0 h-[calc(100vh-170px)] overflow-y-auto">
-            <div className="flex flex-row justify-between items-center">
-              <h2 className="font-bold text-[15px] text-[#202D2D] m-0">Unallocated Queue ({activeOrders.length})</h2>
+            <div className="flex flex-row p-1 bg-gray-100 rounded-lg">
+              <button 
+                onClick={() => { setQueueTab('unallocated'); setSelectedOrder(null); }}
+                className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${queueTab === 'unallocated' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Unallocated ({orders.filter(o => o.status === 'unallocated').length})
+              </button>
+              <button 
+                onClick={() => { setQueueTab('assigned'); setSelectedOrder(null); }}
+                className={`flex-1 py-1.5 text-sm font-semibold rounded-md transition-colors ${queueTab === 'assigned' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Allocated ({orders.filter(o => o.status === 'assigned').length})
+              </button>
             </div>
             <div className="flex flex-row items-center py-2 px-2.5 gap-2 border border-[#CBD5E1] rounded-md w-full box-border">
               <SearchIcon />
@@ -181,7 +193,7 @@ export default function Planning() {
                 );
               })}
               {activeOrders.length === 0 && (
-                <div className="p-8 text-center text-gray-400 text-sm font-medium">All orders assigned or deferred.</div>
+                <div className="p-8 text-center text-gray-400 text-sm font-medium">{queueTab === 'unallocated' ? 'All orders assigned or deferred.' : 'No allocated orders yet.'}</div>
               )}
             </div>
           </div>
@@ -189,6 +201,76 @@ export default function Planning() {
           {/* Right Column - Order Details View */}
           <div className="flex-1 bg-white flex flex-col p-8 overflow-y-auto h-[calc(100vh-170px)] relative">
             {selectedOrder ? (
+              selectedOrder.status === 'assigned' ? (
+                <div className="flex flex-col max-w-[800px] w-full mx-auto pb-20">
+                  <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
+                    <div>
+                      <h2 className="font-bold text-2xl text-gray-900 m-0">Live Trip Execution</h2>
+                      <p className="text-gray-500 text-sm mt-1">Order {selectedOrder.ref} · {selectedOrder.customer}</p>
+                    </div>
+                    <span className="py-1 px-3 bg-green-50 text-green-700 border border-green-200 rounded font-bold text-[11px] uppercase">
+                      IN PROGRESS
+                    </span>
+                  </div>
+                  
+                  {/* Status Cards */}
+                  <div className="grid grid-cols-2 gap-4 mb-6">
+                    <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm flex items-start gap-4">
+                      <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center shrink-0">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm text-gray-900 uppercase">Assigned Vehicle</h3>
+                        <p className="text-xl font-black text-gray-900 mt-1">{selectedOrder.assignedVehicle?.name || 'VEH-XXX'}</p>
+                        <p className="text-xs text-gray-500 mt-0.5">{selectedOrder.assignedVehicle?.type || 'STANDARD'}</p>
+                      </div>
+                    </div>
+
+                    <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm flex items-start gap-4">
+                      <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20"></path><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-sm text-gray-900 uppercase">Driver Info</h3>
+                        <p className="text-lg font-bold text-gray-900 mt-1">Kamal Perera</p>
+                        <p className="text-xs text-gray-500 mt-0.5">+94 77 123 4567</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Timeline Tracker */}
+                  <div className="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                    <h3 className="font-bold text-lg text-gray-900 mb-6">Execution Timeline</h3>
+                    <div className="relative pl-6 border-l-2 border-gray-200 space-y-8 ml-3">
+                      
+                      <div className="relative">
+                        <div className="absolute -left-[31px] bg-green-500 rounded-full w-4 h-4 ring-4 ring-white"></div>
+                        <h4 className="font-bold text-sm text-gray-900">Vehicle Assigned</h4>
+                        <p className="text-xs text-gray-500 mt-1">Dispatcher allocated {selectedOrder.assignedVehicle?.name || 'vehicle'} to the order.</p>
+                      </div>
+
+                      <div className="relative">
+                        <div className="absolute -left-[31px] bg-orange-500 rounded-full w-4 h-4 ring-4 ring-white animate-pulse"></div>
+                        <h4 className="font-bold text-sm text-gray-900">Loading in Progress</h4>
+                        <p className="text-xs text-orange-600 font-medium mt-1">Currently loading at Dock 4. 60% complete.</p>
+                      </div>
+
+                      <div className="relative opacity-50">
+                        <div className="absolute -left-[31px] bg-gray-300 rounded-full w-4 h-4 ring-4 ring-white"></div>
+                        <h4 className="font-bold text-sm text-gray-700">In Transit</h4>
+                        <p className="text-xs text-gray-500 mt-1">Awaiting departure from depot.</p>
+                      </div>
+
+                      <div className="relative opacity-50">
+                        <div className="absolute -left-[31px] bg-gray-300 rounded-full w-4 h-4 ring-4 ring-white"></div>
+                        <h4 className="font-bold text-sm text-gray-700">Delivered</h4>
+                        <p className="text-xs text-gray-500 mt-1">Pending arrival at {selectedOrder.outlet}</p>
+                      </div>
+
+                    </div>
+                  </div>
+                </div>
+              ) : (
               <div className="flex flex-col max-w-[800px] w-full mx-auto pb-20">
                 {/* Order Header */}
                 <div className="flex flex-row justify-between items-start border-b border-gray-200 pb-5 mb-5">
@@ -281,13 +363,14 @@ export default function Planning() {
                   </button>
                 </div>
               </div>
+              )
             ) : (
               <div className="flex flex-col items-center justify-center h-full text-center max-w-md mx-auto">
                 <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4 text-gray-400">
                   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 </div>
                 <h3 className="font-bold text-lg text-gray-900 mb-2">No Order Selected</h3>
-                <p className="text-sm text-gray-500">Select an unallocated order from the queue on the left to view details, analyze constraints, and assign it to a vehicle.</p>
+                <p className="text-sm text-gray-500">{queueTab === 'unallocated' ? 'Select an unallocated order from the queue on the left to view details, analyze constraints, and assign it to a vehicle.' : 'Select an allocated order from the queue to view its live execution status.'}</p>
               </div>
             )}
           </div>

@@ -92,7 +92,7 @@ const Sidebar = () => (
 
 export default function Dashboard() {
   return (
-    <div className="flex flex-row min-h-screen bg-[#FAFAFA] font-sans">
+    <div className="flex flex-row h-screen bg-[#FAFAFA] font-sans">
       <Sidebar />
       <div className="flex flex-col flex-1 p-10 gap-8 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto">
         

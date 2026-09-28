@@ -58,20 +58,33 @@ const Sidebar = () => (
 
 export default function Orders() {
   const [activeFilter, setActiveFilter] = useState('All');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
   
   const initialOrders = [
-    { ref: 'S1-001', brand: 'FRESH', outlet: 'OUT001', temp: 'Cold Chain', weight: '226.4 kg', vol: '1.145 m³', constraints: ['van_only'], status: 'Confirmed' },
-    { ref: 'S1-002', brand: 'STYLE', outlet: 'OUT002', temp: 'Ambient', weight: '80.0 kg', vol: '1.200 m³', constraints: [], status: 'Confirmed' },
-    { ref: 'S1-003', brand: 'TECH', outlet: 'OUT003', temp: 'Ambient', weight: '85.0 kg', vol: '0.500 m³', constraints: ['high_value'], status: 'Deferred' },
-    { ref: 'S1-004', brand: 'FRESH', outlet: 'OUT004', temp: 'Cold Chain', weight: '150.0 kg', vol: '0.800 m³', constraints: ['time_window'], status: 'Confirmed' },
-    { ref: 'S1-005', brand: 'STYLE', outlet: 'OUT005', temp: 'Ambient', weight: '120.0 kg', vol: '1.500 m³', constraints: [], status: 'Deferred' },
-    { ref: 'S1-006', brand: 'FRESH', outlet: 'OUT006', temp: 'Cold Chain', weight: '90.0 kg', vol: '0.600 m³', constraints: ['van_only', 'time_window'], status: 'Confirmed' },
-    { ref: 'S1-007', brand: 'TECH', outlet: 'OUT007', temp: 'Ambient', weight: '200.0 kg', vol: '2.000 m³', constraints: ['tail_lift'], status: 'Confirmed' },
+    { ref: 'S1-001', brand: 'FRESH', outlet: 'OUT001', temp: 'Cold Chain', weight: '226.4 kg', vol: '1.145 m³', date: '2026-01-08', status: 'Confirmed' },
+    { ref: 'S1-002', brand: 'STYLE', outlet: 'OUT002', temp: 'Ambient', weight: '80.0 kg', vol: '1.200 m³', date: '2026-01-07', status: 'Confirmed' },
+    { ref: 'S1-003', brand: 'TECH', outlet: 'OUT003', temp: 'Ambient', weight: '85.0 kg', vol: '0.500 m³', date: '2026-01-06', status: 'Deferred' },
+    { ref: 'S1-004', brand: 'FRESH', outlet: 'OUT004', temp: 'Cold Chain', weight: '150.0 kg', vol: '0.800 m³', date: '2026-01-08', status: 'Confirmed' },
+    { ref: 'S1-005', brand: 'STYLE', outlet: 'OUT005', temp: 'Ambient', weight: '120.0 kg', vol: '1.500 m³', date: '2026-01-05', status: 'Deferred' },
+    { ref: 'S1-006', brand: 'FRESH', outlet: 'OUT006', temp: 'Cold Chain', weight: '90.0 kg', vol: '0.600 m³', date: '2026-01-09', status: 'Confirmed' },
+    { ref: 'S1-007', brand: 'TECH', outlet: 'OUT007', temp: 'Ambient', weight: '200.0 kg', vol: '2.000 m³', date: '2026-01-10', status: 'Confirmed' },
   ];
 
-  const filteredOrders = activeFilter === 'All' 
-    ? initialOrders 
-    : initialOrders.filter(o => o.brand.toLowerCase() === activeFilter.toLowerCase());
+  const filteredOrders = initialOrders.filter(o => {
+    const matchesBrand = activeFilter === 'All' || o.brand.toLowerCase() === activeFilter.toLowerCase();
+    
+    let matchesDate = true;
+    if (fromDate && toDate) {
+      matchesDate = o.date >= fromDate && o.date <= toDate;
+    } else if (fromDate) {
+      matchesDate = o.date >= fromDate;
+    } else if (toDate) {
+      matchesDate = o.date <= toDate;
+    }
+    
+    return matchesBrand && matchesDate;
+  });
 
   return (
     <div className="flex flex-row min-h-screen bg-[#FAFAFA]">
@@ -96,36 +109,46 @@ export default function Orders() {
           </div>
         </div>
 
-        {/* Brand Filters */}
-        <div className="flex flex-row gap-3">
-          <button 
-            onClick={() => setActiveFilter('All')}
-            className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'All' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
-          >
-            <span className={`font-semibold text-[13px] ${activeFilter === 'All' ? 'text-white' : 'text-[#485563]'}`}>All</span>
-            <span className={`font-bold text-[13px] ${activeFilter === 'All' ? 'text-white' : 'text-[#485563]'}`}>85</span>
-          </button>
-          <button 
-            onClick={() => setActiveFilter('Fresh')}
-            className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Fresh' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
-          >
-            <span className={`font-semibold text-[13px] ${activeFilter === 'Fresh' ? 'text-white' : 'text-[#485563]'}`}>Fresh</span>
-            <span className={`font-bold text-[13px] ${activeFilter === 'Fresh' ? 'text-white' : 'text-[#485563]'}`}>75</span>
-          </button>
-          <button 
-            onClick={() => setActiveFilter('Tech')}
-            className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Tech' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
-          >
-            <span className={`font-semibold text-[13px] ${activeFilter === 'Tech' ? 'text-white' : 'text-[#485563]'}`}>Tech</span>
-            <span className={`font-bold text-[13px] ${activeFilter === 'Tech' ? 'text-white' : 'text-[#485563]'}`}>5</span>
-          </button>
-          <button 
-            onClick={() => setActiveFilter('Style')}
-            className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Style' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
-          >
-            <span className={`font-semibold text-[13px] ${activeFilter === 'Style' ? 'text-white' : 'text-[#485563]'}`}>Style</span>
-            <span className={`font-bold text-[13px] ${activeFilter === 'Style' ? 'text-white' : 'text-[#485563]'}`}>5</span>
-          </button>
+        {/* Filters */}
+        <div className="flex flex-row items-center justify-between w-full">
+          <div className="flex flex-row gap-3">
+            <button 
+              onClick={() => setActiveFilter('All')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'All' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'All' ? 'text-white' : 'text-[#485563]'}`}>All</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'All' ? 'text-white' : 'text-[#485563]'}`}>85</span>
+            </button>
+            <button 
+              onClick={() => setActiveFilter('Fresh')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Fresh' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'Fresh' ? 'text-white' : 'text-[#485563]'}`}>Fresh</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'Fresh' ? 'text-white' : 'text-[#485563]'}`}>75</span>
+            </button>
+            <button 
+              onClick={() => setActiveFilter('Tech')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Tech' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'Tech' ? 'text-white' : 'text-[#485563]'}`}>Tech</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'Tech' ? 'text-white' : 'text-[#485563]'}`}>5</span>
+            </button>
+            <button 
+              onClick={() => setActiveFilter('Style')}
+              className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'Style' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
+            >
+              <span className={`font-semibold text-[13px] ${activeFilter === 'Style' ? 'text-white' : 'text-[#485563]'}`}>Style</span>
+              <span className={`font-bold text-[13px] ${activeFilter === 'Style' ? 'text-white' : 'text-[#485563]'}`}>5</span>
+            </button>
+          </div>
+
+          {/* Date Range Filter */}
+          <div className="flex flex-row items-center gap-3">
+            <span className="font-semibold text-[13px] text-[#485563]">Date Limit:</span>
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
+            <span className="text-[#485563] text-[13px] font-medium">to</span>
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
+          </div>
         </div>
 
         {/* Table Container */}
@@ -140,7 +163,7 @@ export default function Orders() {
             <div className="w-[100px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">WEIGHT</div>
             <div className="w-[100px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">VOLUME</div>
             <div className="w-[100px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">STATUS</div>
-            <div className="w-[160px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">CONSTRAINTS</div>
+            <div className="w-[120px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">DATE</div>
           </div>
 
           {/* Table Rows */}
@@ -171,12 +194,8 @@ export default function Orders() {
                   <span className="py-1 px-2.5 bg-gray-100 text-gray-600 border border-gray-300 rounded font-semibold text-[10px] uppercase">Deferred</span>
                 )}
               </div>
-              <div className="w-[160px] flex-shrink-0 font-medium text-[11px] text-[#485563]">
-                {order.constraints.length > 0 ? order.constraints.map((c, j) => (
-                  <span key={j} className="inline-flex py-1 px-2.5 bg-[#F1F5F9] rounded-full mr-2 mb-1">{c}</span>
-                )) : (
-                  <span className="text-gray-400 italic">None</span>
-                )}
+              <div className="w-[120px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">
+                {order.date}
               </div>
             </div>
           ))}
