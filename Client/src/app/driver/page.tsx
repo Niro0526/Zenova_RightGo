@@ -1,11 +1,5 @@
-import type { Metadata } from 'next';
-import DriverDashboard from '@/components/driver/DriverDashboard';
-
-export const metadata: Metadata = {
-  title: 'Trips | RightGo Driver',
-  description: 'Assigned stops and trip status.',
-};
+import { redirect } from "next/navigation";
 
 export default function DriverPage() {
-  return <DriverDashboard />;
+  redirect("/driver/today-run");
 }

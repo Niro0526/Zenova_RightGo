@@ -12,12 +12,12 @@ const ROLES = [
   { href: '/dispatcher', title: 'Dispatcher', icon: Route, description: 'Plan daily runs, review capacity, and publish dispatch decisions for the depot.' },
   { href: '/store-manager', title: 'Store Manager', icon: Store, description: 'Place replenishment orders, track deliveries, and confirm receipts at the outlet.' },
   { href: '/loader', title: 'Loader', icon: PackageCheck, description: 'Verify assigned trips, work the load sequence, and report loading issues.' },
-  { href: '/driver', title: 'Driver', icon: Truck, description: 'View assigned stops and trip status while on the road.' },
+  { href: '/driver/today-run', title: 'Driver', icon: Truck, description: 'View assigned stops and trip status while on the road.' },
 ];
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen w-full flex-col items-center overflow-y-auto bg-[#F9FAFB] px-4 py-10 md:py-16">
+    <div className="flex min-h-screen w-full flex-col items-center bg-[#F9FAFB] px-4 py-10 md:py-16">
       <div className="w-full max-w-3xl">
         <div className="flex flex-col items-center gap-3 text-center">
           <Logo tone="light" />
