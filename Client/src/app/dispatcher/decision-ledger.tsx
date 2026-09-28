@@ -1,0 +1,117 @@
+'use client';
+
+import React, { useMemo, useState } from 'react';
+import DispatcherSidebar from '@/components/dispatcher/DispatcherSidebar';
+import { DECISION_LEDGER, DecisionType } from './data';
+
+const SearchIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
+const CalendarIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>;
+
+type TabKey = 'All Decisions' | 'Deferrals Only' | 'Assignments' | 'Reassignments';
+const TABS: { key: TabKey; match: (d: DecisionType) => boolean }[] = [
+  { key: 'All Decisions', match: () => true },
+  { key: 'Deferrals Only', match: d => d === 'Deferred' },
+  { key: 'Assignments', match: d => d === 'Assigned' },
+  { key: 'Reassignments', match: d => d === 'Reassigned' },
+];
+
+const DECISION_PILL: Record<DecisionType, string> = {
+  Deferred: 'text-[#F97316]',
+  Reassigned: 'text-[#10B981]',
+  Assigned: 'text-[#485563]',
+};
+
+export default function DecisionLedger() {
+  const [tab, setTab] = useState<TabKey>('All Decisions');
+  const [search, setSearch] = useState('');
+  const [date, setDate] = useState('2026-01-08');
+
+  const rows = useMemo(() => {
+    const tabDef = TABS.find(t => t.key === tab)!;
+    let list = DECISION_LEDGER.filter(d => tabDef.match(d.decision));
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      list = list.filter(d => d.orderId.toLowerCase().includes(q) || d.outletId.toLowerCase().includes(q));
+    }
+    return list;
+  }, [tab, search]);
+
+  return (
+    <div className="flex flex-col md:flex-row min-h-screen bg-[#FAFAFA]">
+      <DispatcherSidebar />
+      <div className="flex flex-col flex-1 p-6 md:p-10 gap-6 w-full max-w-[1300px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
+
+        {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-baseline gap-2">
+              <h1 className="font-bold text-[28px] text-[#202D2D] leading-[36px] m-0">Decision Ledger</h1>
+              <span className="py-1 px-2 bg-[#FFF4ED] border border-[#F97316] rounded font-semibold text-[11px] text-[#F97316] uppercase">S1 Peak Day · 8 January 2026</span>
+            </div>
+            <p className="text-sm text-[#485563] m-0">Permanent explainable operational decision history</p>
+          </div>
+          <div className="flex flex-row items-center gap-3 flex-wrap">
+            <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg">
+              <SearchIcon />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order or outlet..." className="border-none outline-none font-sans text-sm text-[#485563] w-[160px]" />
+            </div>
+            <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg">
+              <CalendarIcon />
+              <input value={date} onChange={e => setDate(e.target.value)} type="date" className="border-none outline-none font-sans text-sm text-[#485563]" />
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex flex-row gap-3 flex-wrap">
+          {TABS.map(t => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className={`py-1.5 px-4 rounded-full border font-semibold text-[13px] transition-colors ${tab === t.key ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] text-[#485563] hover:bg-gray-50'}`}
+            >
+              {t.key}
+            </button>
+          ))}
+        </div>
+
+        {/* Table */}
+        <div className="bg-white border border-[#CBD5E1] rounded-[10px] overflow-x-auto">
+          <table className="w-full text-left border-collapse min-w-[1000px]">
+            <thead className="bg-[#F9FAFB] border-b border-[#CBD5E1]">
+              <tr>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Order ID</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Outlet ID</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Decision</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Reason</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Decision Maker</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Time</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Previous Assignment</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Updated Assignment</th>
+                <th className="py-3.5 px-5 font-bold text-[11px] text-[#485563] uppercase">Plan Version</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((d, i) => (
+                <tr key={i} className={`border-b border-[#E2E8F0] last:border-0 hover:bg-[#F8FAFC] ${d.decision === 'Deferred' ? 'bg-[#FFF9F2]' : d.decision === 'Reassigned' ? 'bg-[#F0FDF4]' : ''}`}>
+                  <td className="py-3.5 px-5 font-bold text-sm text-[#202D2D]">{d.orderId}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563]">{d.outletId}</td>
+                  <td className={`py-3.5 px-5 font-bold text-sm ${DECISION_PILL[d.decision]}`}>{d.decision}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563] max-w-[260px]">{d.reason}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563]">{d.decisionMaker}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563]">{d.time}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563]">{d.previousAssignment}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563]">{d.updatedAssignment}</td>
+                  <td className="py-3.5 px-5 text-sm text-[#485563]">{d.planVersion}</td>
+                </tr>
+              ))}
+              {rows.length === 0 && (
+                <tr><td colSpan={9} className="py-10 text-center text-gray-400 text-sm font-medium">No decisions match this filter.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -17,14 +17,19 @@ module.exports = {
           success: "#22C55E",
           warning: "#F59E0B",
           danger: "#EF4444",
+          gray: '#282f37',
+          orangeHover: '#EA580C',
         },
       },
       fontFamily: {
         poppins: ["Poppins", "sans-serif"],
         jetbrains: ["JetBrains Mono", "monospace"],
         inter: ["Inter", "sans-serif"],
+        sans: ['var(--font-sans)'],
       },
     },
   },
   plugins: [],
 };
+      
+  
