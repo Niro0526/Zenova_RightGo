@@ -12,18 +12,22 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-Assigned Trips opens at both `/` and [http://localhost:3000/loader](http://localhost:3000/loader).
-This branch implements only the responsive Assigned Trips page and its four sample trip cards.
-Load Sequence and Trip Readiness are implemented in separate branches. Their sidebar
-items and trip action buttons are disabled until those pages are integrated.
+All existing workspaces are integrated on `develop`. Use the sidebar role selector
+to switch between Store Manager, Dispatcher, and Loader.
 
-When merging the loader branches, keep Assigned Trips at `/loader`, give Load Sequence
-and Trip Readiness their own routes (for example `/loader/load-sequence` and
-`/loader/trip-readiness`), and connect the navigation and trip buttons with the selected
-trip ID. Resolve any competing changes to `src/app/loader/page.tsx`; merging alone does
-not connect the pages.
+| Workspace | Route |
+| --- | --- |
+| Store Manager | `/` or `/store-manager` |
+| Dispatcher | `/dispatcher` |
+| Assigned Trips | `/loader` |
+| Load Sequence | `/loader/load-sequence` |
+| Report Issue | `/loader/report-issue` |
+| Trip Readiness | `/loader/trip-readiness` |
 
-The existing store manager remains available at `/store-manager`.
+The loader pages use sample data. Only trip S1-T001 has a loading details demo;
+other trip actions stay disabled. The Assigned Trips sidebar links to the integrated
+loading and readiness pages.
+
 After switching branches, stop and restart the development server. If using
 `npm start`, run `npm run build` first so it serves the current branch's pages.
 Next.js uses its own build tooling, so a separate Vite setup is not needed.

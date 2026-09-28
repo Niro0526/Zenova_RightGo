@@ -23,13 +23,9 @@ const config: Config = {
           success: "#22C55E",
           warning: "#F59E0B",
           danger: "#EF4444",
+          gray: "#282f37",
+          orangeHover: "#EA580C",
         },
-      },
-      fontFamily: {
-        poppins: ["Poppins", "sans-serif"],
-        jetbrains: ["JetBrains Mono", "monospace"],
-        inter: ["Inter", "sans-serif"],
-        sans: ['Poppins', 'sans-serif'],
         primary: {
           50: '#fff7ed',
           100: '#ffedd5',
@@ -57,7 +53,12 @@ const config: Config = {
           red: '#EF4444',
         },
       },
-      
+      fontFamily: {
+        poppins: ["Poppins", "sans-serif"],
+        jetbrains: ["JetBrains Mono", "monospace"],
+        inter: ["Inter", "sans-serif"],
+        sans: ['Poppins', 'sans-serif'],
+      },
     },
   },
   plugins: [],
