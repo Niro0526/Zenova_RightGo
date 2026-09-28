@@ -1,11 +1,8 @@
 import React from 'react';
-import { 
-  MapPin, 
-  Package, 
-  FilePlus, 
-  Truck, 
-  ChevronDown 
-} from 'lucide-react';
+import { Package, FilePlus, Truck } from 'lucide-react';
+import Logo from '@/components/common/Logo';
+import NavItem from '@/components/common/NavItem';
+import RoleSwitcher from '@/components/common/RoleSwitcher';
 
 interface SidebarProps {
   currentView: string;
@@ -13,88 +10,34 @@ interface SidebarProps {
   selectedOutlet?: any;
 }
 
-export default function Sidebar({ 
-  currentView, 
-  setCurrentView, 
-  selectedOutlet = {}
+export default function Sidebar({
+  currentView,
+  setCurrentView,
+  selectedOutlet = {},
 }: SidebarProps) {
-  const isOrdersActive = currentView === 'dashboard' || currentView === 'orders';
+  const isOrdersActive = currentView === 'dashboard' || currentView === 'orders' || currentView === 'my-orders';
   const isPlaceOrderActive = currentView === 'place-order';
-  const isDeliveriesActive = currentView === 'confirm-receipt';
+  const isDeliveriesActive = currentView === 'confirm-receipt' || currentView === 'deliveries';
 
   return (
-    <aside className="figma-sidebar">
-      {/* Top Header Section */}
-      <div className="sidebar-top-section">
-        {/* Logo and Brand */}
-        <div className="brand-logo-row">
-          <div className="logo-pin-box">
-            <MapPin size={20} color="#FFFFFF" />
-          </div>
-          <div className="brand-title-box">
-            <span className="brand-title-text">RightGo</span>
-            <span className="brand-pulse-text">PULSE</span>
-          </div>
-        </div>
-
-        {/* Store Manager Profile Box */}
-        <div className="store-profile-box">
-          <span className="store-role-label">STORE MANAGER</span>
-          <span className="store-outlet-name">{selectedOutlet.name || 'Colpetty Retailer'}</span>
-        </div>
+    <aside className="hidden md:flex flex-col w-[240px] h-screen bg-[#161A1D] text-white shrink-0 py-6 px-4 font-sans overflow-y-auto">
+      <div className="mb-6 px-1">
+        <Logo subtitle="Store Manager" />
       </div>
 
-      {/* Navigation List - Exact 3 Items matching Figma screenshot */}
-      <nav className="sidebar-nav-list">
-        <button
-          className={`sidebar-nav-btn ${isOrdersActive ? 'active' : ''}`}
-          onClick={() => setCurrentView('dashboard')}
-        >
-          <Package 
-            size={18} 
-            color={isOrdersActive ? '#FFFFFF' : '#8A9BB0'} 
-          />
-          <span>My Orders</span>
-        </button>
+      <div className="store-profile-box mb-6">
+        <span className="store-role-label">STORE MANAGER</span>
+        <span className="store-outlet-name">{selectedOutlet.name || 'Colpetty Retailer'}</span>
+      </div>
 
-        <button
-          className={`sidebar-nav-btn ${isPlaceOrderActive ? 'active' : ''}`}
-          onClick={() => setCurrentView('place-order')}
-        >
-          <FilePlus 
-            size={18} 
-            color={isPlaceOrderActive ? '#FFFFFF' : '#8A9BB0'} 
-          />
-          <span>Place Order</span>
-        </button>
-
-        <button
-          className={`sidebar-nav-btn ${isDeliveriesActive ? 'active' : ''}`}
-          onClick={() => setCurrentView('confirm-receipt')}
-        >
-          <Truck 
-            size={18} 
-            color={isDeliveriesActive ? '#FFFFFF' : '#8A9BB0'} 
-          />
-          <span>Deliveries</span>
-        </button>
+      <nav className="flex flex-col gap-2">
+        <NavItem href="/store-manager/my-orders" label="My Orders" icon={Package} active={isOrdersActive} tone="dark" onClick={() => setCurrentView('dashboard')} />
+        <NavItem href="/store-manager/place-order" label="Place Order" icon={FilePlus} active={isPlaceOrderActive} tone="dark" onClick={() => setCurrentView('place-order')} />
+        <NavItem href="/store-manager/deliveries" label="Deliveries" icon={Truck} active={isDeliveriesActive} tone="dark" onClick={() => setCurrentView('confirm-receipt')} />
       </nav>
 
-      {/* Footer / Demo Switcher matching Figma screenshot */}
-      <div className="sidebar-footer-section">
-        <div className="demo-switcher-header">
-          <div className="status-green-dot"></div>
-          <span className="demo-switcher-label">DEMO SWITCHER</span>
-        </div>
-
-        <button 
-          className="role-switcher-btn"
-          onClick={() => alert('Store Manager is the primary active role for this console.')}
-          title="Demo Role Switcher"
-        >
-          <span>Switch Role</span>
-          <ChevronDown size={16} color="#8A9BB0" />
-        </button>
+      <div className="mt-auto border-t border-[#232A2E] pt-4">
+        <RoleSwitcher active="store-manager" />
       </div>
     </aside>
   );

@@ -54,9 +54,9 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
   };
 
   return (
-      <main className="flex-1 md:ml-[220px] lg:ml-[240px] bg-[#F9FAFB] min-h-screen flex flex-col w-full overflow-x-hidden pb-[85px] md:pb-12">
+      <main className="flex-1 md:ml-[220px] lg:ml-[240px] bg-[#F9FAFB] min-h-screen flex flex-col w-full overflow-x-hidden pb-[95px] md:pb-12">
         {/* Mobile Top Navigation Bar (< Load Sequence  [PEL-R04]) */}
-        <div className="flex md:hidden items-center justify-between px-5 h-14 bg-white border-b border-[#CBD5E1]">
+        <div className="flex md:hidden items-center justify-between px-5 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <button
               type="button"

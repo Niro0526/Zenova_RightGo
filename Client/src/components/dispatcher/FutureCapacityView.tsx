@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import PageHeader from '@/components/common/PageHeader';
 
 const InfoIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>;
 
@@ -48,19 +49,20 @@ export default function FutureCapacity() {
   return (
     <div className="flex flex-col flex-1 p-6 md:p-10 gap-6 w-full max-w-[1300px] mx-auto bg-[#F9FAFB] font-sans">
 
-      {/* Header */}
-      <div className="flex flex-col gap-1.5">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h1 className="font-bold text-[28px] text-[#202D2D] leading-[36px] m-0">Future Capacity</h1>
-          <span className="py-1 px-2 bg-[#FFF4ED] border border-[#F97316] rounded font-semibold text-[11px] text-[#F97316] uppercase">Task 2A</span>
-        </div>
-        <p className="text-sm text-[#485563] m-0">Task 2A · Peliyagoda Depot only — S1 fleet and orders are Peliyagoda-depot exclusively; there is no other depot/brand selection to make for this scenario.</p>
-      </div>
+      <PageHeader
+        title="Future Capacity"
+        subtitle="Task 2A · Peliyagoda Depot only — S1 fleet and orders are Peliyagoda-depot exclusively; there is no other depot/brand selection to make for this scenario."
+        actions={<span className="py-1 px-2 bg-[#FFF4ED] border border-[#F97316] rounded font-semibold text-[11px] text-[#F97316] uppercase">Task 2A</span>}
+      />
 
       {/* Info Banner */}
       <div className="flex items-center gap-3 p-4 bg-[#EFF6FF] border border-blue-300 rounded-lg">
         <span className="text-blue-500 flex-shrink-0"><InfoIcon /></span>
         <span className="text-sm text-blue-800">No Task2A forecasting model exists in this project (`data/submission_task2a.csv` is a blank template, not a completed prediction). Every number below is an illustrative placeholder, not a real forecast.</span>
+      </div>
+      <div className="flex flex-wrap items-center gap-4 text-xs text-gray-500">
+        <span className="py-1 px-2.5 bg-gray-100 text-gray-600 rounded font-semibold">Model version: none — illustrative placeholder only</span>
+        <span className="py-1 px-2.5 bg-red-50 text-red-600 border border-red-200 rounded font-semibold">Status: Unavailable</span>
       </div>
 
       {/* Demand vs Capacity Table */}
@@ -129,7 +131,7 @@ export default function FutureCapacity() {
                   <tr key={w.week} className="border-b border-gray-100 last:border-0">
                     <td className="py-3 px-3 font-semibold text-sm text-[#202D2D]">{w.label}</td>
                     <td className="py-3 px-3 text-sm text-[#485563]">{w.totalDemandM3} m³</td>
-                    <td className="py-3 px-3 text-sm text-[#485563]">{w.chilledDemandM3} m³</td>
+                    <td className="py-3 px-3 text-sm"><span className="py-0.5 px-2 bg-gray-100 text-gray-500 rounded text-[10px] font-semibold uppercase">Not modeled</span></td>
                     <td className="py-3 px-3 text-sm text-[#485563]">{w.availableCapacityM3} m³</td>
                     <td className={`py-3 px-3 text-sm font-semibold ${PRESSURE_STYLE[pressure]}`}>{pressure}</td>
                   </tr>

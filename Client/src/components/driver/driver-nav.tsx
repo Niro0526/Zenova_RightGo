@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import Logo from "@/components/common/Logo";
+import NavItem from "@/components/common/NavItem";
 import {
   RouteIcon,
   NavigationIcon,
@@ -35,22 +37,14 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
     <aside
       className="
         hidden md:flex
-        flex-col w-64 h-full shrink-0
-        bg-[#202D2D] shadow-2xl overflow-y-auto
+        flex-col w-[240px] h-full shrink-0
+        bg-[#161A1D] shadow-2xl overflow-y-auto
       "
       aria-label="Driver sidebar navigation"
     >
       {/* Brand */}
-      <div className="flex items-center gap-3 px-6 py-6 border-b border-white/10">
-        <div className="w-9 h-9 rounded-lg bg-[#F97316] flex items-center justify-center shadow-lg shrink-0">
-          <RouteIcon className="w-5 h-5 text-white" />
-        </div>
-        <div>
-          <p className="text-white font-bold text-[15px] leading-tight">
-            RightGo
-          </p>
-          <p className="text-white/50 text-[11px]">Driver Portal</p>
-        </div>
+      <div className="px-6 py-6 border-b border-white/10">
+        <Logo subtitle="Driver Portal" />
       </div>
 
       {/* Driver chip */}
@@ -74,47 +68,14 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
       </div>
 
       {/* Nav links */}
-      <nav className="flex flex-col gap-1 px-3 py-4 flex-1">
+      <nav className="flex flex-col gap-2 px-3 py-4 flex-1">
         {DRIVER_NAV_ITEMS.map((item) => {
           const isActive =
             item.href === "/driver/today-run"
               ? pathname === "/driver" || pathname.startsWith("/driver/today-run")
               : pathname.startsWith(item.href);
           return (
-            <Link
-              key={item.id}
-              id={item.id}
-              href={item.href}
-              aria-current={isActive ? "page" : undefined}
-              className={`
-                flex items-center gap-3 px-4 py-3 rounded-xl
-                font-semibold text-[13px] transition-all duration-200
-                ${
-                  isActive
-                    ? "bg-[#F97316] text-white shadow-lg shadow-orange-500/30"
-                    : "text-white/60 hover:text-white hover:bg-white/10"
-                }
-              `}
-            >
-              <item.icon className="w-5 h-5 shrink-0" />
-              {item.label}
-              {isActive && (
-                <svg
-                  className="w-4 h-4 ml-auto opacity-70"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  aria-hidden="true"
-                >
-                  <path
-                    d="M9 6L15 12L9 18"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              )}
-            </Link>
+            <NavItem key={item.id} href={item.href} label={item.label} icon={item.icon} active={isActive} tone="dark" />
           );
         })}
       </nav>
@@ -169,12 +130,12 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
           >
             <item.icon
               className={`w-[22px] h-[22px] ${
-                isActive ? "text-[#202D2D]" : "text-[#485563]"
+                isActive ? "text-[#F97316]" : "text-[#485563]"
               }`}
             />
             <span
               className={`font-semibold text-[11px] leading-4 ${
-                isActive ? "text-[#202D2D]" : "text-[#485563]"
+                isActive ? "text-[#F97316]" : "text-[#485563]"
               }`}
             >
               {item.label}
@@ -182,7 +143,7 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
             {/* Active indicator */}
             {isActive && (
               <span
-                className="block bg-[#1D4ED8] rounded-[1.5px]"
+                className="block bg-[#F97316] rounded-[1.5px]"
                 style={{ width: 24, height: 3 }}
               />
             )}
