@@ -1,22 +1,22 @@
 # UI/UX Design Brief
 
-Version 1.0, 2026-09-28. Proposed design direction based on source code and K17-K23. No Figma file or Day-5 prototype was supplied; fidelity to the submitted design is unverified. This document specifies the future interface and records current gaps, without changing UI code or creating a prototype.
+Version 1.1, 2026-09-28 (later same day). Design direction now grounded in the real Challenge Booklet (`Rules/Challenge Booklet.pdf` p3-7) rather than inferred from source code and K17-K23 alone — see the Personas section below. No Figma file or Day-5 prototype was supplied; fidelity to the submitted design remains unverified regardless. This document specifies the future interface and records current gaps, without changing UI code or creating a prototype.
 
 ## Product principles
 
 Use one shared visual language for all roles. Prioritize the next safe operational action and the reason an action is unavailable. Make requested, planned, loaded and received quantities visibly different. Show source/time/version for data that may be stale. Prefer a small set of complete, connected screens to inactive navigation that implies nonexistent capabilities.
 
-Keep brand names Fresh, Style and Tech consistent with source CSVs. RightGo/PULSE is the product identity; Waypoint is the name in the source scenario reference. Confirm naming against Part One. Never use invented contact data or stock quantities as production facts.
+Keep brand names Fresh, Style and Tech consistent with source CSVs. RightGo/PULSE is this team's product identity; **Waypoint Group (Pvt) Ltd** is the fictional client operation named in the Challenge Booklet (p3) — both namings are now confirmed and intentionally distinct, not a naming conflict to resolve. Never use invented contact data or stock quantities as production facts.
 
-## Personas (provisional pending Part One)
+## Personas (Challenge Booklet p6, no longer provisional)
 
-**Store manager:** responsible for an outlet's supply continuity and receiving accuracy. Needs a clear replenishment form, honest delivery status and a fast discrepancy workflow at the dock. The prototype suggests desktop administration, but receiving must also work on a phone. Main pain points are uncertain delivery promises, repeated deferral and disagreement between ordered and received goods.
+**Store manager:** works at the outlet counter on a desktop or phone. Today, orders are placed by phone or message with no confirmation they were received or scheduled. Needs an expected arrival time to schedule receiving staff, clear notice when an order is deferred, and a way to confirm receipt and report issues. Main pain points are uncertain delivery promises, repeated deferral and disagreement between ordered and received goods.
 
-**Dispatcher:** responsible for a depot's feasible daily plan. Works with many orders and constrained fleet at once, usually on a larger screen. Needs constraint explanations, complete order accounting, service history and a review-before-publication step. Main risks are allocating against stale capacity and losing the reason an order was deferred.
+**Dispatcher:** works at a large screen in the Peliyagoda planning office with stable connectivity, currently building the daily plan in a spreadsheet using personal knowledge of outlet restrictions and vehicle capabilities. Needs visibility into delivery progress and problems after vehicles leave the depot, and needs to explain deferral decisions and identify outlets already skipped. Main risks are allocating against stale capacity and losing the reason an order was deferred.
 
-**Loader:** responsible for physical manifest accuracy before dispatch. Needs large, sequential checks with units and visible deviations, workable on a shared mobile device. Main risk is a screen saying ready despite a missing or damaged load. User/device assumptions need confirmation; do not invent research findings.
+**Loader:** works at the Peliyagoda **or Kandy** warehouse dock using a shared tablet or terminal; printed loading lists go stale when plans change. Needs the stop sequence so goods load in an order that supports unloading, and needs to flag missing or damaged items before a vehicle leaves. Main risk is a screen saying ready despite a missing or damaged load.
 
-**Driver:** responsible for executing assigned stops and reporting failures while mobile. Needs low-density trip/stop screens, large touch controls, timestamps, stable stop order and clear sync state. Main risk is network loss being mistaken for a saved event. Interactions must be safe to perform while stopped; no product requirement assumes interaction while driving.
+**Driver:** works on the road using a personal phone, currently relying on a paper run sheet and phone calls for changes. Needs to record delivery outcomes and proof of delivery so disputes don't depend on memory, and needs to record work offline when coverage drops and synchronize it when connectivity returns. Interactions must be designed for use only when safely stopped — the booklet is explicit that no requirement assumes interaction while driving. Main risk is network loss being mistaken for a saved event.
 
 ## Screen inventory and rationale
 

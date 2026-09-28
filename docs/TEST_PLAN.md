@@ -10,7 +10,7 @@ Version 1.0, 2026-09-28. Tests below are planned unless explicitly marked **exec
 | ESLint direct CLI | FAIL, exit 1: 75 errors, 26 warnings | From Client: `node node_modules/eslint/bin/eslint.js src --format json`. 71 explicit-any errors, 4 unescaped-entity errors, 26 unused-variable warnings. Existing findings left unchanged. |
 | Supplied checker on current Task2B template | FAIL, return 1 | Every decision contains `(served/deferred)`, which is invalid. In-memory review harness loaded unchanged script and redirected only reference discovery to repository `data/`; no source/dataset edits. This is not a submitted-plan validation. |
 | Dataset profile | COMPLETE | All 17 CSV headers and row counts; training/test dates/statuses; reference/mock common-field comparison. No model performance claim. |
-| PDF/source review | COMPLETE for supplied sources | 8 booklet + 40 kickoff pages, full checker; missing Part One/design not reviewed. |
+| PDF/source review | COMPLETE for supplied sources | 33-page `Rules/Challenge Booklet.pdf` (the real Part One business brief, replacing an earlier 8-page general delegate booklet that had no challenge content) + 40 kickoff pages + full `check_allocation.py`, all read in full. Day-5 Designathon design/prototype still not supplied. |
 | Docker/runtime/E2E/security/performance | NOT RUN | No Docker executable on PATH, implemented backend, live DB or public deployment available. No browser interaction or penetration test performed. |
 
 These results must not be presented as "all tests pass." TypeScript passes while lint and submission-template feasibility fail.

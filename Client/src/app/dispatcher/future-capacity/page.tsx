@@ -1,4 +1,4 @@
-import FutureCapacity from '../future-capacity';
+import FutureCapacity from '@/components/dispatcher/FutureCapacityView';
 
 export default function FutureCapacityPage() {
   return <FutureCapacity />;

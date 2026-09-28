@@ -1,4 +1,4 @@
-import DecisionLedger from '../decision-ledger';
+import DecisionLedger from '@/components/dispatcher/DecisionLedgerView';
 
 export default function DecisionLedgerPage() {
   return <DecisionLedger />;

@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import AssignedTrips from './AssignedTrips';
+import LoaderDashboard from '@/components/loader/LoaderDashboard';
 
 export const metadata: Metadata = {
   title: 'Assigned Trips | RightGo Loader',
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function LoaderPage() {
-  return <AssignedTrips />;
+  return <LoaderDashboard />;
 }

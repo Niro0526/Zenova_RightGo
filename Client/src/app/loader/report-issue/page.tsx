@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import ReportIssue from "../ReportIssue";
+import ReportIssue from "@/components/loader/ReportIssue";
 
 export default function ReportIssuePage() {
   const router = useRouter();

@@ -2,13 +2,7 @@ import type { Config } from "tailwindcss";
 
 
 const config: Config = {
-  content: [
-    "./src/**/*.{js,ts,jsx,tsx,mdx}",
-    './src/pages/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/components/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/app/**/*.{js,ts,jsx,tsx,mdx}',
-    './src/layouts/**/*.{js,ts,jsx,tsx,mdx}',
-  ],
+  content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
   theme: {
     extend: {
       colors: {
@@ -37,27 +31,27 @@ const config: Config = {
           700: '#c2410c',
           800: '#9a3412',
           900: '#7c2d12',
-          DEFAULT: '#FF6600',
+          DEFAULT: '#F97316',
         },
         sidebar: {
           bg: '#161A1D',
-          border: '#242A2E',
+          border: '#232A2E',
           hover: '#1E2328',
-          active: '#FF6600',
+          active: '#F97316',
         },
         pulse: {
           green: '#22C55E',
-          orange: '#FF6600',
+          orange: '#F97316',
           blue: '#0284C7',
           yellow: '#F59E0B',
           red: '#EF4444',
         },
       },
       fontFamily: {
-        poppins: ["Poppins", "sans-serif"],
+        poppins: ["var(--font-poppins)", "Poppins", "sans-serif"],
         jetbrains: ["JetBrains Mono", "monospace"],
         inter: ["Inter", "sans-serif"],
-        sans: ['Poppins', 'sans-serif'],
+        sans: ["var(--font-poppins)", "Poppins", "sans-serif"],
       },
     },
   },
