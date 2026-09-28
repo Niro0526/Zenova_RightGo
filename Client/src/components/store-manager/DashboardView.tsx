@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Calendar, 
   Clock, 
@@ -35,6 +35,20 @@ export default function DashboardView({
 }: DashboardViewProps) {
   const outletName = selectedOutlet.name || 'Colpetty Retailer';
   const outletCode = selectedOutlet.outlet_id || 'OUT001';
+
+  // Live Cutoff Countdown Timer (Ticking towards 16:00 cutoff for 8 Jan 2026 simulation)
+  const [secondsRemaining, setSecondsRemaining] = useState(4 * 3600 + 22 * 60 + 45);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setSecondsRemaining(prev => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const hoursLeft = Math.floor(secondsRemaining / 3600);
+  const minutesLeft = Math.floor((secondsRemaining % 3600) / 60);
+  const secondsLeft = secondsRemaining % 60;
 
   // Modal State for Store Closure
   const [showClosureModal, setShowClosureModal] = useState(false);
@@ -222,7 +236,9 @@ export default function DashboardView({
         {/* Order Cutoff Countdown Card */}
         <div className="cutoff-hero-card">
           <div className="cutoff-title-text">ORDER CUTOFF: 16:00 TODAY</div>
-          <div className="cutoff-timer-countdown">4h 23m remaining</div>
+          <div className="cutoff-timer-countdown">
+            {hoursLeft}h {String(minutesLeft).padStart(2, '0')}m {String(secondsLeft).padStart(2, '0')}s remaining
+          </div>
           <div className="cutoff-sub-desc">For guaranteed delivery on 9 Jan</div>
 
           <button 
