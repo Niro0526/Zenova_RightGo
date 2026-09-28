@@ -2,22 +2,22 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import LoadSequence from "../LoadSequence";
+import ReportIssue from "../ReportIssue";
 
-export default function LoadSequenceRoute() {
+export default function ReportIssuePage() {
   const router = useRouter();
 
   const handleNavigate = (tab: "assigned-trips" | "load-sequence" | "trip-readiness" | "report-issue" | "back") => {
-    if (tab === "assigned-trips" || tab === "back") {
+    if (tab === "assigned-trips") {
       router.push("/loader");
-    } else if (tab === "load-sequence") {
+    } else if (tab === "load-sequence" || tab === "back") {
       router.push("/loader/load-sequence");
-    } else if (tab === "report-issue") {
-      router.push("/loader/report-issue");
     } else if (tab === "trip-readiness") {
       router.push("/loader/trip-readiness");
+    } else if (tab === "report-issue") {
+      router.push("/loader/report-issue");
     }
   };
 
-  return <LoadSequence onNavigate={handleNavigate} />;
+  return <ReportIssue onNavigate={handleNavigate} />;
 }
