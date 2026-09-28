@@ -383,7 +383,7 @@ export default function PlaceOrderView({
 
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span style={{ color: '#64748B' }}>Total Order Units</span>
-                <strong style={{ background: '#FFF7ED', color: '#C2410C', padding: '2px 8px', borderRadius: '4px' }}>
+                <strong style={{ color: '#1E293B', background: '#FFF7ED', color: '#C2410C', padding: '2px 8px', borderRadius: '4px' }}>
                   {totalVolumeCases} units/cases
                 </strong>
               </div>

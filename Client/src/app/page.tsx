@@ -1,7 +1,4 @@
-import type { Metadata } from 'next';
-import { Route, Store, PackageCheck, Truck } from 'lucide-react';
-import Logo from '@/components/common/Logo';
-import RoleCard from '@/components/common/RoleCard';
+'use client';
 
 export const metadata: Metadata = {
   title: 'RightGo',
