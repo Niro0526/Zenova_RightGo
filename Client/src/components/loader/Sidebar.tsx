@@ -4,7 +4,6 @@ import React from "react";
 import { usePathname } from "next/navigation";
 import Logo from "@/components/common/Logo";
 import NavItem from "@/components/common/NavItem";
-import RoleSwitcher from "@/components/common/RoleSwitcher";
 import { LOADER_NAV } from "./nav";
 
 export const Sidebar: React.FC = () => {
@@ -24,7 +23,6 @@ export const Sidebar: React.FC = () => {
           return <NavItem key={href} href={href} label={label} icon={icon} active={active} tone="dark" />;
         })}
       </nav>
-      <div className="mt-auto border-t border-[#232A2E] pt-4"><RoleSwitcher active="loader" /></div>
     </aside>
   );
 };

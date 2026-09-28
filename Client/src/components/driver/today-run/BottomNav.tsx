@@ -44,10 +44,10 @@ function NavTab({ id, label, tabId, activeTab, icon, onTabChange }: NavTabProps)
         {label}
       </span>
 
-      {/* Active indicator — 24 × 3 blue rectangle */}
+      {/* Active indicator — 24 × 3 orange rectangle */}
       {isActive && (
         <span
-          className="block bg-[#1D4ED8]"
+          className="block bg-[#F97316]"
           style={{ width: 24, height: 3, borderRadius: 1.5 }}
         />
       )}

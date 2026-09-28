@@ -35,7 +35,7 @@ export default function ProgressBox({ completedCount, totalCount }: ProgressBoxP
         aria-label={`${pct}% of stops completed`}
       >
         <div
-          className="bg-[#1D4ED8] rounded transition-all duration-500"
+          className="bg-[#F97316] rounded transition-all duration-500"
           style={{ width: `${pct}%`, height: 8 }}
         />
       </div>

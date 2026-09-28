@@ -45,7 +45,7 @@ function TripDetails({ trip }: { trip: Trip }) {
 
 export default function LoaderDashboard() {
   return (
-    <main id="loader-main" tabIndex={-1} className="flex-1 md:ml-[220px] lg:ml-[240px] min-h-screen w-full overflow-x-hidden p-4 pb-[95px] outline-none md:p-6 md:pb-12">
+    <main id="loader-main" tabIndex={-1} className="flex-1 md:ml-[220px] lg:ml-[240px] min-h-screen w-full overflow-x-hidden p-4 pb-[85px] outline-none md:p-6 md:pb-12">
       <a href="#loader-main" className="sr-only z-50 rounded bg-white p-3 focus:not-sr-only focus:absolute">Skip to main content</a>
         <div className="flex flex-col gap-5">
           <header className="border-b border-[#CBD5E1] pb-4">
@@ -75,11 +75,11 @@ export default function LoaderDashboard() {
               ) : (
                 <button
                   type="button"
-                  className={trip.status === 'Loading' ? continueLoadingButton : primaryButton}
+                  className={primaryButton}
                   disabled
                   title="Loading details are not available for this demo trip"
                 >
-                  {trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}
+                  Open Trip
                 </button>
               )}
             </article>)}

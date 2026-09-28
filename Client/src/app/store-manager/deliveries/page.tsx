@@ -1,7 +1,7 @@
 'use client';
 
-import StoreManagerPage from '../page';
+import { StoreManagerContent } from '@/components/store-manager/StoreManagerContent';
 
 export default function DeliveriesPage() {
-  return <StoreManagerPage initialView="deliveries" />;
+  return <StoreManagerContent initialView="deliveries" />;
 }

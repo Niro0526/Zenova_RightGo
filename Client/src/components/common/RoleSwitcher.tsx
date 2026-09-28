@@ -12,7 +12,7 @@ const ROLE_LABELS: Record<Role, string> = {
 };
 
 const ROLE_PATHS: Record<Role, string> = {
-  'store-manager': '/store-manager',
+  'store-manager': '/store-manager/my-orders',
   dispatcher: '/dispatcher',
   loader: '/loader',
   driver: '/driver/today-run',

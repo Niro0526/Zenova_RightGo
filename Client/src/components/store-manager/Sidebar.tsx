@@ -1,7 +1,6 @@
 import React from 'react';
 import Logo from '@/components/common/Logo';
 import NavItem from '@/components/common/NavItem';
-import RoleSwitcher from '@/components/common/RoleSwitcher';
 import { STORE_MANAGER_NAV } from './nav';
 
 interface SidebarProps {
@@ -30,14 +29,8 @@ export default function Sidebar({
   return (
     <aside className="figma-sidebar">
       {/* Top Header Section */}
-      <div className="sidebar-top-section">
-        <Logo subtitle="PULSE" />
-
-        {/* Store Manager Profile Box */}
-        <div className="store-profile-box">
-          <span className="store-role-label">STORE MANAGER</span>
-          <span className="store-outlet-name">{selectedOutlet.name || 'Colpetty Retailer'}</span>
-        </div>
+      <div className="sidebar-top-section mb-6">
+        <Logo subtitle="PULSE" href="/" />
       </div>
 
       {/* Navigation List */}
@@ -54,16 +47,6 @@ export default function Sidebar({
           />
         ))}
       </nav>
-
-      {/* Footer / Demo Switcher */}
-      <div className="sidebar-footer-section">
-        <div className="demo-switcher-header">
-          <div className="status-green-dot"></div>
-          <span className="demo-switcher-label">DEMO SWITCHER</span>
-        </div>
-
-        <RoleSwitcher active="store-manager" />
-      </div>
     </aside>
   );
 }

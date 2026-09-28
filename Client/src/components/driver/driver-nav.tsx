@@ -1,98 +1,86 @@
 "use client";
 
 import Link from "next/link";
+import { Route, Navigation, History, AlertTriangle } from "lucide-react";
 import Logo from "@/components/common/Logo";
 import NavItem from "@/components/common/NavItem";
-import {
-  RouteIcon,
-  NavigationIcon,
-  AlertTriangleIcon,
-} from "@/components/driver/today-run/icons";
+import { useConnectivity } from "@/context/DriverConnectivityContext";
 
 /* ─── Nav item definition ─────────────────────────────────── */
 export const DRIVER_NAV_ITEMS = [
   {
     label: "My Run",
     href: "/driver/today-run",
-    icon: RouteIcon,
+    icon: Route,
     id: "nav-my-run",
   },
   {
     label: "Current Stop",
     href: "/driver/current-stop",
-    icon: NavigationIcon,
+    icon: Navigation,
     id: "nav-current-stop",
+  },
+  {
+    label: "History",
+    href: "/driver/history",
+    icon: History,
+    id: "nav-history",
   },
   {
     label: "Report",
     href: "/driver/report",
-    icon: AlertTriangleIcon,
+    icon: AlertTriangle,
     id: "nav-report",
   },
 ] as const;
 
 /* ─── Sidebar (desktop / tablet) ─────────────────────────── */
 export function DriverSidebar({ pathname }: { pathname: string }) {
+  const { connectionState } = useConnectivity();
+
   return (
     <aside
-      className="
-        hidden md:flex
-        flex-col w-[240px] h-full shrink-0
-        bg-[#161A1D] shadow-2xl overflow-y-auto
-      "
+      className="hidden md:flex flex-col w-full md:w-[240px] bg-[#161A1D] text-white py-8 px-5 flex-shrink-0 font-sans box-border md:h-screen md:sticky md:top-0 overflow-y-auto"
       aria-label="Driver sidebar navigation"
     >
       {/* Brand */}
-      <div className="px-6 py-6 border-b border-white/10">
-        <Logo subtitle="Driver Portal" />
+      <div className="mb-8">
+        <Logo subtitle="Driver Portal" href="/" />
       </div>
 
-      {/* Driver chip */}
-      <div className="flex items-center gap-3 px-6 py-4 border-b border-white/10">
-        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-orange-400 to-orange-600 flex items-center justify-center text-white font-bold text-sm shrink-0">
-          D
-        </div>
-        <div className="min-w-0">
-          <p className="text-white text-[13px] font-semibold truncate">
-            Driver
-          </p>
-          <p className="text-white/50 text-[11px]">PEL-R04</p>
-        </div>
-        {/* Online dot */}
-        <div className="ml-auto flex items-center gap-1.5 px-2 py-0.5 bg-green-500/20 border border-green-500/30 rounded-full shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-          <span className="text-green-400 text-[10px] font-semibold">
-            Online
-          </span>
-        </div>
-      </div>
-
-      {/* Nav links */}
-      <nav className="flex flex-col gap-2 px-3 py-4 flex-1">
+      {/* Nav links using shared NavItem */}
+      <nav className="flex flex-col gap-2 flex-1">
         {DRIVER_NAV_ITEMS.map((item) => {
           const isActive =
             item.href === "/driver/today-run"
               ? pathname === "/driver" || pathname.startsWith("/driver/today-run")
               : pathname.startsWith(item.href);
           return (
-            <NavItem key={item.id} href={item.href} label={item.label} icon={item.icon} active={isActive} tone="dark" />
+            <NavItem
+              key={item.id}
+              href={item.href}
+              label={item.label}
+              icon={item.icon}
+              active={isActive}
+              tone="dark"
+            />
           );
         })}
       </nav>
 
       {/* Trip info footer */}
-      <div className="px-4 py-4 border-t border-white/10">
-        <div className="bg-white/5 rounded-xl p-4 flex flex-col gap-2">
-          <p className="text-white/40 text-[10px] font-semibold uppercase tracking-wider">
-            Trip Plan
-          </p>
+      <div className="mt-auto pt-6 border-t border-[#282f37] flex flex-col gap-3">
+        <div className="bg-[#232A2E] rounded-xl p-3.5 flex flex-col gap-1.5 border border-[#2e3740]">
           <div className="flex items-center justify-between">
-            <span className="text-white font-bold text-[16px]">S1-T001</span>
-            <span className="bg-white/10 text-white/70 text-[10px] font-semibold px-2 py-0.5 rounded">
+            <span className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">
+              Active Trip
+            </span>
+            <span className="bg-white/10 text-white/80 text-[10px] font-semibold px-2 py-0.5 rounded">
               Plan v2
             </span>
           </div>
-          <p className="text-white/40 text-[11px]">Vehicle: PEL-R04</p>
+          <span className="text-white font-bold text-sm">S1-T001</span>
+          <span className="text-gray-400 text-[11px]">Vehicle: PEL-R04 · Wave 1</span>
         </div>
       </div>
     </aside>
@@ -130,12 +118,12 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
           >
             <item.icon
               className={`w-[22px] h-[22px] ${
-                isActive ? "text-[#F97316]" : "text-[#485563]"
+                isActive ? "text-[#202D2D]" : "text-[#485563]"
               }`}
             />
             <span
               className={`font-semibold text-[11px] leading-4 ${
-                isActive ? "text-[#F97316]" : "text-[#485563]"
+                isActive ? "text-[#202D2D]" : "text-[#485563]"
               }`}
             >
               {item.label}

@@ -1,4 +1,4 @@
-/* ─── Screen Header — top: 0, h: 55 ───────────────────────── */
+import { useConnectivity } from "@/context/DriverConnectivityContext";
 
 interface ScreenHeaderProps {
   title?: string;
@@ -7,8 +7,27 @@ interface ScreenHeaderProps {
 
 export default function ScreenHeader({
   title = "Today's Run",
-  isOnline = true,
+  isOnline: propIsOnline,
 }: ScreenHeaderProps) {
+  const { connectionState, isOnline: contextIsOnline } = useConnectivity();
+  const effectiveOnline = propIsOnline !== undefined ? propIsOnline : contextIsOnline;
+
+  const dotColor =
+    connectionState === "offline" || !effectiveOnline
+      ? "#F97316"
+      : connectionState === "syncing"
+      ? "#3B82F6"
+      : "#22C55E";
+
+  const labelText =
+    connectionState === "offline" || !effectiveOnline
+      ? "Offline"
+      : connectionState === "syncing"
+      ? "Syncing"
+      : connectionState === "synced"
+      ? "Synced"
+      : "Online";
+
   return (
     <header
       id="driver-header"
@@ -24,21 +43,21 @@ export default function ScreenHeader({
       <div
         id="connectivity-pill"
         className="flex flex-row items-center bg-white border border-[#CBD5E1] rounded-full"
-        style={{ padding: "4px 8px", gap: 6, width: 67, height: 25, boxSizing: "border-box" }}
+        style={{ padding: "4px 8px", gap: 6, minWidth: 67, height: 25, boxSizing: "border-box" }}
       >
         <span
-          className="rounded-full shrink-0"
+          className={`rounded-full shrink-0 ${connectionState === "syncing" ? "animate-pulse" : ""}`}
           style={{
             width: 8,
             height: 8,
-            background: isOnline ? "#22C55E" : "#EF4444",
+            background: dotColor,
           }}
         />
         <span
           className="font-semibold"
-          style={{ fontSize: 11, lineHeight: "16px", color: isOnline ? "#22C55E" : "#EF4444" }}
+          style={{ fontSize: 11, lineHeight: "16px", color: dotColor }}
         >
-          {isOnline ? "Online" : "Offline"}
+          {labelText}
         </span>
       </div>
     </header>
