@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { X, Check } from 'lucide-react';
 import { useDispatcherPlan } from '@/store/dispatcher/PlanningContext';
 
 export default function ReassignDialog({
@@ -19,6 +20,14 @@ export default function ReassignDialog({
   const [note, setNote] = useState('');
   const selected = candidates[selectedIndex];
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onCancel();
+    }
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onCancel]);
+
   function handleConfirm() {
     if (!selected) return;
     reassignOrder(orderRef, selected.vehicle.vehicleId, selected.tripNo, note.trim() || 'Reassigned from Plan Review');
@@ -26,43 +35,97 @@ export default function ReassignDialog({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 sm:p-6">
-      <div className="bg-white rounded-xl w-full max-w-[520px] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
-        <div className="p-5 border-b border-gray-200">
-          <h2 className="font-bold text-xl text-gray-900">Change vehicle / trip</h2>
-          <p className="text-sm text-gray-500 mt-1">{orderRef}{order ? ` · ${order.outletId} (${order.brand}, ${order.district})` : ''}</p>
-        </div>
-        <div className="p-5 flex flex-col gap-3 overflow-y-auto">
-          {candidates.length === 0 && (
-            <p className="text-sm text-red-600">No compatible available vehicle/trip found for this order — defer it instead.</p>
-          )}
-          {candidates.map((c, i) => (
-            <button
-              key={`${c.vehicle.vehicleId}-${c.tripNo}`}
-              onClick={() => setSelectedIndex(i)}
-              className={`text-left p-3 rounded-lg border transition-colors ${i === selectedIndex ? 'border-orange-500 bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-sm text-gray-900">{c.vehicle.vehicleId} · Trip {c.tripNo}</span>
-                {c.recommended && <span className="py-0.5 px-2 bg-green-100 text-green-700 rounded font-bold text-[10px] uppercase">Recommended</span>}
-              </div>
-              <span className="text-xs text-gray-500">{c.vehicle.type} · {c.vehicle.temp} · {c.vehicle.weightCapKg} kg / {c.vehicle.volumeCapM3} m³</span>
-              {c.reasons.length > 0 && <p className="text-[11px] text-gray-500 mt-1">{c.reasons.join('; ')}</p>}
-            </button>
-          ))}
+    <div
+      className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      role="presentation"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-white rounded-xl w-full max-w-[500px] max-h-[85vh] flex flex-col shadow-xl border border-[#CBD5E1] overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="reassign-title"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-4 border-b border-[#E2E8F0] flex items-center justify-between">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Reason for change (optional)</label>
-            <textarea value={note} onChange={e => setNote(e.target.value)} rows={2} className="w-full border border-gray-300 rounded-lg p-2.5 text-sm outline-none focus:ring-2 focus:ring-orange-500" placeholder="E.g., original vehicle needed for a higher-priority order..." />
+            <h2 id="reassign-title" className="font-bold text-base text-[#202D2D] m-0">Change Vehicle / Trip</h2>
+            <p className="text-xs text-[#64748B] mt-0.5 m-0">
+              {orderRef}{order ? ` · ${order.outletId} (${order.brand}, ${order.district})` : ''}
+            </p>
+          </div>
+          <button
+            onClick={onCancel}
+            className="text-[#64748B] hover:text-[#202D2D] p-1 rounded"
+            aria-label="Close dialog"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-4 flex flex-col gap-3 overflow-y-auto">
+          {candidates.length === 0 ? (
+            <p className="text-xs text-red-600 bg-red-50 p-3 rounded-lg border border-red-200 m-0">
+              No compatible available vehicle found for this order. Consider deferral.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <span className="text-[11px] font-bold text-[#64748B] uppercase tracking-wider">
+                Compatible Targets ({candidates.length})
+              </span>
+              {candidates.map((c, i) => (
+                <button
+                  key={`${c.vehicle.vehicleId}-${c.tripNo}`}
+                  onClick={() => setSelectedIndex(i)}
+                  className={`text-left p-3 rounded-lg border transition-all ${
+                    i === selectedIndex
+                      ? 'border-[#F97316] bg-[#FFF4ED] shadow-xs'
+                      : 'border-[#E2E8F0] hover:border-gray-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-[#202D2D]">
+                      {c.vehicle.vehicleId} · Trip {c.tripNo}
+                    </span>
+                    {c.recommended && (
+                      <span className="py-0.5 px-1.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[9px] font-bold uppercase">
+                        Recommended
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-[#64748B] mt-0.5 tabular-nums">
+                    {c.vehicle.type} · {c.vehicle.temp} · {c.vehicle.weightCapKg} kg / {c.vehicle.volumeCapM3} m³
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-[#485563] mb-1">Reason for Reassignment</label>
+            <textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              rows={2}
+              className="w-full border border-[#CBD5E1] rounded-lg p-2.5 text-xs text-[#202D2D] outline-none focus:border-[#F97316] resize-none"
+              placeholder="E.g., route optimization, vehicle load balance..."
+            />
           </div>
         </div>
-        <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
-          <button onClick={onCancel} className="py-2 px-4 border border-gray-300 bg-white rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
+
+        <div className="p-3.5 border-t border-[#E2E8F0] bg-[#FAFAFA] flex justify-end gap-2.5">
+          <button
+            onClick={onCancel}
+            className="py-1.5 px-3.5 border border-[#CBD5E1] bg-white rounded-lg text-xs font-semibold text-[#485563] hover:bg-[#F8FAFC]"
+          >
+            Cancel
+          </button>
           <button
             disabled={!selected}
             onClick={handleConfirm}
-            className="py-2 px-6 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 disabled:cursor-not-allowed rounded-lg text-sm font-semibold text-white transition-colors"
+            className="py-1.5 px-4 bg-[#F97316] hover:bg-[#EA580C] disabled:bg-[#CBD5E1] disabled:cursor-not-allowed rounded-lg text-xs font-semibold text-white transition-colors shadow-xs"
           >
-            Confirm reassignment
+            Confirm Reassignment
           </button>
         </div>
       </div>

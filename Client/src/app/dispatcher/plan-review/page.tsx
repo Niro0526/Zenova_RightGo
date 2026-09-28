@@ -1,5 +1,8 @@
-import PlanReview from '@/components/dispatcher/PlanReviewView';
+'use client';
 
+import Planning from '@/components/dispatcher/PlanningView';
+
+// Legacy URL, preserved — Plan Review is now the final stage of Planning.
 export default function PlanReviewPage() {
-  return <PlanReview />;
+  return <Planning initialStage="review" />;
 }

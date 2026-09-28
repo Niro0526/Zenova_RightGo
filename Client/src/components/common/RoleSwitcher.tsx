@@ -23,7 +23,7 @@ export default function RoleSwitcher({ active }: { active: Role }) {
 
   return (
     <label className="flex w-full flex-col gap-2 text-xs text-[#8A9BB0]">
-      <span>Switch workspace</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">Demo role</span>
       <select
         value={active}
         onChange={(event) => router.push(ROLE_PATHS[event.target.value as Role] || `/${event.target.value}`)}

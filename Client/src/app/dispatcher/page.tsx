@@ -1,5 +1,5 @@
-import Dashboard from '@/components/dispatcher/Dashboard';
+import Overview from '@/components/dispatcher/OverviewView';
 
 export default function DispatcherPage() {
-  return <Dashboard />;
+  return <Overview />;
 }

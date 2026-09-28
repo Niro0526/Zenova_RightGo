@@ -1,22 +1,22 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import PageHeader from '@/components/common/PageHeader';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { Search, Download, X, Snowflake, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import EmptyState from '@/components/common/EmptyState';
+import OrderDetailsDrawer from './OrderDetailsDrawer';
 import { useDispatcherPlan } from '@/store/dispatcher/PlanningContext';
 import { validateOrderIntake } from '@/lib/dispatcher/validation';
-import type { Brand, S1Order } from '@/types/dispatcher';
+import type { Brand, OrderAssignment, S1Order } from '@/types/dispatcher';
 
-const SearchIcon = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
-const DownloadIcon = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>;
-const SnowflakeIcon = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="2" x2="12" y2="22"/><line x1="12" y1="2" x2="16" y2="6"/><line x1="12" y1="2" x2="8" y2="6"/><line x1="12" y1="22" x2="16" y2="18"/><line x1="12" y1="22" x2="8" y2="18"/><line x1="2.5" y1="9" x2="21.5" y2="15"/><line x1="21.5" y1="9" x2="2.5" y2="15"/></svg>;
-const SunIcon = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>;
-
-type FilterKey = 'All' | 'Fresh' | 'Tech' | 'Style' | 'Chilled' | 'Van Only' | 'Mall Window' | 'Previously Deferred' | 'Needs Correction';
+type BrandFilter = 'All' | Brand;
+type AllocationFilter = 'all' | 'assigned' | 'deferred' | 'unresolved' | 'needs_correction';
+type ConstraintFilter = 'all' | 'chilled' | 'van_only' | 'mall_dock' | 'deferred_yesterday';
 
 const BRAND_PILL: Record<Brand, string> = {
-  Fresh: 'bg-[#ECFDF5] text-[#10B981] border border-[#10B981]',
-  Tech: 'bg-[#F3E8FF] text-[#8B5CF6] border border-[#8B5CF6]',
-  Style: 'bg-[#FFF4ED] text-[#F97316] border border-[#F97316]',
+  Fresh: 'bg-[#ECFDF5] text-[#10B981] border border-[#A7F3D0]',
+  Tech: 'bg-[#F3E8FF] text-[#8B5CF6] border border-[#DDD6FE]',
+  Style: 'bg-[#FFF4ED] text-[#F97316] border border-[#FED7AA]',
 };
 
 function toCsv(orders: S1Order[]): string {
@@ -25,42 +25,118 @@ function toCsv(orders: S1Order[]): string {
   return [header, ...rows].map(r => r.join(',')).join('\n');
 }
 
+function StatusBadge({ order, allocation }: { order: S1Order; allocation: OrderAssignment | undefined }) {
+  const intake = validateOrderIntake(order);
+  if (intake.status === 'needs_correction') {
+    return <span title={intake.issues.join('; ')} className="rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">Needs correction</span>;
+  }
+  if (allocation?.decision === 'served') {
+    return <span className="rounded-md border border-[#F97316]/30 bg-[#FFF4ED] px-2 py-0.5 text-[11px] font-semibold text-[#F97316]">Assigned</span>;
+  }
+  if (allocation?.decision === 'deferred') {
+    return <span className="rounded-md border border-gray-300 bg-gray-100 px-2 py-0.5 text-[11px] font-semibold text-gray-700">Deferred</span>;
+  }
+  return <span className="rounded-md border border-amber-200 bg-[#FFFBEB] px-2 py-0.5 text-[11px] font-semibold text-amber-700">Unallocated</span>;
+}
+
+function TempBadge({ order }: { order: S1Order }) {
+  return order.tempRequirement === 'chilled' ? (
+    <span className="inline-flex items-center gap-1 rounded-md border border-[#10B981]/30 bg-[#ECFDF5] px-1.5 py-0.5 text-[10px] font-semibold text-[#10B981]">
+      <Snowflake size={10} /> Chilled
+    </span>
+  ) : null;
+}
+
+function AccessBadge({ order }: { order: S1Order }) {
+  if (order.parkingConstraint === 'van_only') {
+    return <span className="inline-flex rounded-md border border-[#F97316]/30 bg-[#FFF4ED] px-1.5 py-0.5 text-[10px] font-semibold text-[#F97316]">Van only</span>;
+  }
+  if (order.parkingConstraint === 'mall_dock') {
+    return <span className="inline-flex rounded-md border border-indigo-200 bg-[#EEF2FF] px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">{order.mallWindow ?? 'Mall dock'}</span>;
+  }
+  return null;
+}
+
+const PAGE_SIZE = 15;
+
 export default function Orders() {
   const { orders, assignments } = useDispatcherPlan();
-  const [activeFilter, setActiveFilter] = useState<FilterKey>('All');
-  const [search, setSearch] = useState('');
+  const searchParams = useSearchParams();
+  const router = useRouter();
 
-  const counts = useMemo(() => ({
-    All: orders.length,
-    Fresh: orders.filter(o => o.brand === 'Fresh').length,
-    Tech: orders.filter(o => o.brand === 'Tech').length,
-    Style: orders.filter(o => o.brand === 'Style').length,
-    Chilled: orders.filter(o => o.tempRequirement === 'chilled').length,
-    'Van Only': orders.filter(o => o.parkingConstraint === 'van_only').length,
-    'Mall Window': orders.filter(o => o.mallWindow !== null).length,
-    'Previously Deferred': orders.filter(o => o.deferredYesterday).length,
-    'Needs Correction': orders.filter(o => validateOrderIntake(o).status === 'needs_correction').length,
-  }), [orders]);
+  // Initialize from URL params
+  const initialAllocation = (searchParams?.get('filter') as AllocationFilter) ?? 'all';
+
+  const [search, setSearch] = useState('');
+  const [brandFilter, setBrandFilter] = useState<BrandFilter>('All');
+  const [allocationFilter, setAllocationFilter] = useState<AllocationFilter>(initialAllocation);
+  const [constraintFilter, setConstraintFilter] = useState<ConstraintFilter>('all');
+  const [detailRef, setDetailRef] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+
+  // Sync allocation filter from URL param changes
+  useEffect(() => {
+    const f = searchParams?.get('filter') as AllocationFilter;
+    if (f) {
+      setAllocationFilter(f);
+      setCurrentPage(1);
+    }
+  }, [searchParams]);
+
+  // Count active filters
+  const activeFilterCount = (search.trim() ? 1 : 0) + (brandFilter !== 'All' ? 1 : 0) + (allocationFilter !== 'all' ? 1 : 0) + (constraintFilter !== 'all' ? 1 : 0);
+  const hasActiveFilters = activeFilterCount > 0;
+
+  function clearFilters() {
+    setSearch('');
+    setBrandFilter('All');
+    setAllocationFilter('all');
+    setConstraintFilter('all');
+    setCurrentPage(1);
+    router.push('/dispatcher/orders');
+  }
 
   const filteredOrders = useMemo(() => {
     let list = orders;
-    switch (activeFilter) {
-      case 'Fresh': list = list.filter(o => o.brand === 'Fresh'); break;
-      case 'Tech': list = list.filter(o => o.brand === 'Tech'); break;
-      case 'Style': list = list.filter(o => o.brand === 'Style'); break;
-      case 'Chilled': list = list.filter(o => o.tempRequirement === 'chilled'); break;
-      case 'Van Only': list = list.filter(o => o.parkingConstraint === 'van_only'); break;
-      case 'Mall Window': list = list.filter(o => o.mallWindow !== null); break;
-      case 'Previously Deferred': list = list.filter(o => o.deferredYesterday); break;
-      case 'Needs Correction': list = list.filter(o => validateOrderIntake(o).status === 'needs_correction'); break;
-      default: break;
+
+    // Brand filter
+    if (brandFilter !== 'All') list = list.filter(o => o.brand === brandFilter);
+
+    // Allocation filter
+    switch (allocationFilter) {
+      case 'assigned': list = list.filter(o => assignments[o.orderRef]?.decision === 'served'); break;
+      case 'deferred': list = list.filter(o => assignments[o.orderRef]?.decision === 'deferred'); break;
+      case 'unresolved': list = list.filter(o => assignments[o.orderRef]?.decision === 'unresolved'); break;
+      case 'needs_correction': list = list.filter(o => validateOrderIntake(o).status === 'needs_correction'); break;
     }
+
+    // Constraint filter
+    switch (constraintFilter) {
+      case 'chilled': list = list.filter(o => o.tempRequirement === 'chilled'); break;
+      case 'van_only': list = list.filter(o => o.parkingConstraint === 'van_only'); break;
+      case 'mall_dock': list = list.filter(o => o.parkingConstraint === 'mall_dock'); break;
+      case 'deferred_yesterday': list = list.filter(o => o.deferredYesterday); break;
+    }
+
+    // Search
     if (search.trim()) {
       const q = search.trim().toLowerCase();
-      list = list.filter(o => o.orderRef.toLowerCase().includes(q) || o.outletId.toLowerCase().includes(q) || o.district.toLowerCase().includes(q));
+      list = list.filter(o =>
+        o.orderRef.toLowerCase().includes(q) ||
+        o.outletId.toLowerCase().includes(q) ||
+        o.district.toLowerCase().includes(q)
+      );
     }
     return list;
-  }, [orders, activeFilter, search]);
+  }, [orders, assignments, brandFilter, allocationFilter, constraintFilter, search]);
+
+  const totalPages = Math.ceil(filteredOrders.length / PAGE_SIZE) || 1;
+  const paginatedOrders = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredOrders.slice(start, start + PAGE_SIZE);
+  }, [filteredOrders, currentPage]);
+
+  const detailOrder = orders.find(o => o.orderRef === detailRef) || null;
 
   function handleExport() {
     const csv = toCsv(filteredOrders);
@@ -68,120 +144,268 @@ export default function Orders() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `s1-confirmed-orders-${activeFilter.toLowerCase().replace(/\s+/g, '-')}.csv`;
+    a.download = `s1-orders-filtered.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
+  const BRANDS: BrandFilter[] = ['All', 'Fresh', 'Tech', 'Style'];
+  const ALLOCATIONS: { value: AllocationFilter; label: string }[] = [
+    { value: 'all', label: 'All status' },
+    { value: 'assigned', label: 'Assigned' },
+    { value: 'deferred', label: 'Deferred' },
+    { value: 'unresolved', label: 'Unallocated' },
+    { value: 'needs_correction', label: 'Needs correction' },
+  ];
+  const CONSTRAINTS: { value: ConstraintFilter; label: string }[] = [
+    { value: 'all', label: 'All constraints' },
+    { value: 'chilled', label: 'Chilled' },
+    { value: 'van_only', label: 'Van only' },
+    { value: 'mall_dock', label: 'Mall dock' },
+    { value: 'deferred_yesterday', label: 'Deferred yesterday' },
+  ];
+
   return (
-    <div className="flex flex-col flex-1 p-6 md:p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] font-sans">
+    <div className="flex flex-col flex-1 p-6 md:p-8 gap-5 w-full max-w-[1200px] mx-auto">
 
-      <PageHeader
-        title="Confirmed Orders"
-        subtitle="S1 scenario orders (data/task2b_peak_day_scenarios.csv)"
-        actions={
-          <>
-            <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg">
-              <SearchIcon />
-              <input
-                value={search}
-                onChange={e => setSearch(e.target.value)}
-                placeholder="Search orders, outlets..."
-                className="border-none outline-none font-sans text-sm text-[#485563] w-[180px]"
-              />
-            </div>
-            <button onClick={handleExport} className="flex flex-row items-center px-4 py-2 bg-[#F97316] hover:bg-orange-600 rounded-lg gap-2 font-semibold text-sm text-white cursor-pointer transition-colors">
-              <DownloadIcon />
-              Export CSV ({filteredOrders.length})
-            </button>
-          </>
-        }
-      />
-      <p className="text-[11px] text-gray-400 -mt-3 max-w-[720px]">This batch represents orders confirmed after the 4 PM Asia/Colombo cutoff (Booklet p4). The dataset carries no per-order timestamp, so per-order cutoff timing can't be verified here — only the batch-level cutoff rule is stated. Confirmation makes an order eligible for planning; it does not guarantee delivery.</p>
-
-      {/* Filter Pills */}
-      <div className="flex flex-row gap-3 flex-wrap">
-        {(Object.keys(counts) as FilterKey[]).map((key) => (
-          <button
-            key={key}
-            onClick={() => setActiveFilter(key)}
-            className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === key ? 'bg-[#F97316] border-[#F97316] shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
-          >
-            <span className={`font-semibold text-[13px] ${activeFilter === key ? 'text-white' : 'text-[#485563]'}`}>{key}</span>
-            <span className={`font-bold text-[13px] ${activeFilter === key ? 'text-white' : 'text-[#485563]'}`}>{counts[key]}</span>
-          </button>
-        ))}
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-[22px] md:text-[24px] font-bold text-[#202D2D] m-0 tracking-tight">
+            Orders
+            <span className="ml-2.5 text-sm font-normal text-[#64748B] tabular-nums">
+              ({filteredOrders.length} of {orders.length})
+            </span>
+          </h1>
+          <p className="text-sm text-[#64748B] m-0 mt-0.5">Confirmed S1 customer orders and delivery constraints</p>
+        </div>
+        <button
+          onClick={handleExport}
+          className="flex items-center gap-2 rounded-lg border border-[#CBD5E1] bg-white px-3.5 py-2 text-xs font-semibold text-[#475569] hover:bg-[#F8FAFC] transition-colors flex-shrink-0 shadow-xs"
+        >
+          <Download size={14} />
+          Export CSV
+        </button>
       </div>
 
-      {/* Table Container */}
-      <div className="flex flex-col bg-white border border-[#CBD5E1] rounded-[10px] w-full flex-1 overflow-x-auto">
-        <div className="min-w-[1170px]">
-          {/* Table Header */}
-          <div className="flex flex-row items-center py-4 px-6 gap-4 border-b border-[#CBD5E1] bg-[#F9FAFB]">
-            <div className="w-[90px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Order Ref</div>
-            <div className="flex-1 min-w-[140px] font-bold text-[11px] text-[#485563] uppercase tracking-wider">Outlet / District</div>
-            <div className="w-[70px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Brand</div>
-            <div className="w-[110px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Temp Req</div>
-            <div className="w-[110px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Delivery Window</div>
-            <div className="w-[90px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Weight</div>
-            <div className="w-[90px] text-left flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Volume</div>
-            <div className="w-[180px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Constraints / State</div>
-            <div className="w-[110px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Intake</div>
-            <div className="w-[160px] flex-shrink-0 font-bold text-[11px] text-[#485563] uppercase tracking-wider">Allocation</div>
-          </div>
-
-          {/* Table Rows */}
-          {filteredOrders.map((order) => {
-            const intake = validateOrderIntake(order);
-            const allocation = assignments[order.orderRef];
-            return (
-            <div key={order.orderRef} className="flex flex-row items-center py-4 px-6 gap-4 border-b border-[#E2E8F0] hover:bg-[#F8FAFC]">
-              <div className="w-[90px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">{order.orderRef}</div>
-              <div className="flex-1 min-w-[140px] flex flex-col">
-                <span className="font-semibold text-sm text-[#202D2D]">{order.outletId}</span>
-                <span className="text-xs text-[#485563]">{order.district} · {order.dockType.replace('_', ' ')}</span>
-              </div>
-              <div className="w-[70px] flex-shrink-0">
-                <span className={`py-1 px-2 rounded font-bold text-[10px] uppercase ${BRAND_PILL[order.brand]}`}>{order.brand}</span>
-              </div>
-              <div className="w-[110px] flex-shrink-0">
-                {order.tempRequirement === 'chilled' ? (
-                  <div className="flex flex-row items-center py-1 px-2.5 bg-[#ECFDF5] border border-[#10B981] rounded text-[#10B981] font-semibold text-[11px] uppercase w-fit gap-1">
-                    <SnowflakeIcon /> Chilled
-                  </div>
-                ) : (
-                  <div className="flex flex-row items-center py-1 px-2.5 bg-[#FFFBEB] border border-[#F59E0B] rounded text-[#F59E0B] font-semibold text-[11px] uppercase w-fit gap-1">
-                    <SunIcon /> Ambient
-                  </div>
-                )}
-              </div>
-              <div className="w-[110px] flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.windowOpenTime}-{order.windowCloseTime}</div>
-              <div className="w-[90px] text-left flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.orderWeightKg.toFixed(1)} kg</div>
-              <div className="w-[90px] text-left flex-shrink-0 font-medium text-[13px] text-[#485563]">{order.orderVolumeM3.toFixed(3)} m³</div>
-              <div className="w-[180px] flex-shrink-0 font-medium text-[11px] text-[#485563] flex flex-wrap gap-1">
-                {order.parkingConstraint === 'van_only' && <span className="inline-flex py-1 px-2.5 bg-[#FFF4ED] text-[#F97316] border border-[#F97316] rounded-full uppercase font-semibold text-[10px]">van only</span>}
-                {order.parkingConstraint === 'mall_dock' && <span className="inline-flex py-1 px-2.5 bg-[#EEF2FF] text-[#6366F1] border border-[#6366F1] rounded-full uppercase font-semibold text-[10px]">{order.mallWindow}</span>}
-                {order.deferredYesterday && <span className="inline-flex py-1 px-2.5 bg-gray-100 text-gray-500 border border-gray-300 rounded-full uppercase font-semibold text-[10px]">deferred yesterday</span>}
-                {order.parkingConstraint === 'normal' && !order.deferredYesterday && <span className="text-gray-400 italic">None</span>}
-              </div>
-              <div className="w-[110px] flex-shrink-0">
-                <span className={`py-1 px-2 rounded font-bold text-[10px] uppercase ${intake.status === 'confirmed' ? 'bg-[#ECFDF5] text-[#10B981] border border-[#10B981]' : 'bg-[#FEF2F2] text-red-600 border border-red-400'}`} title={intake.issues.join('; ')}>
-                  {intake.status === 'confirmed' ? 'Confirmed' : 'Needs Correction'}
-                </span>
-              </div>
-              <div className="w-[160px] flex-shrink-0 text-xs font-medium">
-                {allocation?.decision === 'served' && <span className="text-[#F97316] font-semibold">Assigned — {allocation.vehicleId} · Trip {allocation.tripNo}</span>}
-                {allocation?.decision === 'deferred' && <span className="text-gray-600 font-semibold">Deferred — {allocation.reasonCode}</span>}
-                {(!allocation || allocation.decision === 'unresolved') && <span className="text-gray-400">Unallocated</span>}
-              </div>
-            </div>
-            );
-          })}
-          {filteredOrders.length === 0 && (
-            <div className="p-10 text-center text-gray-400 text-sm font-medium">No orders match this filter.</div>
+      {/* Responsive Filter Toolbar */}
+      <div className="flex flex-wrap items-center gap-2.5 bg-white p-3 rounded-xl border border-[#E2E8F0] shadow-sm">
+        {/* Search Input ~300px */}
+        <div className="flex items-center gap-2 rounded-lg border border-[#CBD5E1] bg-white px-3 py-2 w-full sm:w-[280px] md:w-[300px] focus-within:border-[#F97316] transition-colors">
+          <Search size={14} className="text-[#94A3B8] flex-shrink-0" />
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+            placeholder="Search orders or outlets"
+            className="border-none outline-none text-xs text-[#202D2D] w-full bg-transparent placeholder-[#94A3B8]"
+          />
+          {search && (
+            <button onClick={() => { setSearch(''); setCurrentPage(1); }} className="text-[#94A3B8] hover:text-[#485563]" aria-label="Clear search">
+              <X size={14} />
+            </button>
           )}
         </div>
+
+        {/* Brand Dropdown */}
+        <select
+          value={brandFilter}
+          onChange={e => { setBrandFilter(e.target.value as BrandFilter); setCurrentPage(1); }}
+          className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-medium text-[#485563] outline-none focus:border-[#F97316] cursor-pointer"
+        >
+          {BRANDS.map(b => <option key={b} value={b}>{b === 'All' ? 'All brands' : b}</option>)}
+        </select>
+
+        {/* Status Dropdown */}
+        <select
+          value={allocationFilter}
+          onChange={e => { setAllocationFilter(e.target.value as AllocationFilter); setCurrentPage(1); }}
+          className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-medium text-[#485563] outline-none focus:border-[#F97316] cursor-pointer"
+        >
+          {ALLOCATIONS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+        </select>
+
+        {/* Constraints Dropdown */}
+        <select
+          value={constraintFilter}
+          onChange={e => { setConstraintFilter(e.target.value as ConstraintFilter); setCurrentPage(1); }}
+          className="rounded-lg border border-[#CBD5E1] bg-white px-3 py-2 text-xs font-medium text-[#485563] outline-none focus:border-[#F97316] cursor-pointer"
+        >
+          {CONSTRAINTS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+        </select>
+
+        {hasActiveFilters && (
+          <button
+            onClick={clearFilters}
+            className="flex items-center gap-1.5 text-xs font-semibold text-[#F97316] hover:text-[#EA580C] px-2 py-1 rounded transition-colors ml-auto"
+          >
+            <X size={13} />
+            Clear filters ({activeFilterCount})
+          </button>
+        )}
       </div>
+
+      {filteredOrders.length === 0 ? (
+        <EmptyState
+          title="No orders match this filter"
+          description="Try selecting a different filter or clearing search."
+          action={
+            <button
+              onClick={clearFilters}
+              className="px-3.5 py-1.5 rounded-lg bg-[#F97316] text-white text-xs font-semibold hover:bg-[#EA580C] transition-colors shadow-xs"
+            >
+              Clear filters
+            </button>
+          }
+        />
+      ) : (
+        <>
+          {/* Desktop table */}
+          <div className="hidden md:block bg-white border border-[#E2E8F0] rounded-xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto max-h-[620px]">
+              <table className="w-full text-left border-collapse min-w-[860px]">
+                <thead className="bg-[#F8FAFC] border-b border-[#E2E8F0] sticky top-0 z-10">
+                  <tr>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider">Order</th>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider">Outlet / District</th>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider">Brand</th>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider">Load</th>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider">Window</th>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider">Status</th>
+                    <th className="py-2.5 px-4 font-bold text-[11px] text-[#64748B] uppercase tracking-wider text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#F1F5F9]">
+                  {paginatedOrders.map((order) => {
+                    const allocation = assignments[order.orderRef];
+                    return (
+                      <tr
+                        key={order.orderRef}
+                        onClick={() => setDetailRef(order.orderRef)}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setDetailRef(order.orderRef); }}
+                        tabIndex={0}
+                        role="button"
+                        aria-label={`View order ${order.orderRef}`}
+                        className="cursor-pointer hover:bg-[#F8FAFC] focus:bg-[#F8FAFC] focus:outline-none transition-colors"
+                      >
+                        <td className="py-3 px-4 font-semibold text-xs text-[#202D2D] tabular-nums">{order.orderRef}</td>
+                        <td className="py-3 px-4">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-semibold text-xs text-[#202D2D] leading-tight">{order.outletId}</span>
+                            <span className="text-[11px] text-[#64748B]">{order.district} · {order.dockType.replace('_', ' ')}</span>
+                            <div className="flex flex-wrap gap-1 mt-0.5">
+                              <TempBadge order={order} />
+                              <AccessBadge order={order} />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className={`py-0.5 px-2 rounded-md font-semibold text-[10px] uppercase ${BRAND_PILL[order.brand]}`}>{order.brand}</span>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-[#485563] tabular-nums">
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-medium text-[#202D2D]">{order.orderWeightKg.toFixed(1)} kg</span>
+                            <span className="text-[11px] text-[#64748B]">{order.orderVolumeM3.toFixed(3)} m³</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-4 text-xs font-medium text-[#485563] tabular-nums">{order.windowOpenTime}–{order.windowCloseTime}</td>
+                        <td className="py-3 px-4"><StatusBadge order={order} allocation={allocation} /></td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setDetailRef(order.orderRef); }}
+                            className="p-1 rounded text-[#94A3B8] hover:text-[#F97316] hover:bg-[#FFF4ED] transition-colors"
+                            aria-label={`Open details for ${order.orderRef}`}
+                          >
+                            <Eye size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-[#E2E8F0] bg-[#FAFAFA] text-xs text-[#64748B]">
+              <span className="tabular-nums">
+                Showing {((currentPage - 1) * PAGE_SIZE) + 1}–{Math.min(currentPage * PAGE_SIZE, filteredOrders.length)} of {filteredOrders.length} orders
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs font-semibold text-[#485563] hover:bg-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft size={13} /> Prev
+                </button>
+                <span className="px-2 font-medium text-[#202D2D] tabular-nums">Page {currentPage} of {totalPages}</span>
+                <button
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-[#CBD5E1] bg-white text-xs font-semibold text-[#485563] hover:bg-[#F8FAFC] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next <ChevronRight size={13} />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {paginatedOrders.map((order) => {
+              const allocation = assignments[order.orderRef];
+              return (
+                <div
+                  key={order.orderRef}
+                  onClick={() => setDetailRef(order.orderRef)}
+                  className="flex cursor-pointer flex-col gap-2 rounded-xl border border-[#E2E8F0] bg-white p-3.5 shadow-sm active:bg-[#F8FAFC]"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-[#202D2D] tabular-nums">{order.orderRef}</span>
+                    <StatusBadge order={order} allocation={allocation} />
+                  </div>
+                  <div>
+                    <span className="text-xs font-semibold text-[#202D2D]">{order.outletId}</span>
+                    <span className="text-xs text-[#64748B]"> · {order.district}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`py-0.5 px-2 rounded-md font-semibold text-[10px] uppercase ${BRAND_PILL[order.brand]}`}>{order.brand}</span>
+                    <TempBadge order={order} />
+                    <AccessBadge order={order} />
+                  </div>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#64748B] tabular-nums">
+                    <span>{order.orderWeightKg.toFixed(1)} kg / {order.orderVolumeM3.toFixed(3)} m³</span>
+                    <span>{order.windowOpenTime}–{order.windowCloseTime}</span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Mobile Pagination */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between pt-2 text-xs text-[#64748B]">
+                <button
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                  className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white font-semibold disabled:opacity-40"
+                >
+                  Prev
+                </button>
+                <span className="tabular-nums">Page {currentPage} of {totalPages}</span>
+                <button
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                  className="px-3 py-1.5 rounded-lg border border-[#CBD5E1] bg-white font-semibold disabled:opacity-40"
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <OrderDetailsDrawer order={detailOrder} open={!!detailRef} onClose={() => setDetailRef(null)} />
     </div>
   );
 }

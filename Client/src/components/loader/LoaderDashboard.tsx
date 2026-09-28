@@ -75,11 +75,11 @@ export default function LoaderDashboard() {
               ) : (
                 <button
                   type="button"
-                  className={trip.status === 'Loading' ? continueLoadingButton : primaryButton}
+                  className={primaryButton}
                   disabled
                   title="Loading details are not available for this demo trip"
                 >
-                  {trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}
+                  Open Trip
                 </button>
               )}
             </article>)}

@@ -13,11 +13,8 @@ import DegradationView from '../../components/store-manager/DegradationView';
 import OrderConfirmationModal from '../../components/store-manager/OrderConfirmationModal';
 import { MOCK_OUTLETS } from '../../data/mockData';
 
-interface StoreManagerPageProps {
-  initialView?: string;
-}
-
-export default function StoreManagerPage({ initialView }: StoreManagerPageProps) {
+export default function StoreManagerPage(props: any) {
+  const initialView: string | undefined = props?.initialView;
   const [selectedOutlet, setSelectedOutlet] = useState(MOCK_OUTLETS[0]);
 
   // Master Interactive State for All Store Orders

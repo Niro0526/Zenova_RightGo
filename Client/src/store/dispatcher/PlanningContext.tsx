@@ -6,6 +6,8 @@ import {
   buildPassportForCandidate, buildTripStops, computeStopSchedule, computeTripDistanceKm, getOrdersOnTrip, rankCandidates, validatePlan,
   type FleetVehicle, type PlanCheckRow, type RankedCandidate, type StopSchedule, type TripStop,
 } from '@/lib/dispatcher/validation';
+export type { FleetVehicle };
+import { generateSuggestedDraftPlan, type GeneratedDraftResult } from '@/lib/dispatcher/draftGenerator';
 import type {
   DecisionLedgerEntry,
   DeferReasonCode,
@@ -17,7 +19,7 @@ import type {
   TripMeta,
 } from '@/types/dispatcher';
 
-const DECISION_MAKER = 'Sarah Jenkins'; // matches the fixed demo persona shown in the sidebar
+const DECISION_MAKER = 'Dispatcher (you)'; // this session's demo user — no real authenticated identity exists
 
 function tripKey(vehicleId: string, tripNo: 1 | 2): string {
   return `${vehicleId}-${tripNo}`;
@@ -44,7 +46,10 @@ export type Action =
   | { type: 'PUBLISH'; expectedRevision: number }
   | { type: 'ACKNOWLEDGE_MANIFEST'; revision: number }
   | { type: 'REPORT_SHORTFALL'; orderRef: string }
-  | { type: 'SET_SHORTFALL_RESOLUTION'; id: string; resolution: 'replace' | 'defer'; note: string };
+  | { type: 'SET_SHORTFALL_RESOLUTION'; id: string; resolution: 'replace' | 'defer'; note: string }
+  | { type: 'APPLY_DRAFT_PLAN'; newAssignments: Record<string, OrderAssignment>; newStopSequences: Record<string, string[]>; newTripMeta: Record<string, TripMeta>; message?: string }
+  | { type: 'CHANGE_TRIP_VEHICLE'; fromVehicleId: string; toVehicleId: string; tripNo: 1 | 2 }
+  | { type: 'RESET_PLAN' };
 
 function nowLocal(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -285,6 +290,81 @@ export function reducer(state: PlanningState, action: Action): PlanningState {
         shortfallEvents: state.shortfallEvents.map(e => e.id === action.id ? { ...e, resolution: action.resolution, resolvedNote: action.note } : e),
       };
     }
+    case 'APPLY_DRAFT_PLAN': {
+      const entry: DecisionLedgerEntry = {
+        id: `${Date.now()}-generate-plan`,
+        orderRef: '(bulk)',
+        outletId: 'Peliyagoda Depot',
+        action: 'assigned',
+        reasonCode: null,
+        reasonNote: action.message || 'Suggested draft plan generated',
+        decisionMaker: 'Planning Engine (Suggested Draft)',
+        time: nowLocal(),
+        previousAssignment: '-',
+        updatedAssignment: 'Draft Generated',
+        planVersion: state.draftRevision,
+      };
+      return {
+        ...state,
+        assignments: action.newAssignments,
+        stopSequences: action.newStopSequences,
+        tripMeta: { ...state.tripMeta, ...action.newTripMeta },
+        ledger: [entry, ...state.ledger],
+        draftRevision: state.draftRevision + 1,
+      };
+    }
+    case 'CHANGE_TRIP_VEHICLE': {
+      const fromKey = tripKey(action.fromVehicleId, action.tripNo);
+      const toKey = tripKey(action.toVehicleId, action.tripNo);
+
+      const newAssignments: Record<string, OrderAssignment> = { ...state.assignments };
+      let movedCount = 0;
+      for (const [ref, a] of Object.entries(state.assignments)) {
+        if (a.decision === 'served' && a.vehicleId === action.fromVehicleId && a.tripNo === action.tripNo) {
+          newAssignments[ref] = { ...a, vehicleId: action.toVehicleId };
+          movedCount++;
+        }
+      }
+      if (movedCount === 0) return state;
+
+      const newStopSequences = { ...state.stopSequences };
+      if (newStopSequences[fromKey]) {
+        newStopSequences[toKey] = newStopSequences[fromKey];
+        delete newStopSequences[fromKey];
+      }
+
+      const newTripMeta = { ...state.tripMeta };
+      if (newTripMeta[fromKey]) {
+        newTripMeta[toKey] = newTripMeta[fromKey];
+        delete newTripMeta[fromKey];
+      }
+
+      const entry: DecisionLedgerEntry = {
+        id: `${Date.now()}-change-vehicle-${toKey}`,
+        orderRef: `(${movedCount} orders)`,
+        outletId: `${action.fromVehicleId} → ${action.toVehicleId} (Trip ${action.tripNo})`,
+        action: 'reassigned',
+        reasonCode: null,
+        reasonNote: `Changed trip vehicle from ${action.fromVehicleId} to ${action.toVehicleId}`,
+        decisionMaker: DECISION_MAKER,
+        time: nowLocal(),
+        previousAssignment: `${action.fromVehicleId} · Trip ${action.tripNo}`,
+        updatedAssignment: `${action.toVehicleId} · Trip ${action.tripNo}`,
+        planVersion: state.draftRevision,
+      };
+
+      return {
+        ...state,
+        assignments: newAssignments,
+        stopSequences: newStopSequences,
+        tripMeta: newTripMeta,
+        ledger: [entry, ...state.ledger],
+        draftRevision: state.draftRevision + 1,
+      };
+    }
+    case 'RESET_PLAN': {
+      return makeInitialState();
+    }
     default:
       return state;
   }
@@ -317,6 +397,13 @@ interface DispatcherPlanValue {
   acknowledgeManifest: (revision: number) => void;
   reportShortfall: (orderRef: string) => void;
   setShortfallResolution: (id: string, resolution: 'replace' | 'defer', note: string) => void;
+  applyDraftPlan: (newAssignments: Record<string, OrderAssignment>, newStopSequences: Record<string, string[]>, newTripMeta: Record<string, TripMeta>, message?: string) => void;
+  resetPlan: () => void;
+  generateSuggestedDraft: (preserveExisting?: boolean) => GeneratedDraftResult;
+  isDraftGenerated: boolean;
+  lastGeneratedResult: GeneratedDraftResult | null;
+  changeTripVehicle: (fromVehicleId: string, toVehicleId: string, tripNo: 1 | 2) => void;
+  canChangeTripVehicle: (fromVehicleId: string, toVehicleId: string, tripNo: 1 | 2) => { allowed: boolean; reason?: string };
   planChecklist: PlanCheckRow[];
 }
 
@@ -324,6 +411,7 @@ const DispatcherPlanContext = createContext<DispatcherPlanValue | null>(null);
 
 export function PlanningProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
+  const [lastGeneratedResult, setLastGeneratedResult] = React.useState<GeneratedDraftResult | null>(null);
 
   const orders = useMemo(() => demoAdapter.listOrders(), []);
   const fleetVehicles = useMemo(() => demoAdapter.listFleetVehicles(), []);
@@ -395,6 +483,39 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
   const reportShortfall = useCallback((orderRef: string) => dispatch({ type: 'REPORT_SHORTFALL', orderRef }), []);
   const setShortfallResolution = useCallback((id: string, resolution: 'replace' | 'defer', note: string) => dispatch({ type: 'SET_SHORTFALL_RESOLUTION', id, resolution, note }), []);
 
+  const applyDraftPlan = useCallback((newAssignments: Record<string, OrderAssignment>, newStopSequences: Record<string, string[]>, newTripMeta: Record<string, TripMeta>, message?: string) => {
+    dispatch({ type: 'APPLY_DRAFT_PLAN', newAssignments, newStopSequences, newTripMeta, message });
+  }, []);
+
+  const resetPlan = useCallback(() => {
+    setLastGeneratedResult(null);
+    dispatch({ type: 'RESET_PLAN' });
+  }, []);
+
+  const generateSuggestedDraft = useCallback((preserveExisting = false): GeneratedDraftResult => {
+    const result = generateSuggestedDraftPlan({
+      orders,
+      fleetVehicles,
+      allowances,
+      districtTravel,
+      preserveExistingAssignments: preserveExisting,
+      existingAssignments: state.assignments,
+    });
+    setLastGeneratedResult(result);
+    dispatch({
+      type: 'APPLY_DRAFT_PLAN',
+      newAssignments: result.assignments,
+      newStopSequences: result.stopSequences,
+      newTripMeta: result.tripMeta,
+      message: `Suggested draft plan generated: ${result.summary.allocatedCount} allocated across ${result.summary.tripsCreated} trips. ${result.summary.unplacedCount} orders need decisions.`,
+    });
+    return result;
+  }, [orders, fleetVehicles, allowances, districtTravel, state.assignments]);
+
+  const isDraftGenerated = useMemo(() => {
+    return counts.served > 0 || lastGeneratedResult !== null;
+  }, [counts.served, lastGeneratedResult]);
+
   const getTripDeparture = useCallback((vehicleId: string, tripNo: 1 | 2) => state.tripMeta[tripKey(vehicleId, tripNo)]?.plannedDepartureTime ?? null, [state.tripMeta]);
   const getVehicleFuelInput = useCallback((vehicleId: string) => state.vehicleFuelInputs[vehicleId] ?? null, [state.vehicleFuelInputs]);
 
@@ -424,6 +545,46 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
     return total;
   }, [getTripStops, ordersOnTrip, districtTravel]);
 
+  const canChangeTripVehicle = useCallback((fromVehicleId: string, toVehicleId: string, tripNo: 1 | 2): { allowed: boolean; reason?: string } => {
+    if (fromVehicleId === toVehicleId) return { allowed: false, reason: 'Source and target vehicle are identical.' };
+    const targetVeh = vehiclesById.get(toVehicleId);
+    if (!targetVeh) return { allowed: false, reason: 'Vehicle does not exist.' };
+    if (targetVeh.status !== 'available') return { allowed: false, reason: `Vehicle is ${targetVeh.status}.` };
+
+    const tripOrders = ordersOnTrip(fromVehicleId, tripNo);
+    if (tripOrders.length === 0) return { allowed: false, reason: 'No orders on source trip.' };
+
+    const existingTargetOrders = ordersOnTrip(toVehicleId, tripNo);
+    if (existingTargetOrders.length > 0) return { allowed: false, reason: `Vehicle ${toVehicleId} already has Trip ${tripNo} assigned.` };
+
+    const totalWeight = tripOrders.reduce((sum, o) => sum + o.orderWeightKg, 0);
+    const totalVolume = tripOrders.reduce((sum, o) => sum + o.orderVolumeM3, 0);
+
+    if (totalWeight > targetVeh.weightCapKg) {
+      return { allowed: false, reason: `Total weight (${totalWeight.toFixed(1)} kg) exceeds capacity (${targetVeh.weightCapKg} kg).` };
+    }
+    if (totalVolume > targetVeh.volumeCapM3) {
+      return { allowed: false, reason: `Total volume (${totalVolume.toFixed(2)} m³) exceeds capacity (${targetVeh.volumeCapM3} m³).` };
+    }
+
+    const hasChilled = tripOrders.some(o => o.tempRequirement === 'chilled');
+    if (hasChilled && targetVeh.temp !== 'reefer') {
+      return { allowed: false, reason: 'Requires reefer vehicle for chilled goods.' };
+    }
+
+    const requiresVan = tripOrders.some(o => o.parkingConstraint === 'van_only');
+    const isVan = targetVeh.type === 'van';
+    if (requiresVan && !isVan) {
+      return { allowed: false, reason: 'Outlet access constraint requires a van (cannot use truck).' };
+    }
+
+    return { allowed: true };
+  }, [vehiclesById, ordersOnTrip]);
+
+  const changeTripVehicle = useCallback((fromVehicleId: string, toVehicleId: string, tripNo: 1 | 2) => {
+    dispatch({ type: 'CHANGE_TRIP_VEHICLE', fromVehicleId, toVehicleId, tripNo });
+  }, []);
+
   const value: DispatcherPlanValue = {
     orders, fleetVehicles, assignments: state.assignments, ledger: state.ledger,
     draftRevision: state.draftRevision, releasedManifests: state.releasedManifests, shortfallEvents: state.shortfallEvents,
@@ -431,6 +592,8 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
     getTripStops, getTripSchedule, getVehicleDistanceKm,
     assignOrder, reassignOrder, deferOrder, reorderTrip, setTripDeparture, setVehicleFuelInput,
     publishPlan, acknowledgeManifest, reportShortfall, setShortfallResolution, planChecklist,
+    applyDraftPlan, resetPlan, generateSuggestedDraft, isDraftGenerated, lastGeneratedResult,
+    changeTripVehicle, canChangeTripVehicle,
   };
 
   return <DispatcherPlanContext.Provider value={value}>{children}</DispatcherPlanContext.Provider>;
