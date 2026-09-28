@@ -16,7 +16,16 @@ import {
   X,
   ArrowLeft,
   Check,
-  ShoppingBag
+  ShoppingBag,
+  Search,
+  Filter,
+  AlertTriangle,
+  Layers,
+  Truck,
+  CheckCircle,
+  ShieldAlert,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { PRODUCT_CATALOG } from '../../data/mockData';
 
@@ -38,16 +47,19 @@ export default function PlaceOrderView({
   onCancelEdit
 }: PlaceOrderViewProps) {
   const brand = selectedOutlet.brand || 'Fresh';
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeCategory, setActiveCategory] = useState<string>('all');
+  const [inStockOnly, setInStockOnly] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [catalogFilter, setCatalogFilter] = useState<'all' | 'dry' | 'chilled'>('all');
+  const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
 
   // Default seed items for Fresh store replenishment or editingOrder items
   const [orderItems, setOrderItems] = useState<any[]>(editingOrder?.items || [
-    { id: 'FC-03', name: 'Organic Chicken Breast (Fresh Cut)', qty: 4, unit: 'cases (5kg)', unitWeight: 5.0, unitVol: 0.008, temp: 'Chilled (+4°C)', isChilled: true },
-    { id: 'FC-01', name: 'Farm Fresh Milk (1L Bottles)', qty: 8, unit: 'crates (12 btls)', unitWeight: 1.05, unitVol: 0.0015, temp: 'Chilled (+4°C)', isChilled: true },
-    { id: 'FD-01', name: 'Keeri Samba Rice (10kg Bags)', qty: 3, unit: 'bags (10kg)', unitWeight: 10.0, unitVol: 0.015, temp: 'Ambient', isChilled: false }
+    { id: 'FC-03', name: 'Organic Chicken Breast (Fresh Cut)', qty: 4, unit: 'cases (5kg)', unitWeight: 5.0, unitVol: 0.008, temp: 'Chilled (+4°C)', isChilled: true, sku: 'SKU-FR-PL-103', image: 'https://images.unsplash.com/photo-1604503468506-a8da13d82791?w=300&auto=format&fit=crop&q=80' },
+    { id: 'FC-01', name: 'Farm Fresh Pasteurised Milk (1L Bottles)', qty: 8, unit: 'crates (12 btls)', unitWeight: 1.05, unitVol: 0.0015, temp: 'Chilled (+4°C)', isChilled: true, sku: 'SKU-FR-ML-101', image: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?w=300&auto=format&fit=crop&q=80' },
+    { id: 'FD-01', name: 'Keeri Samba Rice (10kg Bags)', qty: 3, unit: 'bags (10kg)', unitWeight: 10.0, unitVol: 0.015, temp: 'Ambient', isChilled: false, sku: 'SKU-FR-GR-001', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=300&auto=format&fit=crop&q=80' }
   ]);
 
   useEffect(() => {
@@ -55,6 +67,40 @@ export default function PlaceOrderView({
       setOrderItems(editingOrder.items);
     }
   }, [editingOrder]);
+
+  // Build Master Fresh Catalog
+  const allDryItems = PRODUCT_CATALOG?.Fresh?.dry?.map((i: any) => ({ ...i, isChilled: false, tempDisplay: 'Ambient Dry' })) || [];
+  const allChilledItems = PRODUCT_CATALOG?.Fresh?.chilled?.map((i: any) => ({ ...i, isChilled: true, tempDisplay: 'Chilled (+4°C)' })) || [];
+  const masterCatalog = [...allDryItems, ...allChilledItems];
+
+  // Filter Catalog
+  const filteredCatalog = masterCatalog.filter((item: any) => {
+    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+    
+    let matchesCategory = true;
+    if (activeCategory === 'chilled') {
+      matchesCategory = item.isChilled === true;
+    } else if (activeCategory === 'ambient') {
+      matchesCategory = !item.isChilled;
+    } else if (activeCategory === 'dairy') {
+      matchesCategory = item.category.toLowerCase().includes('dairy');
+    } else if (activeCategory === 'poultry') {
+      matchesCategory = item.category.toLowerCase().includes('poultry') || item.category.toLowerCase().includes('meat');
+    } else if (activeCategory === 'grains') {
+      matchesCategory = item.category.toLowerCase().includes('grain') || item.category.toLowerCase().includes('pantry') || item.category.toLowerCase().includes('cooking');
+    } else if (activeCategory === 'beverages') {
+      matchesCategory = item.category.toLowerCase().includes('beverage') || item.category.toLowerCase().includes('spice');
+    }
+
+    let matchesStock = true;
+    if (inStockOnly) {
+      matchesStock = item.stockStatus !== 'out_of_stock';
+    }
+
+    return matchesSearch && matchesCategory && matchesStock;
+  });
 
   // Adjust Quantity
   const handleQtyChange = (id: string, delta: number) => {
@@ -70,7 +116,7 @@ export default function PlaceOrderView({
   // Remove Item
   const handleRemoveItem = (id: string) => {
     if (orderItems.length <= 1) {
-      alert('Your order must contain at least 1 item.');
+      alert('Your requisition must contain at least 1 item.');
       return;
     }
     setOrderItems((prev: any[]) => prev.filter((item: any) => item.id !== id));
@@ -78,6 +124,11 @@ export default function PlaceOrderView({
 
   // Add Item from Catalog
   const handleAddItemFromCatalog = (catalogItem: any) => {
+    if (catalogItem.stockStatus === 'out_of_stock') {
+      alert('This SKU is currently out of stock at Peliyagoda Central Depot. Replenishment scheduled for next intake wave.');
+      return;
+    }
+
     setOrderItems((prev: any[]) => {
       const existing = prev.find((i: any) => i.id === catalogItem.id);
       if (existing) {
@@ -88,48 +139,40 @@ export default function PlaceOrderView({
           ...prev,
           {
             id: catalogItem.id,
+            sku: catalogItem.sku || `SKU-${catalogItem.id}`,
             name: catalogItem.name,
             qty: 1,
             unit: catalogItem.unit || 'units',
             unitWeight: Number(catalogItem.unitWeight) || 5.0,
             unitVol: Number(catalogItem.unitVol) || 0.01,
             temp: isChilled ? 'Chilled (+4°C)' : 'Ambient',
-            isChilled: isChilled
+            isChilled: isChilled,
+            image: catalogItem.image
           }
         ];
       }
     });
 
     setJustAddedId(catalogItem.id);
-    setTimeout(() => setJustAddedId(null), 2000);
-    setShowAddModal(false);
+    setTimeout(() => setJustAddedId(null), 1800);
   };
 
-  // Available Fresh Catalog
-  const allDryItems = PRODUCT_CATALOG?.Fresh?.dry?.map((i: any) => ({ ...i, isChilled: false })) || [];
-  const allChilledItems = PRODUCT_CATALOG?.Fresh?.chilled?.map((i: any) => ({ ...i, isChilled: true })) || [];
-  
-  const getFilteredCatalog = () => {
-    if (catalogFilter === 'dry') return allDryItems;
-    if (catalogFilter === 'chilled') return allChilledItems;
-    return [...allDryItems, ...allChilledItems];
-  };
-
-  // Live Dynamic Calculations for Order Summary
+  // Live Calculations for Requisition Passport
   const totalLineItems = orderItems.length;
-  const totalVolumeCases = orderItems.reduce((acc: number, itm: any) => acc + (Number(itm.qty) || 1), 0);
-  const chilledCases = orderItems
+  const totalUnits = orderItems.reduce((acc: number, itm: any) => acc + (Number(itm.qty) || 1), 0);
+  const chilledUnits = orderItems
     .filter((i: any) => i.isChilled === true || (i.temp && i.temp.toLowerCase().includes('chilled')))
     .reduce((acc: number, itm: any) => acc + (Number(itm.qty) || 1), 0);
-  const ambientCases = orderItems
+  const ambientUnits = orderItems
     .filter((i: any) => !i.isChilled && (!i.temp || !i.temp.toLowerCase().includes('chilled')))
     .reduce((acc: number, itm: any) => acc + (Number(itm.qty) || 1), 0);
   
   const estimatedWeightKg = orderItems.reduce((acc: number, itm: any) => acc + ((Number(itm.unitWeight) || 5.0) * (Number(itm.qty) || 1)), 0);
+  const estimatedVolumeCbm = orderItems.reduce((acc: number, itm: any) => acc + ((Number(itm.unitVol) || 0.01) * (Number(itm.qty) || 1)), 0);
 
   const handlePlaceOrderSubmit = () => {
     if (orderItems.length === 0) {
-      alert('Please select at least 1 item to place an order.');
+      alert('Please select at least 1 item to place a requisition.');
       return;
     }
 
@@ -138,27 +181,30 @@ export default function PlaceOrderView({
       outlet_id: selectedOutlet.outlet_id || 'OUT001',
       brand: `Fresh`,
       brand_code: 'FR',
-      order_type: chilledCases > 0 
-        ? (ambientCases > 0 ? 'Brand Fresh · Chilled + Ambient' : 'Brand Fresh · Chilled Only') 
+      order_type: chilledUnits > 0 
+        ? (ambientUnits > 0 ? 'Brand Fresh · Chilled + Ambient' : 'Brand Fresh · Chilled Only') 
         : 'Brand Fresh · Ambient Dry',
       order_date: 'Today, 8 Jan 2026',
       requested_for: storeClosureNotice ? '10 Jan 2026' : '9 Jan 2026',
       placed_at: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       status: 'Awaiting Planning',
       section: 'future',
-      order_units: totalVolumeCases,
-      items: orderItems.map(i => ({
+      order_units: totalUnits,
+      weight_kg: Number(estimatedWeightKg.toFixed(1)),
+      volume_cbm: Number(estimatedVolumeCbm.toFixed(3)),
+      items: orderItems.map((i: any) => ({
         id: i.id,
+        sku: i.sku,
         name: i.name,
         qty: Number(i.qty) || 1,
         unit: i.unit,
         expected: Number(i.qty) || 1,
         loaded: Number(i.qty) || 1,
-        temp: i.temp || (i.isChilled ? 'Chilled (+4°C)' : 'Ambient')
+        temp: i.temp || (i.isChilled ? 'Chilled (+4°C)' : 'Ambient'),
+        image: i.image
       }))
     };
 
-    setShowReviewModal(false);
     onOrderCreated(newOrder);
   };
 
@@ -167,389 +213,872 @@ export default function PlaceOrderView({
       {/* Top Header Bar */}
       <div className="figma-header-bar">
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h1 className="page-title-text">{editingOrder ? `Modify Order ${editingOrder.delivery_id}` : 'Place New Order'}</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+            <button
+              onClick={() => setCurrentView('dashboard')}
+              className="back-link-btn"
+              style={{ margin: 0 }}
+            >
+              <ArrowLeft size={16} />
+              <span>Back to Orders</span>
+            </button>
             {editingOrder && (
-              <span style={{ fontSize: '11px', background: '#E0F2FE', color: '#0369A1', padding: '3px 8px', borderRadius: '4px', fontWeight: 600 }}>
-                Editing Active Requisition
+              <span style={{
+                background: '#FEF3C7',
+                color: '#D97706',
+                fontSize: '11px',
+                fontWeight: 700,
+                padding: '2px 8px',
+                borderRadius: '4px'
+              }}>
+                Editing #{editingOrder.delivery_id}
               </span>
             )}
           </div>
+          <h1 className="page-title-text">
+            {editingOrder ? `Modify Requisition #${editingOrder.delivery_id}` : 'Place Daily Store Requisition'}
+          </h1>
           <p className="page-subtitle-text">
-            {editingOrder ? 'Adjust items or quantities before 16:00 cutoff locks dispatch planning' : `Prepare replenishment orders for ${selectedOutlet.outlet_id || 'OUT001'} · ${selectedOutlet.name || 'Colpetty Retailer'}`}
+            Peliyagoda Central Depot Fulfillment Catalog • Target Delivery: <strong>{storeClosureNotice ? '10 Jan 2026' : '9 Jan 2026'}</strong>
           </p>
         </div>
 
-        {/* Right Action buttons */}
-        <div style={{ display: 'flex', gap: '10px' }}>
-          {editingOrder && (
-            <button
-              onClick={onCancelEdit || (() => setCurrentView('dashboard'))}
-              style={{
-                background: '#FFFFFF',
-                border: '1px solid #CBD5E1',
-                borderRadius: '8px',
-                padding: '8px 14px',
-                fontSize: '13px',
-                fontWeight: 600,
-                color: '#475569',
-                cursor: 'pointer'
-              }}
-            >
-              Cancel Edit
-            </button>
-          )}
-
-          <button
-            onClick={() => setCurrentView('dashboard')}
-            className="back-link-btn"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#334155', fontWeight: 600, fontSize: '13px', padding: '8px 14px', borderRadius: '8px' }}
-          >
-            <ArrowLeft size={15} />
-            <span>Back to My Orders</span>
-          </button>
+        {/* 16:00 Cutoff Banner Pill */}
+        <div className="meta-badges-row">
+          <div style={{
+            background: '#FFF7ED',
+            border: '1px solid #FFEDD5',
+            borderRadius: '8px',
+            padding: '8px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            fontSize: '12px',
+            color: '#C2410C',
+            fontWeight: 600
+          }}>
+            <Clock size={15} color="#EA580C" />
+            <span>Daily Cutoff: <strong>16:00 Today</strong> (Auto Route Batching)</span>
+          </div>
         </div>
       </div>
 
-      {/* Main Two-Column Layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1.25fr 0.75fr', gap: '24px', alignItems: 'flex-start', marginTop: '16px' }}>
-        
-        {/* LEFT COLUMN: Order Line Items List */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          
-          <div className="figma-card" style={{ padding: '20px', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1E293B', margin: 0 }}>
-                  Order Requisition Items ({orderItems.length})
-                </h3>
-                <p style={{ fontSize: '12px', color: '#64748B', margin: '2px 0 0' }}>
-                  Select items and adjust quantities for warehouse pick & staging
-                </p>
-              </div>
-
+      {/* Search & Category Filter Toolbar */}
+      <div style={{
+        background: '#FFFFFF',
+        border: '1px solid #E2E8F0',
+        borderRadius: '12px',
+        padding: '16px 20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '14px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)'
+      }}>
+        {/* Top Row: Search Input + In Stock Toggle */}
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: '240px', position: 'relative' }}>
+            <Search size={16} color="#94A3B8" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              placeholder="Search Peliyagoda inventory by product name, category, or SKU..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '9px 12px 9px 36px',
+                borderRadius: '8px',
+                border: '1px solid #CBD5E1',
+                fontFamily: 'Poppins, sans-serif',
+                fontSize: '13px',
+                outline: 'none'
+              }}
+            />
+            {searchQuery && (
               <button
                 type="button"
-                onClick={() => setShowAddModal(true)}
-                style={{
-                  background: '#FFF7ED',
-                  border: '1px solid #FFD8A8',
-                  borderRadius: '6px',
-                  padding: '7px 12px',
-                  fontSize: '12.5px',
-                  fontWeight: 600,
-                  color: '#C2410C',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px'
-                }}
+                onClick={() => setSearchQuery('')}
+                style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', cursor: 'pointer', color: '#94A3B8' }}
               >
-                <Plus size={14} />
-                <span>+ Add Item from Catalog</span>
+                ✕
               </button>
+            )}
+          </div>
+
+          {/* In Stock Only Checkbox */}
+          <label style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '12.5px',
+            color: '#475569',
+            fontWeight: 500,
+            cursor: 'pointer',
+            userSelect: 'none',
+            background: inStockOnly ? '#F0FDF4' : '#F8FAFC',
+            border: inStockOnly ? '1px solid #BBF7D0' : '1px solid #E2E8F0',
+            padding: '8px 14px',
+            borderRadius: '8px'
+          }}>
+            <input
+              type="checkbox"
+              checked={inStockOnly}
+              onChange={(e) => setInStockOnly(e.target.checked)}
+              style={{ accentColor: '#16A34A', cursor: 'pointer' }}
+            />
+            <span>In Stock Only ({masterCatalog.filter(i => i.stockStatus !== 'out_of_stock').length})</span>
+          </label>
+        </div>
+
+        {/* Category Filter Pills (Daraz / Amazon Fresh Category Tabs) */}
+        <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
+          {[
+            { id: 'all', label: '🌟 All Fresh Items', count: masterCatalog.length },
+            { id: 'chilled', label: '❄️ Chilled Perishables (+4°C)', count: allChilledItems.length },
+            { id: 'ambient', label: '📦 Ambient Dry Goods', count: allDryItems.length },
+            { id: 'dairy', label: '🥛 Chilled Dairy', count: masterCatalog.filter(i => i.category.toLowerCase().includes('dairy')).length },
+            { id: 'poultry', label: '🍗 Poultry & Meats', count: masterCatalog.filter(i => i.category.toLowerCase().includes('poultry')).length },
+            { id: 'grains', label: '🌾 Grains & Pantry Staples', count: masterCatalog.filter(i => i.category.toLowerCase().includes('grain') || i.category.toLowerCase().includes('pantry')).length },
+            { id: 'beverages', label: '☕ Beverages & Spices', count: masterCatalog.filter(i => i.category.toLowerCase().includes('beverage') || i.category.toLowerCase().includes('spice')).length },
+          ].map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveCategory(tab.id)}
+              style={{
+                background: activeCategory === tab.id ? '#FF6600' : '#F8FAFC',
+                color: activeCategory === tab.id ? '#FFFFFF' : '#475569',
+                border: activeCategory === tab.id ? '1px solid #FF6600' : '1px solid #E2E8F0',
+                borderRadius: '8px',
+                padding: '6px 12px',
+                fontSize: '12px',
+                fontWeight: activeCategory === tab.id ? 600 : 500,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              {tab.label} <span style={{ opacity: activeCategory === tab.id ? 0.9 : 0.6, fontSize: '11px' }}>({tab.count})</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Main Split Content Layout: Left = Product Catalog Grid, Right = Requisition Basket */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: '1fr 380px',
+        gap: '24px',
+        alignItems: 'flex-start'
+      }}>
+        {/* LEFT: Product Catalog Section */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          {/* Catalog Top Header Bar with Count and View Switcher */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <span style={{ fontSize: '13.5px', fontWeight: 700, color: '#1E293B' }}>
+                Peliyagoda Master Catalog ({filteredCatalog.length} products available)
+              </span>
+              <span style={{ fontSize: '11.5px', color: '#64748B', marginLeft: '8px' }}>
+                Verified Hub 01 Inventory
+              </span>
             </div>
 
-            {/* Line Items Rows */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {orderItems.map((item: any) => {
-                const isItemChilled = item.isChilled === true || (item.temp && item.temp.toLowerCase().includes('chilled'));
+            {/* View Mode Toggle Switch */}
+            <div style={{
+              display: 'flex',
+              background: '#F1F5F9',
+              padding: '3px',
+              borderRadius: '8px',
+              border: '1px solid #E2E8F0'
+            }}>
+              <button
+                type="button"
+                onClick={() => setViewMode('grid')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '11.5px',
+                  fontWeight: viewMode === 'grid' ? 700 : 500,
+                  background: viewMode === 'grid' ? '#FFFFFF' : 'transparent',
+                  color: viewMode === 'grid' ? '#FF6600' : '#64748B',
+                  boxShadow: viewMode === 'grid' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <LayoutGrid size={13} />
+                <span>Compact Cards</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('table')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '5px',
+                  padding: '4px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '11.5px',
+                  fontWeight: viewMode === 'table' ? 700 : 500,
+                  background: viewMode === 'table' ? '#FFFFFF' : 'transparent',
+                  color: viewMode === 'table' ? '#FF6600' : '#64748B',
+                  boxShadow: viewMode === 'table' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s ease'
+                }}
+              >
+                <List size={13} />
+                <span>Wholesale Table</span>
+              </button>
+            </div>
+          </div>
+
+          {filteredCatalog.length === 0 ? (
+            <div style={{
+              background: '#FFFFFF',
+              border: '1px dashed #CBD5E1',
+              borderRadius: '10px',
+              padding: '40px 20px',
+              textAlign: 'center',
+              color: '#64748B'
+            }}>
+              <Package size={32} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
+              <div style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>No products match your filter</div>
+              <div style={{ fontSize: '12px', marginTop: '4px' }}>Try adjusting your search keywords or switching category filters.</div>
+            </div>
+          ) : viewMode === 'grid' ? (
+            /* COMPACT GRID VIEW (High density, smaller images, 4 cards per row) */
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(215px, 1fr))',
+              gap: '12px'
+            }}>
+              {filteredCatalog.map((item: any) => {
+                const inBasket = orderItems.find((i: any) => i.id === item.id);
+                const isOutOfStock = item.stockStatus === 'out_of_stock';
+                const isLowStock = item.stockStatus === 'low_stock';
+
                 return (
                   <div
                     key={item.id}
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '14px',
+                      background: '#FFFFFF',
+                      border: inBasket ? '1.5px solid #FF6600' : '1px solid #E2E8F0',
                       borderRadius: '10px',
-                      border: justAddedId === item.id ? '1.5px solid #FF6600' : '1px solid #F1F5F9',
-                      background: justAddedId === item.id ? '#FFF7ED' : '#F8FAFC',
-                      transition: 'all 0.2s ease'
+                      overflow: 'hidden',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      boxShadow: inBasket ? '0 3px 10px rgba(255, 102, 0, 0.09)' : '0 1px 3px rgba(0, 0, 0, 0.02)',
+                      transition: 'all 0.15s ease',
+                      opacity: isOutOfStock ? 0.65 : 1
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        width: '36px',
-                        height: '36px',
-                        borderRadius: '8px',
-                        background: isItemChilled ? '#E0F2FE' : '#F1F5F9',
+                    {/* Compact Image Banner */}
+                    <div 
+                      style={{ 
+                        position: 'relative', 
+                        height: '105px', 
+                        width: '100%', 
+                        background: '#0F172A', 
+                        overflow: 'hidden' 
+                      }}
+                    >
+                      <img
+                        src={item.image || 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=400&auto=format&fit=crop&q=80'}
+                        alt={item.name}
+                        loading="lazy"
+                        style={{ 
+                          width: '100%', 
+                          height: '100%', 
+                          objectFit: 'cover',
+                          transition: 'transform 0.3s ease',
+                          display: 'block'
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.06)'}
+                        onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1.0)'}
+                      />
+
+                      {/* Temperature Badge */}
+                      <span style={{
+                        position: 'absolute',
+                        top: '6px',
+                        left: '6px',
+                        background: item.isChilled ? 'rgba(2, 132, 199, 0.95)' : 'rgba(30, 41, 59, 0.9)',
+                        color: '#FFFFFF',
+                        fontSize: '9.5px',
+                        fontWeight: 700,
+                        padding: '2px 7px',
+                        borderRadius: '9999px',
+                        backdropFilter: 'blur(4px)',
                         display: 'flex',
                         alignItems: 'center',
-                        justifyContent: 'center'
+                        gap: '3px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.2)'
                       }}>
-                        {isItemChilled ? (
-                          <Snowflake size={18} color="#0284C7" />
-                        ) : (
-                          <Package size={18} color="#475569" />
-                        )}
-                      </div>
+                        {item.isChilled ? <Snowflake size={10} /> : <Package size={10} />}
+                        <span>{item.isChilled ? 'Chilled +4°C' : 'Ambient'}</span>
+                      </span>
 
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: '13.5px', color: '#1E293B' }}>{item.name}</div>
-                        <div style={{ fontSize: '11.5px', color: '#64748B', marginTop: '2px' }}>
-                          Unit: {item.unit} · {item.temp || (isItemChilled ? 'Chilled (+4°C)' : 'Ambient')}
-                        </div>
-                      </div>
+                      {/* Stock Badge */}
+                      <span style={{
+                        position: 'absolute',
+                        bottom: '6px',
+                        right: '6px',
+                        background: isOutOfStock ? '#EF4444' : isLowStock ? '#F59E0B' : '#10B981',
+                        color: '#FFFFFF',
+                        fontSize: '9.5px',
+                        fontWeight: 700,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.25)'
+                      }}>
+                        {isOutOfStock ? 'Out of Stock' : isLowStock ? `Low (${item.stockQty})` : `In Stock (${item.stockQty})`}
+                      </span>
                     </div>
 
-                    {/* Quantity Stepper & Remove */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <div style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        background: '#FFFFFF',
-                        border: '1px solid #CBD5E1',
-                        borderRadius: '6px',
-                        overflow: 'hidden'
-                      }}>
-                        <button
-                          type="button"
-                          onClick={() => handleQtyChange(item.id, -1)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: '6px 10px',
-                            cursor: 'pointer',
-                            color: '#475569'
-                          }}
-                        >
-                          <Minus size={14} />
-                        </button>
+                    {/* Compact Product Details */}
+                    <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', flex: 1, justifyContent: 'space-between', gap: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '10px', color: '#64748B', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+                          {item.category} • {item.sku}
+                        </div>
+                        <h4 style={{ 
+                          fontSize: '12.5px', 
+                          fontWeight: 700, 
+                          color: '#1E293B', 
+                          margin: '3px 0 4px', 
+                          lineHeight: '16px',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden'
+                        }} title={item.name}>
+                          {item.name}
+                        </h4>
 
-                        <span style={{ padding: '0 8px', fontWeight: 700, fontSize: '13px', color: '#1E293B', minWidth: '24px', textAlign: 'center' }}>
-                          {item.qty}
-                        </span>
-
-                        <button
-                          type="button"
-                          onClick={() => handleQtyChange(item.id, 1)}
-                          style={{
-                            background: 'none',
-                            border: 'none',
-                            padding: '6px 10px',
-                            cursor: 'pointer',
-                            color: '#475569'
-                          }}
-                        >
-                          <Plus size={14} />
-                        </button>
+                        {/* Unit & Specs */}
+                        <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                          <span style={{ background: '#F1F5F9', color: '#475569', fontSize: '10.5px', fontWeight: 600, padding: '1px 6px', borderRadius: '4px' }}>
+                            {item.unit}
+                          </span>
+                          <span style={{ background: '#F8FAFC', color: '#64748B', fontSize: '10.5px', fontWeight: 500, padding: '1px 6px', borderRadius: '4px', border: '1px solid #E2E8F0' }}>
+                            {item.unitWeight} kg/ea
+                          </span>
+                        </div>
                       </div>
 
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItem(item.id)}
-                        title="Remove item"
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: '#94A3B8',
-                          cursor: 'pointer',
-                          padding: '4px'
-                        }}
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      {/* Action: Add / Stepper */}
+                      <div>
+                        {isOutOfStock ? (
+                          <button
+                            type="button"
+                            disabled
+                            style={{
+                              width: '100%',
+                              padding: '6px 8px',
+                              background: '#F1F5F9',
+                              border: '1px solid #E2E8F0',
+                              borderRadius: '6px',
+                              color: '#94A3B8',
+                              fontSize: '11px',
+                              fontWeight: 600,
+                              cursor: 'not-allowed',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px'
+                            }}
+                          >
+                            <AlertTriangle size={12} />
+                            <span>Out of Stock</span>
+                          </button>
+                        ) : inBasket ? (
+                          <div style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            background: '#FFF4ED',
+                            border: '1.5px solid #FF6600',
+                            borderRadius: '6px',
+                            padding: '3px 6px'
+                          }}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (inBasket.qty === 1) {
+                                  handleRemoveItem(item.id);
+                                } else {
+                                  handleQtyChange(item.id, -1);
+                                }
+                              }}
+                              style={{
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '4px',
+                                border: '1px solid #FED7AA',
+                                background: '#FFFFFF',
+                                color: '#EA580C',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: '14px'
+                              }}
+                            >
+                              -
+                            </button>
+
+                            <div style={{ textAlign: 'center' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: '#EA580C' }}>
+                                {inBasket.qty} {inBasket.unit.split(' ')[0]}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handleQtyChange(item.id, 1)}
+                              style={{
+                                width: '24px',
+                                height: '24px',
+                                borderRadius: '4px',
+                                border: '1px solid #FED7AA',
+                                background: '#FFFFFF',
+                                color: '#EA580C',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                fontSize: '14px'
+                              }}
+                            >
+                              +
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleAddItemFromCatalog(item)}
+                            style={{
+                              width: '100%',
+                              padding: '6px 10px',
+                              background: '#FFFFFF',
+                              border: '1.5px solid #FF6600',
+                              borderRadius: '6px',
+                              color: '#FF6600',
+                              fontSize: '11.5px',
+                              fontWeight: 700,
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              gap: '4px',
+                              transition: 'all 0.15s ease'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background = '#FF6600';
+                              e.currentTarget.style.color = '#FFFFFF';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#FFFFFF';
+                              e.currentTarget.style.color = '#FF6600';
+                            }}
+                          >
+                            <Plus size={13} />
+                            <span>Add to Order</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
+          ) : (
+            /* WHOLESALE TABLE VIEW (Dense, High-Speed Wholesale B2B Row Ordering) */
+            <div style={{
+              background: '#FFFFFF',
+              border: '1px solid #E2E8F0',
+              borderRadius: '10px',
+              overflow: 'hidden',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
+            }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', color: '#64748B', fontWeight: 600 }}>
+                    <th style={{ padding: '10px 14px', width: '56px' }}>Item</th>
+                    <th style={{ padding: '10px 12px' }}>Product Description</th>
+                    <th style={{ padding: '10px 12px' }}>Temp</th>
+                    <th style={{ padding: '10px 12px' }}>Pkg & Wt</th>
+                    <th style={{ padding: '10px 12px' }}>Stock</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', width: '130px' }}>Requisition Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCatalog.map((item: any, idx: number) => {
+                    const inBasket = orderItems.find((i: any) => i.id === item.id);
+                    const isOutOfStock = item.stockStatus === 'out_of_stock';
+                    const isLowStock = item.stockStatus === 'low_stock';
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#F0F9FF', padding: '10px 14px', borderRadius: '8px', marginTop: '16px', fontSize: '12px', color: '#0369A1' }}>
-              <Info size={16} color="#0284C7" />
-              <span>Orders placed before 16:00 cutoff will be scheduled on tomorrow's primary morning fleet run.</span>
+                    return (
+                      <tr 
+                        key={item.id}
+                        style={{ 
+                          borderBottom: idx < filteredCatalog.length - 1 ? '1px solid #F1F5F9' : 'none',
+                          background: inBasket ? '#FFFDF9' : 'transparent',
+                          transition: 'background 0.1s ease'
+                        }}
+                      >
+                        {/* Thumbnail */}
+                        <td style={{ padding: '8px 14px' }}>
+                          <img
+                            src={item.image || 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=100&auto=format&fit=crop&q=80'}
+                            alt={item.name}
+                            loading="lazy"
+                            style={{ width: '42px', height: '42px', borderRadius: '6px', objectFit: 'cover', display: 'block', border: '1px solid #E2E8F0' }}
+                          />
+                        </td>
+
+                        {/* Title & SKU */}
+                        <td style={{ padding: '8px 12px' }}>
+                          <div style={{ fontWeight: 700, color: '#1E293B', fontSize: '12.5px' }}>{item.name}</div>
+                          <div style={{ fontSize: '10.5px', color: '#64748B' }}>{item.sku} • {item.category}</div>
+                        </td>
+
+                        {/* Temp Badge */}
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '3px',
+                            padding: '2px 7px',
+                            borderRadius: '9999px',
+                            fontSize: '10px',
+                            fontWeight: 700,
+                            background: item.isChilled ? '#E0F2FE' : '#F1F5F9',
+                            color: item.isChilled ? '#0369A1' : '#475569'
+                          }}>
+                            {item.isChilled ? <Snowflake size={10} /> : <Package size={10} />}
+                            {item.isChilled ? 'Chilled' : 'Ambient'}
+                          </span>
+                        </td>
+
+                        {/* Pkg & Wt */}
+                        <td style={{ padding: '8px 12px' }}>
+                          <div style={{ fontWeight: 600, color: '#334155' }}>{item.unit}</div>
+                          <div style={{ fontSize: '10.5px', color: '#64748B' }}>{item.unitWeight} kg/ea</div>
+                        </td>
+
+                        {/* Stock */}
+                        <td style={{ padding: '8px 12px' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            fontSize: '10.5px',
+                            fontWeight: 700,
+                            background: isOutOfStock ? '#FEE2E2' : isLowStock ? '#FEF3C7' : '#D1FAE5',
+                            color: isOutOfStock ? '#991B1B' : isLowStock ? '#92400E' : '#065F46'
+                          }}>
+                            {isOutOfStock ? '0 (Out of stock)' : `${item.stockQty} available`}
+                          </span>
+                        </td>
+
+                        {/* Order Stepper / Button */}
+                        <td style={{ padding: '8px 14px', textAlign: 'right' }}>
+                          {isOutOfStock ? (
+                            <span style={{ fontSize: '11px', color: '#94A3B8', fontWeight: 600 }}>Unavailable</span>
+                          ) : inBasket ? (
+                            <div style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              background: '#FFF4ED',
+                              border: '1.5px solid #FF6600',
+                              borderRadius: '6px',
+                              padding: '2px 6px',
+                              gap: '6px'
+                            }}>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (inBasket.qty === 1) {
+                                    handleRemoveItem(item.id);
+                                  } else {
+                                    handleQtyChange(item.id, -1);
+                                  }
+                                }}
+                                style={{
+                                  width: '22px',
+                                  height: '22px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #FED7AA',
+                                  background: '#FFFFFF',
+                                  color: '#EA580C',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}
+                              >
+                                -
+                              </button>
+                              <span style={{ fontSize: '12px', fontWeight: 700, color: '#EA580C', minWidth: '20px', textAlign: 'center' }}>
+                                {inBasket.qty}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleQtyChange(item.id, 1)}
+                                style={{
+                                  width: '22px',
+                                  height: '22px',
+                                  borderRadius: '4px',
+                                  border: '1px solid #FED7AA',
+                                  background: '#FFFFFF',
+                                  color: '#EA580C',
+                                  fontWeight: 700,
+                                  cursor: 'pointer',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center'
+                                }}
+                              >
+                                +
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleAddItemFromCatalog(item)}
+                              style={{
+                                padding: '5px 12px',
+                                background: '#FFFFFF',
+                                border: '1.5px solid #FF6600',
+                                borderRadius: '6px',
+                                color: '#FF6600',
+                                fontSize: '11.5px',
+                                fontWeight: 700,
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '4px',
+                                transition: 'all 0.15s ease'
+                              }}
+                              onMouseEnter={(e) => {
+                                e.currentTarget.style.background = '#FF6600';
+                                e.currentTarget.style.color = '#FFFFFF';
+                              }}
+                              onMouseLeave={(e) => {
+                                e.currentTarget.style.background = '#FFFFFF';
+                                e.currentTarget.style.color = '#FF6600';
+                              }}
+                            >
+                              <Plus size={13} />
+                              <span>Add</span>
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT: Requisition Basket & Capacity Passport */}
+        <div style={{
+          background: '#FFFFFF',
+          border: '1px solid #E2E8F0',
+          borderRadius: '12px',
+          padding: '20px',
+          position: 'sticky',
+          top: '80px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '16px',
+          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.04)'
+        }}>
+          {/* Basket Header */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F1F5F9', paddingBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <ShoppingBag size={18} color="#FF6600" />
+              <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1E293B', margin: 0 }}>
+                Store Requisition
+              </h3>
+            </div>
+            <span style={{
+              background: '#FFF4ED',
+              color: '#FF6600',
+              fontSize: '11px',
+              fontWeight: 700,
+              padding: '2px 8px',
+              borderRadius: '9999px'
+            }}>
+              {totalLineItems} Items ({totalUnits} units)
+            </span>
+          </div>
+
+          {/* Added Line Items List */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '10px',
+            maxHeight: '260px',
+            overflowY: 'auto',
+            paddingRight: '4px'
+          }}>
+            {orderItems.map((item: any) => (
+              <div
+                key={item.id}
+                style={{
+                  background: '#F8FAFC',
+                  border: '1px solid #E2E8F0',
+                  borderRadius: '8px',
+                  padding: '10px 12px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  gap: '8px'
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#1E293B', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {item.name}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginTop: '2px' }}>
+                    <span style={{
+                      fontSize: '10.5px',
+                      color: item.isChilled ? '#0284C7' : '#64748B',
+                      fontWeight: 600
+                    }}>
+                      {item.isChilled ? '❄️ Chilled' : '📦 Ambient'}
+                    </span>
+                    <span style={{ color: '#CBD5E1' }}>•</span>
+                    <span style={{ fontSize: '10.5px', color: '#64748B' }}>
+                      {((Number(item.unitWeight) || 5.0) * (Number(item.qty) || 1)).toFixed(1)} kg
+                    </span>
+                  </div>
+                </div>
+
+                {/* Stepper + Delete */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button
+                    type="button"
+                    onClick={() => handleQtyChange(item.id, -1)}
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '4px',
+                      border: '1px solid #CBD5E1',
+                      background: '#FFFFFF',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    -
+                  </button>
+                  <span style={{ fontSize: '12.5px', fontWeight: 700, minWidth: '18px', textAlign: 'center' }}>
+                    {item.qty}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleQtyChange(item.id, 1)}
+                    style={{
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '4px',
+                      border: '1px solid #CBD5E1',
+                      background: '#FFFFFF',
+                      fontSize: '13px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    +
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveItem(item.id)}
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      color: '#94A3B8',
+                      cursor: 'pointer',
+                      padding: '2px',
+                      marginLeft: '2px'
+                    }}
+                    title="Remove item"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Live Capacity Passport Box */}
+          <div style={{
+            background: '#F0F9FF',
+            border: '1px solid #BAE6FD',
+            borderRadius: '10px',
+            padding: '12px 14px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+            fontSize: '12px'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#0369A1', fontWeight: 600 }}>Total Requisition Weight:</span>
+              <span style={{ color: '#0C4A6E', fontWeight: 700, fontSize: '13px' }}>{estimatedWeightKg.toFixed(1)} kg</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#0369A1', fontWeight: 600 }}>Estimated Volume:</span>
+              <span style={{ color: '#0C4A6E', fontWeight: 700 }}>{estimatedVolumeCbm.toFixed(3)} m³</span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ color: '#0369A1', fontWeight: 600 }}>Compartment Needs:</span>
+              <span style={{
+                fontSize: '11px',
+                fontWeight: 700,
+                color: chilledUnits > 0 ? '#0284C7' : '#475569'
+              }}>
+                {chilledUnits > 0 ? `❄️ Reefer (${chilledUnits} units) + 📦 Dry` : '📦 Dry-Box Only'}
+              </span>
             </div>
           </div>
 
-        </div>
-
-        {/* RIGHT COLUMN: Real-Time Dynamic Requisition Summary */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          
-          {/* Order Summary Card */}
-          <div className="figma-card" style={{ padding: '20px', background: '#FFFFFF', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 4px 12px -2px rgba(0,0,0,0.03)' }}>
-            <h3 style={{ fontSize: '15px', fontWeight: 700, color: '#1E293B', marginBottom: '14px' }}>
-              Requisition Summary
-            </h3>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B' }}>Total Line Items</span>
-                <strong style={{ color: '#1E293B', background: '#F1F5F9', padding: '2px 8px', borderRadius: '4px' }}>
-                  {totalLineItems} SKUs
-                </strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B' }}>Total Order Units</span>
-                <strong style={{ background: '#FFF7ED', color: '#C2410C', padding: '2px 8px', borderRadius: '4px' }}>
-                  {totalVolumeCases} units/cases
-                </strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B' }}>Temperature Split</span>
-                <span style={{ color: '#334155', fontWeight: 600, fontSize: '12.5px' }}>
-                  <strong style={{ color: '#0284C7' }}>{chilledCases} Chilled</strong> / <strong style={{ color: '#64748B' }}>{ambientCases} Ambient</strong>
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: '#64748B' }}>Target Delivery</span>
-                <strong style={{ color: '#FF6600' }}>Tomorrow Morning (Wave 1)</strong>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #F1F5F9', paddingTop: '10px' }}>
-                <span style={{ color: '#64748B' }}>Assigned Fleet Type</span>
-                <strong style={{ color: chilledCases > 0 ? '#0284C7' : '#16A34A', fontSize: '12.5px' }}>
-                  {chilledCases > 0 ? 'Reefer Van + Dry Box' : 'Dry-Box 6T Truck'}
-                </strong>
-              </div>
-            </div>
-
-            {/* Review & Submit Button */}
+          {/* Action: Review & Submit */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <button
               type="button"
               className="btn-orange-primary"
-              style={{ width: '100%', marginTop: '16px', padding: '12px', fontSize: '13.5px', fontWeight: 600 }}
+              style={{ width: '100%', padding: '12px' }}
               onClick={() => setShowReviewModal(true)}
             >
-              {editingOrder ? 'Review & Save Changes' : 'Review & Place Order'}
+              <span>Review & Lock Requisition →</span>
             </button>
-
-            <p style={{ fontSize: '11px', color: '#64748B', textAlign: 'center', lineHeight: '16px', margin: '8px 0 0' }}>
-              You will have a chance to review all items before final submission.
-            </p>
-          </div>
-
-          {/* Late Submission Policy */}
-          <div style={{ background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '10px', padding: '14px 16px', fontSize: '12px', color: '#64748B', lineHeight: '18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700, color: '#1E293B', marginBottom: '4px' }}>
-              <Clock size={14} color="#FF6600" />
-              <span>16:00 Daily Planning Cutoff</span>
+            <div style={{ fontSize: '11px', color: '#64748B', textAlign: 'center', lineHeight: '14px' }}>
+              Locked requisitions can be edited before 16:00 cutoff.
             </div>
-            Orders submitted after 16:00 today will be rolled over to the following operating run.
           </div>
-
         </div>
-
       </div>
 
-      {/* ========================================================================= */}
-      {/* MODAL 1: Pre-Submission Order Review Modal */}
-      {/* ========================================================================= */}
+      {/* Pre-Submission Order Review Modal */}
       {showReviewModal && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10000,
-          padding: '20px'
-        }}>
-          <div style={{
-            background: '#FFFFFF',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '540px',
-            boxShadow: '0 20px 40px -15px rgba(0,0,0,0.3)',
-            overflow: 'hidden'
-          }}>
-            <div style={{ background: '#F8FAFC', padding: '16px 20px', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#1E293B', fontWeight: 700, fontSize: '15px' }}>
-                <CheckCircle2 size={18} color="#FF6600" />
-                <span>Review Order Requisition</span>
-              </div>
-              <button onClick={() => setShowReviewModal(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#64748B' }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <p style={{ fontSize: '13px', color: '#475569', margin: 0 }}>
-                Please review your selected items and quantities before submitting to Peliyagoda depot:
-              </p>
-
-              {/* Items Manifest in Review */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '220px', overflowY: 'auto', border: '1px solid #F1F5F9', borderRadius: '8px', padding: '10px' }}>
-                {orderItems.map((item: any, idx: number) => (
-                  <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', background: '#F8FAFC', borderRadius: '6px', fontSize: '12.5px' }}>
-                    <div>
-                      <div style={{ fontWeight: 600, color: '#1E293B' }}>{item.name}</div>
-                      <div style={{ fontSize: '11px', color: '#64748B' }}>{item.temp || (item.isChilled ? 'Chilled' : 'Ambient')}</div>
-                    </div>
-                    <div style={{ fontWeight: 700, color: '#FF6600' }}>
-                      {item.qty} {item.unit}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', background: '#FFF7ED', padding: '10px 14px', borderRadius: '8px', fontSize: '12.5px', color: '#C2410C', fontWeight: 600 }}>
-                <span>Total: {orderItems.length} SKUs</span>
-                <span>{totalVolumeCases} units ({chilledCases} Chilled / {ambientCases} Ambient)</span>
-              </div>
-
-              {/* Review Modal Action Buttons */}
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
-                <button
-                  type="button"
-                  onClick={() => setShowReviewModal(false)}
-                  style={{
-                    padding: '9px 16px',
-                    borderRadius: '8px',
-                    border: '1px solid #CBD5E1',
-                    background: '#FFFFFF',
-                    color: '#334155',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Edit3 size={14} />
-                  <span>Adjust Quantities</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handlePlaceOrderSubmit}
-                  style={{
-                    padding: '9px 18px',
-                    borderRadius: '8px',
-                    border: 'none',
-                    background: '#FF6600',
-                    color: '#FFFFFF',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '6px'
-                  }}
-                >
-                  <Check size={15} />
-                  <span>{editingOrder ? 'Save & Submit' : 'Confirm & Place Order'}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL 2: Product Catalog Modal */}
-      {/* ========================================================================= */}
-      {showAddModal && (
         <div style={{
           position: 'fixed',
           inset: 0,
@@ -557,142 +1086,113 @@ export default function PlaceOrderView({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          zIndex: 10000,
+          zIndex: 1000,
           padding: '20px'
         }}>
           <div style={{
             background: '#FFFFFF',
-            borderRadius: '16px',
+            borderRadius: '12px',
             width: '100%',
-            maxWidth: '580px',
+            maxWidth: '540px',
             padding: '24px',
             boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)'
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <div>
-                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#202D2D', margin: 0 }}>
-                  Fresh Supermarket Catalog
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <CheckCircle size={20} color="#FF6600" />
+                <h3 style={{ fontSize: '17px', fontWeight: 700, color: '#1E293B', margin: 0 }}>
+                  Confirm Daily Requisition
                 </h3>
-                <p style={{ fontSize: '12px', color: '#64748B', margin: '2px 0 0 0' }}>
-                  Select dry groceries or cold-chain perishables to add to your order.
-                </p>
               </div>
               <button
                 type="button"
-                onClick={() => setShowAddModal(false)}
+                onClick={() => setShowReviewModal(false)}
                 style={{ background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#64748B' }}
               >
                 ✕
               </button>
             </div>
 
-            {/* Filter Tabs */}
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-              <button
-                type="button"
-                onClick={() => setCatalogFilter('all')}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: catalogFilter === 'all' ? '1.5px solid #FF6600' : '1px solid #CBD5E1',
-                  background: catalogFilter === 'all' ? '#FFF4ED' : '#FFFFFF',
-                  color: catalogFilter === 'all' ? '#FF6600' : '#485563',
-                  fontWeight: 600,
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                All Fresh ({allDryItems.length + allChilledItems.length})
-              </button>
+            <p style={{ fontSize: '12.5px', color: '#64748B', marginBottom: '16px' }}>
+              Please review your replenishment batch before locking into the <strong>Peliyagoda Central Depot</strong> dispatch queue.
+            </p>
 
-              <button
-                type="button"
-                onClick={() => setCatalogFilter('dry')}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: catalogFilter === 'dry' ? '1.5px solid #FF6600' : '1px solid #CBD5E1',
-                  background: catalogFilter === 'dry' ? '#FFF4ED' : '#FFFFFF',
-                  color: catalogFilter === 'dry' ? '#FF6600' : '#485563',
-                  fontWeight: 600,
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                🌾 Ambient Dry ({allDryItems.length})
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setCatalogFilter('chilled')}
-                style={{
-                  padding: '6px 12px',
-                  borderRadius: '6px',
-                  border: catalogFilter === 'chilled' ? '1.5px solid #FF6600' : '1px solid #CBD5E1',
-                  background: catalogFilter === 'chilled' ? '#FFF4ED' : '#FFFFFF',
-                  color: catalogFilter === 'chilled' ? '#FF6600' : '#485563',
-                  fontWeight: 600,
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                ❄️ Chilled Cold-Chain ({allChilledItems.length})
-              </button>
-            </div>
-
-            {/* Catalog Items List */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '340px', overflowY: 'auto' }}>
-              {getFilteredCatalog().map((item: any) => (
-                <div
-                  key={item.id}
-                  onClick={() => handleAddItemFromCatalog(item)}
-                  style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    padding: '12px',
-                    borderRadius: '8px',
-                    border: '1px solid #E2E8F0',
-                    background: '#F9FAFB',
-                    cursor: 'pointer',
-                    transition: 'all 0.15s'
-                  }}
-                >
+            {/* Manifest Review Table */}
+            <div style={{
+              background: '#F8FAFC',
+              border: '1px solid #E2E8F0',
+              borderRadius: '8px',
+              padding: '12px',
+              maxHeight: '220px',
+              overflowY: 'auto',
+              marginBottom: '16px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              {orderItems.map((item: any) => (
+                <div key={item.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px' }}>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: '13px', color: '#202D2D' }}>{item.name}</div>
-                    <div style={{ fontSize: '11px', color: '#64748B', marginTop: '2px' }}>
-                      Category: {item.category} • Unit: {item.unit}
-                    </div>
+                    <span style={{ fontWeight: 600, color: '#1E293B' }}>{item.name}</span>
+                    <span style={{ color: '#94A3B8', marginLeft: '6px' }}>({item.temp || 'Ambient'})</span>
                   </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    {item.isChilled ? (
-                      <span style={{ fontSize: '10px', background: '#E0F2FE', color: '#0284C7', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                        <Snowflake size={10} /> Chilled
-                      </span>
-                    ) : (
-                      <span style={{ fontSize: '10px', background: '#F1F5F9', color: '#475569', padding: '2px 8px', borderRadius: '4px', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
-                        <Package size={10} /> Ambient
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      style={{
-                        background: '#FF6600',
-                        color: '#FFFFFF',
-                        border: 'none',
-                        borderRadius: '4px',
-                        padding: '4px 10px',
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        cursor: 'pointer'
-                      }}
-                    >
-                      + Add
-                    </button>
-                  </div>
+                  <span style={{ fontWeight: 700, color: '#0F172A' }}>{item.qty} {item.unit}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Total Load Summary */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '8px',
+              background: '#FFF4ED',
+              border: '1px solid #FED7AA',
+              borderRadius: '8px',
+              padding: '10px 14px',
+              marginBottom: '18px',
+              fontSize: '12px'
+            }}>
+              <div>
+                <span style={{ color: '#9A3412', display: 'block', fontSize: '11px' }}>Total Line Items</span>
+                <strong style={{ color: '#7C2D12' }}>{totalLineItems} Items ({totalUnits} total units)</strong>
+              </div>
+              <div>
+                <span style={{ color: '#9A3412', display: 'block', fontSize: '11px' }}>Total Payload Weight</span>
+                <strong style={{ color: '#7C2D12' }}>{estimatedWeightKg.toFixed(1)} kg ({estimatedVolumeCbm.toFixed(3)} m³)</strong>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={() => setShowReviewModal(false)}
+                style={{
+                  background: '#FFFFFF',
+                  border: '1px solid #CBD5E1',
+                  borderRadius: '6px',
+                  padding: '8px 16px',
+                  fontFamily: 'Poppins, sans-serif',
+                  fontSize: '13px',
+                  color: '#475569',
+                  cursor: 'pointer'
+                }}
+              >
+                Back to Edit
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setShowReviewModal(false);
+                  handlePlaceOrderSubmit();
+                }}
+                className="btn-orange-primary"
+                style={{ padding: '8px 20px', fontSize: '13px' }}
+              >
+                ✓ Lock Requisition into Cutoff Queue
+              </button>
             </div>
           </div>
         </div>
