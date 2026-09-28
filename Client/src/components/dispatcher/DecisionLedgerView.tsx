@@ -1,18 +1,20 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import PageHeader from '@/components/common/PageHeader';
 import { useDispatcherPlan } from '@/store/dispatcher/PlanningContext';
 import type { DecisionLedgerAction } from '@/types/dispatcher';
 
 const SearchIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" /></svg>;
 const CalendarIcon = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>;
 
-type TabKey = 'All Decisions' | 'Deferrals Only' | 'Assignments' | 'Reassignments';
+type TabKey = 'All Decisions' | 'Deferrals Only' | 'Assignments' | 'Reassignments' | 'Resequenced';
 const TABS: { key: TabKey; match: (d: DecisionLedgerAction) => boolean }[] = [
   { key: 'All Decisions', match: () => true },
   { key: 'Deferrals Only', match: d => d === 'deferred' },
   { key: 'Assignments', match: d => d === 'assigned' },
   { key: 'Reassignments', match: d => d === 'reassigned' },
+  { key: 'Resequenced', match: d => d === 'resequenced' },
 ];
 
 const ACTION_STYLE: Record<DecisionLedgerAction, string> = {
@@ -20,10 +22,11 @@ const ACTION_STYLE: Record<DecisionLedgerAction, string> = {
   reassigned: 'text-[#10B981]',
   assigned: 'text-[#485563]',
   published: 'text-blue-600',
+  resequenced: 'text-purple-600',
 };
 
 export default function DecisionLedger() {
-  const { ledger, planVersion } = useDispatcherPlan();
+  const { ledger, draftRevision } = useDispatcherPlan();
   const [tab, setTab] = useState<TabKey>('All Decisions');
   const [search, setSearch] = useState('');
   const [date, setDate] = useState('');
@@ -41,26 +44,22 @@ export default function DecisionLedger() {
   return (
     <div className="flex flex-col flex-1 p-6 md:p-10 gap-6 w-full max-w-[1300px] mx-auto bg-[#F9FAFB] font-sans">
 
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 w-full">
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <h1 className="font-bold text-[28px] text-[#202D2D] leading-[36px] m-0">Decision Ledger</h1>
-            <span className="py-1 px-2 bg-[#FFF4ED] border border-[#F97316] rounded font-semibold text-[11px] text-[#F97316] uppercase">S1 Peak Day · Plan v{planVersion}</span>
-          </div>
-          <p className="text-sm text-[#485563] m-0">Append-only session-local decision history — {ledger.length} entries recorded this session</p>
-        </div>
-        <div className="flex flex-row items-center gap-3 flex-wrap">
-          <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg">
-            <SearchIcon />
-            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order or outlet..." className="border-none outline-none font-sans text-sm text-[#485563] w-[160px]" />
-          </div>
-          <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg" title="Date filtering is not applicable — every entry is from this session only">
-            <CalendarIcon />
-            <input value={date} onChange={e => setDate(e.target.value)} type="date" className="border-none outline-none font-sans text-sm text-[#485563]" disabled />
-          </div>
-        </div>
-      </div>
+      <PageHeader
+        title="Decision Ledger"
+        subtitle={`S1 Peak Day · Draft revision ${draftRevision} · Append-only session-local decision history — ${ledger.length} entries recorded this session`}
+        actions={
+          <>
+            <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg">
+              <SearchIcon />
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search order or outlet..." className="border-none outline-none font-sans text-sm text-[#485563] w-[160px]" />
+            </div>
+            <div className="flex flex-row items-center py-2 px-3 gap-2 bg-white border border-[#CBD5E1] rounded-lg" title="Date filtering is not applicable — every entry is from this session only">
+              <CalendarIcon />
+              <input value={date} onChange={e => setDate(e.target.value)} type="date" className="border-none outline-none font-sans text-sm text-[#485563]" disabled />
+            </div>
+          </>
+        }
+      />
 
       {/* Tabs */}
       <div className="flex flex-row gap-3 flex-wrap">

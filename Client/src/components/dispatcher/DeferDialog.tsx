@@ -27,8 +27,8 @@ export default function DeferDialog({
   const canSubmit = !requiresNote || note.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6">
-      <div className="bg-white rounded-xl w-[440px] flex flex-col shadow-2xl overflow-hidden">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 sm:p-6">
+      <div className="bg-white rounded-xl w-full max-w-[440px] max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
         <div className="p-5 border-b border-gray-200">
           <h2 className="font-bold text-xl text-gray-900">Defer Order</h2>
           <p className="text-sm text-gray-500 mt-1">Order {orderRef} will be removed from the active queue.</p>

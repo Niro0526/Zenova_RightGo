@@ -11,6 +11,13 @@ const ROLE_LABELS: Record<Role, string> = {
   driver: 'Driver',
 };
 
+const ROLE_PATHS: Record<Role, string> = {
+  'store-manager': '/store-manager',
+  dispatcher: '/dispatcher',
+  loader: '/loader',
+  driver: '/driver/today-run',
+};
+
 export default function RoleSwitcher({ active }: { active: Role }) {
   const router = useRouter();
 
@@ -19,7 +26,7 @@ export default function RoleSwitcher({ active }: { active: Role }) {
       <span>Switch workspace</span>
       <select
         value={active}
-        onChange={(event) => router.push(`/${event.target.value}`)}
+        onChange={(event) => router.push(ROLE_PATHS[event.target.value as Role] || `/${event.target.value}`)}
         className="min-h-11 w-full rounded-lg border border-[#333c46] bg-[#232A2E] px-3 text-[13px] font-medium text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-500"
       >
         {(Object.keys(ROLE_LABELS) as Role[]).map((role) => (

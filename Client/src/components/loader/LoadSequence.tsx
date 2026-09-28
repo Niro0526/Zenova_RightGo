@@ -9,7 +9,9 @@ import {
 } from "./icons";
 
 interface LoadSequenceProps {
-  onNavigate?: (tab: "assigned-trips" | "load-sequence" | "trip-readiness" | "report-issue" | "back") => void;
+  onNavigate?: (
+    tab: "assigned-trips" | "load-sequence" | "trip-readiness" | "report-issue" | "review-changes" | "back"
+  ) => void;
 }
 
 export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
@@ -38,15 +40,23 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     }
   };
 
+  const handleOpenReviewChanges = () => {
+    if (onNavigate) {
+      onNavigate("review-changes");
+    } else {
+      router.push("/loader/review-changes");
+    }
+  };
+
   const showToast = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 2500);
   };
 
   return (
-      <main className="flex-1 md:ml-[220px] lg:ml-[240px] bg-[#F9FAFB] min-h-screen flex flex-col w-full overflow-x-hidden pb-[85px] md:pb-12">
+      <main className="flex-1 md:ml-[220px] lg:ml-[240px] bg-[#F9FAFB] min-h-screen flex flex-col w-full overflow-x-hidden pb-[95px] md:pb-12">
         {/* Mobile Top Navigation Bar (< Load Sequence  [PEL-R04]) */}
-        <div className="flex md:hidden items-center justify-between px-5 h-14 bg-white border-b border-[#CBD5E1]">
+        <div className="flex md:hidden items-center justify-between px-5 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -76,7 +86,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
           <button
             type="button"
             className="bg-[#F97316] hover:bg-[#EA580C] text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-md transition-colors"
-            onClick={() => showToast("Reviewing Plan v2 changes...")}
+            onClick={handleOpenReviewChanges}
           >
             Review
           </button>
@@ -124,20 +134,13 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="bg-white hover:bg-orange-50 border border-[#F97316] text-[#F97316] text-xs font-bold px-3.5 py-2 rounded-lg transition-colors shadow-xs"
-                onClick={() => showToast("Reviewing Plan v2 changes...")}
-              >
-                Review Changes
-              </button>
+            <div>
               <button
                 type="button"
                 className="bg-[#F97316] hover:bg-[#EA580C] text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shadow-xs"
-                onClick={() => showToast("Plan v2 acknowledged!")}
+                onClick={handleOpenReviewChanges}
               >
-                Acknowledge Update
+                Review Changes
               </button>
             </div>
           </div>
