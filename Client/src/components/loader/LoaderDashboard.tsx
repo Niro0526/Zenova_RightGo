@@ -22,6 +22,7 @@ const trips: Trip[] = [
 ];
 
 const primaryButton = 'min-h-[45px] w-full rounded-lg bg-[#F97316] px-4 py-3 text-sm font-bold leading-[21px] text-white transition-colors hover:bg-[#EA580C] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F97316] disabled:cursor-not-allowed disabled:hover:bg-[#F97316]';
+const continueLoadingButton = 'min-h-[45px] w-full rounded-lg bg-[#22C55E] px-4 py-3 text-sm font-bold leading-[21px] text-white transition-colors hover:bg-[#16A34A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#22C55E] disabled:cursor-not-allowed disabled:hover:bg-[#22C55E]';
 
 function TripStatus({ status }: { status: Status }) {
   const colors = status === 'Loading'
@@ -63,7 +64,24 @@ export default function LoaderDashboard() {
                 <TripStatus status={trip.status} />
               </div>
               <TripDetails trip={trip} />
-              {trip.id === 'S1-T001' ? <Link href="/loader/load-sequence" className={`${primaryButton} block text-center`} aria-label={`${trip.status === 'Loading' ? 'Continue loading' : 'Open trip'} ${trip.id}`}>{trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}</Link> : <button type="button" className={primaryButton} disabled title="Loading details are not available for this demo trip">{trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}</button>}
+              {trip.id === 'S1-T001' || trip.status === 'Loading' ? (
+                <Link
+                  href="/loader/load-sequence"
+                  className={`${trip.status === 'Loading' ? continueLoadingButton : primaryButton} block text-center`}
+                  aria-label={`${trip.status === 'Loading' ? 'Continue loading' : 'Open trip'} ${trip.id}`}
+                >
+                  {trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  className={trip.status === 'Loading' ? continueLoadingButton : primaryButton}
+                  disabled
+                  title="Loading details are not available for this demo trip"
+                >
+                  {trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}
+                </button>
+              )}
             </article>)}
           </section>
           <p id="loader-integration-note" className="sr-only">Loading details are available for trip S1-T001.</p>

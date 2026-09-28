@@ -9,7 +9,9 @@ import {
 } from "./icons";
 
 interface LoadSequenceProps {
-  onNavigate?: (tab: "assigned-trips" | "load-sequence" | "trip-readiness" | "report-issue" | "back") => void;
+  onNavigate?: (
+    tab: "assigned-trips" | "load-sequence" | "trip-readiness" | "report-issue" | "review-changes" | "back"
+  ) => void;
 }
 
 export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
@@ -35,6 +37,14 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
       onNavigate("report-issue");
     } else {
       router.push("/loader/report-issue");
+    }
+  };
+
+  const handleOpenReviewChanges = () => {
+    if (onNavigate) {
+      onNavigate("review-changes");
+    } else {
+      router.push("/loader/review-changes");
     }
   };
 
@@ -76,7 +86,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
           <button
             type="button"
             className="bg-[#F97316] hover:bg-[#EA580C] text-white text-[11px] font-semibold px-2.5 py-1.5 rounded-md transition-colors"
-            onClick={() => showToast("Reviewing Plan v2 changes...")}
+            onClick={handleOpenReviewChanges}
           >
             Review
           </button>
@@ -124,20 +134,13 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                 </span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                className="bg-white hover:bg-orange-50 border border-[#F97316] text-[#F97316] text-xs font-bold px-3.5 py-2 rounded-lg transition-colors shadow-xs"
-                onClick={() => showToast("Reviewing Plan v2 changes...")}
-              >
-                Review Changes
-              </button>
+            <div>
               <button
                 type="button"
                 className="bg-[#F97316] hover:bg-[#EA580C] text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shadow-xs"
-                onClick={() => showToast("Plan v2 acknowledged!")}
+                onClick={handleOpenReviewChanges}
               >
-                Acknowledge Update
+                Review Changes
               </button>
             </div>
           </div>

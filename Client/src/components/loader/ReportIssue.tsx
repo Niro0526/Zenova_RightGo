@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeftIcon,
@@ -22,11 +22,18 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
   const router = useRouter();
   const [issueType, setIssueType] = useState<"missing" | "damaged" | "short" | "vehicle">("damaged");
   const [resolution, setResolution] = useState<"replace" | "defer">("replace");
-  const [affectedQty, setAffectedQty] = useState<string>("8 units");
-  const [notes, setNotes] = useState<string>(
-    "Packaging compromised - visible moisture damage on 8 units of chilled stock"
-  );
+  const [expectedQty, setExpectedQty] = useState<string>("");
+  const [affectedQty, setAffectedQty] = useState<string>("");
+  const [notes, setNotes] = useState<string>("");
+  const [reporter, setReporter] = useState<string>("");
+  const [eventTime, setEventTime] = useState<string>("");
   const [notification, setNotification] = useState<string | null>(null);
+
+  useEffect(() => {
+    const d = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    setEventTime(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  }, []);
 
   const handleBack = () => {
     if (onNavigate) {
@@ -236,9 +243,13 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                     <label className="text-xs font-bold text-[#485563] uppercase tracking-wide">
                       Expected Quantity
                     </label>
-                    <div className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-lg p-3 text-sm font-semibold text-[#202D2D] leading-[21px] select-none">
-                      80 chilled units
-                    </div>
+                    <input
+                      type="text"
+                      value={expectedQty}
+                      onChange={(e) => setExpectedQty(e.target.value)}
+                      placeholder="e.g. 80 units"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-lg p-2.5 text-sm font-semibold text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
+                    />
                   </div>
 
                   {/* Reported Affected Quantity */}
@@ -250,7 +261,8 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                       type="text"
                       value={affectedQty}
                       onChange={(e) => setAffectedQty(e.target.value)}
-                      className="w-full bg-white border-2 border-[#CBD5E1] rounded-lg p-2.5 text-sm font-semibold text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
+                      placeholder="e.g. 8 units"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-lg p-2.5 text-sm font-semibold text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
                     />
                   </div>
                 </div>
@@ -264,6 +276,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                     rows={3}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Enter defect notes, observed damages, or shortfall details..."
                     className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors resize-none"
                   />
                 </div>
@@ -274,18 +287,26 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                     <label className="text-xs font-bold text-[#485563] uppercase tracking-wide">
                       Reporter
                     </label>
-                    <div className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-lg p-2.5 text-xs font-semibold text-[#202D2D] select-none truncate">
-                      Kasun Perera (Loader)
-                    </div>
+                    <input
+                      type="text"
+                      value={reporter}
+                      onChange={(e) => setReporter(e.target.value)}
+                      placeholder="e.g. Loader Name / Shift ID"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-lg p-2 text-xs font-semibold text-[#202D2D] focus:outline-none focus:border-[#F97316] transition-colors"
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-[#485563] uppercase tracking-wide">
                       Event Time
                     </label>
-                    <div className="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded-lg p-2.5 text-xs font-jetbrains font-semibold text-[#202D2D] select-none">
-                      2026-01-08 05:45
-                    </div>
+                    <input
+                      type="text"
+                      value={eventTime}
+                      onChange={(e) => setEventTime(e.target.value)}
+                      placeholder="YYYY-MM-DD HH:mm"
+                      className="w-full bg-white border border-[#CBD5E1] rounded-lg p-2 text-xs font-jetbrains font-semibold text-[#202D2D] focus:outline-none focus:border-[#F97316] transition-colors"
+                    />
                   </div>
                 </div>
               </div>
@@ -392,7 +413,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                       )}
                     </div>
                     <span className="text-[11px] text-[#485563] leading-4">
-                      Requisition 8 replacement units from Bay 3 buffer immediately
+                      Requisition replacement units from buffer immediately
                     </span>
                   </button>
 
@@ -466,9 +487,13 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
               <label className="text-[13px] font-bold text-[#202D2D] leading-5">
                 Expected Quantity
               </label>
-              <div className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] select-none">
-                80 chilled units
-              </div>
+              <input
+                type="text"
+                value={expectedQty}
+                onChange={(e) => setExpectedQty(e.target.value)}
+                placeholder="e.g. 80 units"
+                className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
+              />
             </div>
 
             {/* Reported Affected Quantity */}
@@ -480,6 +505,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                 type="text"
                 value={affectedQty}
                 onChange={(e) => setAffectedQty(e.target.value)}
+                placeholder="e.g. 8 units"
                 className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
               />
             </div>
@@ -493,6 +519,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
                 rows={2}
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
+                placeholder="Enter defect notes or observations..."
                 className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors resize-none"
               />
             </div>
@@ -518,9 +545,13 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
               <label className="text-[13px] font-bold text-[#202D2D] leading-5">
                 Reporter
               </label>
-              <div className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] select-none">
-                Kasun Perera (Loader)
-              </div>
+              <input
+                type="text"
+                value={reporter}
+                onChange={(e) => setReporter(e.target.value)}
+                placeholder="e.g. Loader Name / Shift ID"
+                className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
+              />
             </div>
 
             {/* Event Time */}
@@ -528,9 +559,13 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
               <label className="text-[13px] font-bold text-[#202D2D] leading-5">
                 Event Time
               </label>
-              <div className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] select-none">
-                2026-01-08 05:45
-              </div>
+              <input
+                type="text"
+                value={eventTime}
+                onChange={(e) => setEventTime(e.target.value)}
+                placeholder="YYYY-MM-DD HH:mm"
+                className="w-full bg-white border border-[#CBD5E1] rounded-lg p-3 text-sm text-[#202D2D] leading-[21px] focus:outline-none focus:border-[#F97316] transition-colors"
+              />
             </div>
 
             {/* Resolution */}
