@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import LoaderNavigation from './LoaderNavigation';
 import { BadgeAlert, MapPin, TriangleAlert } from 'lucide-react';
 
@@ -76,10 +77,10 @@ export default function LoaderDashboard() {
                 <TripStatus status={trip.status} />
               </div>
               <TripDetails trip={trip} />
-              <button type="button" className={primaryButton} disabled aria-describedby="loader-integration-note" aria-label={`${trip.status === 'Loading' ? 'Continue loading' : 'Open trip'} ${trip.id}`}>{trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}</button>
+              {trip.id === 'S1-T001' ? <Link href="/loader/load-sequence" className={`${primaryButton} block text-center`} aria-label={`${trip.status === 'Loading' ? 'Continue loading' : 'Open trip'} ${trip.id}`}>{trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}</Link> : <button type="button" className={primaryButton} disabled title="Loading details are not available for this demo trip">{trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}</button>}
             </article>)}
           </section>
-          <p id="loader-integration-note" className="sr-only">Trip actions are currently unavailable.</p>
+          <p id="loader-integration-note" className="sr-only">Loading details are available for trip S1-T001.</p>
 
         </div>
       </main>

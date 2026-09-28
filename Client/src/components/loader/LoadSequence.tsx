@@ -4,6 +4,7 @@ import { useRef, useState } from 'react';
 import { BadgeAlert, CheckCircle2, MapPin, X } from 'lucide-react';
 
 import LoaderNavigation from './LoaderNavigation';
+import ReportIssue from './ReportIssue';
 
 type Issue = { outlet: string; description: string };
 const stops = [
@@ -21,17 +22,21 @@ const secondary = 'rounded-md border border-[#F97316] bg-white px-3 py-2 text-xs
 export default function LoadSequence() {
   const [loaded, setLoaded] = useState(['OUT003']);
   const [acknowledged, setAcknowledged] = useState(false);
-  const [modal, setModal] = useState<'review' | 'issue'>('review');
-  const [issueOutlet, setIssueOutlet] = useState('');
   const [issues, setIssues] = useState<Issue[]>([]);
   const [notice, setNotice] = useState('');
   const dialog = useRef<HTMLDialogElement>(null);
+  const [reportOutlet, setReportOutlet] = useState<string | null>(null);
   const current = stops.find((stop) => !loaded.includes(stop.id));
 
   function acknowledge() {
     setAcknowledged(true);
     setNotice('Plan v2 acknowledged for this session.');
     dialog.current?.close();
+  }
+
+  if (reportOutlet) {
+    const stop = stops.find(item => item.id === reportOutlet)!;
+    return <ReportIssue outlet={`${stop.id} / ${stop.name}`} expectedQuantity={stop.id === 'OUT001' ? 80 : null} expectedLabel={stop.id === 'OUT001' ? '80 chilled units' : stop.details} orderRef={stop.id === 'OUT001' ? 'S1-001' : '—'} onBack={() => setReportOutlet(null)} onReport={(description) => setIssues(previous => [...previous, { outlet: stop.id, description }])} />;
   }
 
   return (
@@ -57,7 +62,7 @@ export default function LoadSequence() {
         {!acknowledged && <section aria-label="Plan update" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-[#FEF3C7] p-3">
           <p className="flex items-center gap-2 text-[13px] font-semibold"><BadgeAlert size={18} className="shrink-0 text-[#F59E0B]" aria-hidden="true" />Plan v2 available - 1 change on this trip</p>
           <div className="flex flex-wrap gap-2">
-            <button className={`${secondary} !font-bold !text-[#F97316]`} onClick={() => { setModal('review'); dialog.current?.showModal(); }}>Review Changes</button>
+            <button className={`${secondary} !font-bold !text-[#F97316]`} onClick={() => { dialog.current?.showModal(); }}>Review Changes</button>
             <button className={primary} onClick={acknowledge}>Acknowledge Update</button>
           </div>
         </section>}
@@ -79,7 +84,7 @@ export default function LoadSequence() {
                     <p className="text-xs leading-[18px] text-[#485563]">{stop.details}</p>
                   </div>
                   {isLoaded ? <span className="flex items-center gap-1 rounded-md bg-[#ECFDF5] px-2.5 py-1.5 text-xs font-bold text-[#22C55E]"><CheckCircle2 size={14} aria-hidden="true" />Loaded</span> : isCurrent ? <div className="flex gap-2">
-                    <button className={secondary} onClick={() => { setIssueOutlet(stop.id); setModal('issue'); dialog.current?.showModal(); }}>Report Issue</button>
+                    <button className={secondary} onClick={() => setReportOutlet(stop.id)}>Report Issue</button>
                     <button className={`${primary} px-4`} onClick={() => { setLoaded((previous) => [...previous, stop.id]); setNotice(`${stop.id} marked as loaded.`); }}>Mark Loaded</button>
                   </div> : <span className="rounded-md bg-[#F9FAFB] px-2.5 py-1.5 text-xs font-bold text-[#485563]">Pending</span>}
                 </div>
@@ -97,24 +102,9 @@ export default function LoadSequence() {
       </main>
 
       <dialog ref={dialog} aria-labelledby="loader-dialog-title" className="fixed inset-0 m-auto max-h-[90dvh] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-xl bg-white p-6 text-[#202D2D] shadow-xl backdrop:bg-black/40">
-        <div className="mb-4 flex items-center justify-between gap-4"><h2 id="loader-dialog-title" className="text-lg font-bold">{modal === 'review' ? 'Review plan v2' : `Report issue · ${issueOutlet}`}</h2><button aria-label="Close dialog" onClick={() => dialog.current?.close()} className="rounded p-1 hover:bg-slate-100"><X size={20} /></button></div>
-        {modal === 'review' ? <>
-          <p className="mb-4 text-sm leading-6 text-[#485563]">1 change is flagged for PEL-R04 / S1-T001. The supplied demo does not include the revised plan details. Confirm the change with your dispatcher before acknowledging.</p>
-          <div className="flex justify-end gap-2"><button className={secondary} onClick={() => dialog.current?.close()}>Close</button><button className={primary} onClick={acknowledge}>Acknowledge Update</button></div>
-        </> : <form onSubmit={(event) => {
-          event.preventDefault();
-          const description = String(new FormData(event.currentTarget).get('description') ?? '').trim();
-          if (!description) return;
-          setIssues((previous) => [...previous, { outlet: issueOutlet, description }]);
-          setNotice('Issue saved in this session. Contact your dispatcher to share it.');
-          event.currentTarget.reset();
-          dialog.current?.close();
-        }}>
-          <label htmlFor="issue-description" className="mb-2 block text-sm font-medium">Describe the loading issue</label>
-          <textarea id="issue-description" name="description" required maxLength={1000} rows={4} className="w-full rounded-lg border border-slate-300 p-3 text-sm focus:border-orange-500 focus:outline-orange-500" placeholder="For example, a damaged case or missing parcel" />
-          <p className="my-3 text-xs text-[#485563]">Saved for this session only. Share urgent issues with your dispatcher.</p>
-          <button className={primary} type="submit">Save Issue</button>
-        </form>}
+        <div className="mb-4 flex items-center justify-between gap-4"><h2 id="loader-dialog-title" className="text-lg font-bold">Review plan v2</h2><button aria-label="Close dialog" onClick={() => dialog.current?.close()} className="rounded p-1 hover:bg-slate-100"><X size={20} /></button></div>
+        <p className="mb-4 text-sm leading-6 text-[#485563]">1 change is flagged for PEL-R04 / S1-T001. The supplied demo does not include the revised plan details. Confirm the change with your dispatcher before acknowledging.</p>
+        <div className="flex justify-end gap-2"><button className={secondary} onClick={() => dialog.current?.close()}>Close</button><button className={primary} onClick={acknowledge}>Acknowledge Update</button></div>
       </dialog>
     </div>
   );
