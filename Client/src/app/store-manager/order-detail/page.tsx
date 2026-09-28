@@ -1,7 +1,5 @@
-'use client';
-
-import StoreManagerPage from '../page';
+import StoreManagerApp from '@/components/store-manager/StoreManagerApp';
 
 export default function OrderDetailPage() {
-  return <StoreManagerPage initialView="order-detail" />;
+  return <StoreManagerApp initialView="order-detail" />;
 }

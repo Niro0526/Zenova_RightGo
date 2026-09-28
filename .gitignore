@@ -26,3 +26,5 @@ ml/outputs/*
 # OS
 .DS_Store
 Thumbs.db
+
+Rule

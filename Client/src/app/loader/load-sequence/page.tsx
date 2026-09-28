@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import LoadSequence from "../LoadSequence";
+import LoadSequence from "@/components/loader/LoadSequence";
 
 export default function LoadSequenceRoute() {
   const router = useRouter();

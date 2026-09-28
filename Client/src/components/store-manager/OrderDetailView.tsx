@@ -1,18 +1,6 @@
 import React, { useState } from 'react';
-import { 
-  ArrowLeft, 
-  AlertTriangle, 
-  Info, 
-  Package, 
-  CheckCircle2, 
-  Clock, 
-  Check, 
-  Edit3, 
-  XCircle, 
-  Ban, 
-  X,
-  Truck
-} from 'lucide-react';
+import { ArrowLeft, Check, Edit3, XCircle } from 'lucide-react';
+import ConfirmDialog from '@/components/common/ConfirmDialog';
 
 interface OrderDetailViewProps {
   order?: any;
@@ -252,80 +240,29 @@ export default function OrderDetailView({
       </div>
 
       {/* Cancellation Confirmation Modal */}
-      {showCancelPrompt && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(15, 23, 42, 0.65)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          zIndex: 10000,
-          padding: '20px'
-        }}>
-          <div style={{
-            background: '#FFFFFF',
-            borderRadius: '16px',
-            width: '100%',
-            maxWidth: '480px',
-            boxShadow: '0 20px 40px -15px rgba(0,0,0,0.3)',
-            overflow: 'hidden',
-            textAlign: 'left'
-          }}>
-            <div style={{ background: '#FEF2F2', padding: '16px 20px', borderBottom: '1px solid #FECACA', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#DC2626', fontWeight: 700, fontSize: '15px' }}>
-                <Ban size={18} />
-                <span>Cancel Order #{activeOrder.delivery_id}?</span>
-              </div>
-              <button onClick={() => setShowCancelPrompt(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#991B1B' }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <p style={{ fontSize: '13px', color: '#475569', margin: 0 }}>
-                This will cancel order <strong>#{activeOrder.delivery_id}</strong> and remove it from today's planning batch.
-              </p>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '12px', fontWeight: 600, color: '#334155', marginBottom: '6px' }}>
-                  Reason for Cancellation
-                </label>
-                <select
-                  value={cancelReason}
-                  onChange={(e) => setCancelReason(e.target.value)}
-                  style={{ width: '100%', padding: '9px 12px', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '12.5px', color: '#1E293B' }}
-                >
-                  <option value="Placed with incorrect quantities / Needed modification">Placed with incorrect quantities / Needed modification</option>
-                  <option value="Ordered duplicate items by mistake">Ordered duplicate items by mistake</option>
-                  <option value="Store storage full / Capacity constraint">Store storage full / Capacity constraint</option>
-                  <option value="No longer required">No longer required</option>
-                </select>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '6px' }}>
-                <button
-                  onClick={() => setShowCancelPrompt(false)}
-                  style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #CBD5E1', background: '#FFFFFF', color: '#475569', fontSize: '13px', fontWeight: 600, cursor: 'pointer' }}
-                >
-                  Keep Order
-                </button>
-                <button
-                  onClick={handleConfirmCancel}
-                  style={{ padding: '8px 18px', borderRadius: '8px', border: 'none', background: '#DC2626', color: '#FFFFFF', fontSize: '13px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                >
-                  <XCircle size={14} />
-                  <span>Confirm Cancel Order</span>
-                </button>
-              </div>
-            </div>
-          </div>
+      <ConfirmDialog
+        open={showCancelPrompt}
+        title={`Cancel Order #${activeOrder.delivery_id}?`}
+        message={`This will cancel order #${activeOrder.delivery_id} and remove it from today's planning batch.`}
+        confirmLabel="Confirm Cancel Order"
+        cancelLabel="Keep Order"
+        onConfirm={handleConfirmCancel}
+        onCancel={() => setShowCancelPrompt(false)}
+      >
+        <div>
+          <label className="mb-1.5 block text-xs font-semibold text-[#334155]">Reason for Cancellation</label>
+          <select
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.target.value)}
+            className="w-full rounded-lg border border-[#CBD5E1] px-3 py-2.5 text-[12.5px] text-[#1E293B]"
+          >
+            <option value="Placed with incorrect quantities / Needed modification">Placed with incorrect quantities / Needed modification</option>
+            <option value="Ordered duplicate items by mistake">Ordered duplicate items by mistake</option>
+            <option value="Store storage full / Capacity constraint">Store storage full / Capacity constraint</option>
+            <option value="No longer required">No longer required</option>
+          </select>
         </div>
-      )}
+      </ConfirmDialog>
     </div>
   );
 }

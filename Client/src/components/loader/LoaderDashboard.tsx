@@ -1,6 +1,5 @@
 import Link from 'next/link';
-import LoaderNavigation from './LoaderNavigation';
-import { BadgeAlert, MapPin, TriangleAlert } from 'lucide-react';
+import { BadgeAlert, TriangleAlert } from 'lucide-react';
 
 type Status = 'Ready to Load' | 'Loading' | 'Attention';
 type Trip = {
@@ -45,21 +44,8 @@ function TripDetails({ trip }: { trip: Trip }) {
 
 export default function LoaderDashboard() {
   return (
-    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[#F9FAFB] font-poppins text-[#202D2D] md:flex-row">
+    <main id="loader-main" tabIndex={-1} className="flex-1 md:ml-[220px] lg:ml-[240px] min-h-screen w-full overflow-x-hidden p-4 pb-[85px] outline-none md:p-6 md:pb-12">
       <a href="#loader-main" className="sr-only z-50 rounded bg-white p-3 focus:not-sr-only focus:absolute">Skip to main content</a>
-      <aside className="flex shrink-0 flex-col gap-4 bg-[#161A1D] px-4 pb-4 pt-5 md:w-[220px] md:pb-5 md:pt-6" aria-label="Loader navigation">
-        <div className="flex min-h-11 items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#F97316]"><MapPin size={18} aria-hidden="true" /></div>
-          <div className="flex flex-col items-start gap-0.5">
-            <span className="text-[15px] font-bold leading-[23px] text-white">RightGo</span>
-            <span className="rounded bg-[#202D2D] px-1.5 py-0.5 text-[10px] font-semibold uppercase leading-[15px] text-[#F97316]">Loader Role</span>
-          </div>
-        </div>
-        <div className="h-px bg-[#232A2E]" />
-        <LoaderNavigation active="Assigned Trips" />
-      </aside>
-
-      <main id="loader-main" tabIndex={-1} className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 outline-none md:p-6">
         <div className="flex flex-col gap-5">
           <header className="border-b border-[#CBD5E1] pb-4">
             <h1 className="text-[22px] font-bold leading-[33px]">Assigned Trips</h1>
@@ -83,7 +69,6 @@ export default function LoaderDashboard() {
           <p id="loader-integration-note" className="sr-only">Loading details are available for trip S1-T001.</p>
 
         </div>
-      </main>
-    </div>
+    </main>
   );
 }

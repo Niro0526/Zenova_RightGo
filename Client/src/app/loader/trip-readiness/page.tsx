@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useRouter } from "next/navigation";
-import TripReadiness from "../TripReadiness";
+import TripReadiness from "@/components/loader/TripReadiness";
 
 export default function TripReadinessPage() {
   const router = useRouter();

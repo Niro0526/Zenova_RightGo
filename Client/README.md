@@ -12,21 +12,24 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-All existing workspaces are integrated on `develop`. Use the sidebar role selector
-to switch between Store Manager, Dispatcher, and Loader.
+`/` is a role-selection homepage linking to each workspace. Use the role switcher inside
+any workspace to jump between Store Manager, Dispatcher, Loader, and Driver — there is no
+sign-in yet, so every workspace is open for demonstration.
 
 | Workspace | Route |
 | --- | --- |
-| Store Manager | `/` or `/store-manager` |
+| Home / role picker | `/` |
+| Store Manager | `/store-manager` |
 | Dispatcher | `/dispatcher` |
-| Assigned Trips | `/loader` |
-| Load Sequence | `/loader/load-sequence` |
-| Report Issue | `/loader/report-issue` |
-| Trip Readiness | `/loader/trip-readiness` |
+| Loader — Assigned Trips | `/loader` |
+| Loader — Load Sequence | `/loader/load-sequence` |
+| Loader — Report Issue | `/loader/report-issue` |
+| Loader — Trip Readiness | `/loader/trip-readiness` |
+| Driver | `/driver` |
 
 The loader pages use sample data. Only trip S1-T001 has a loading details demo;
-other trip actions stay disabled. The Assigned Trips sidebar links to the integrated
-loading and readiness pages.
+other trip actions stay disabled. Driver is a navigation shell and empty state only —
+no trip data, backend, or workflow is implemented yet.
 
 After switching branches, stop and restart the development server. If using
 `npm start`, run `npm run build` first so it serves the current branch's pages.
@@ -36,13 +39,17 @@ Next.js uses its own build tooling, so a separate Vite setup is not needed.
 
 | Path | Purpose |
 |------|---------|
-| `src/app/` | Next.js App Router pages |
-| `src/components/` | Shared UI & common components |
-| `src/layouts/` | Page layout wrappers |
-| `src/services/` | API service layer |
+| `src/app/` | Next.js App Router routes (`layout.tsx`/`page.tsx` per URL segment) |
+| `src/components/ui/` | Reusable UI primitives (Button, StatusBadge) |
+| `src/components/common/` | Shared app components (Logo, NavItem, RoleSwitcher, PageHeader, EmptyState, RoleCard, ConfirmDialog) |
+| `src/components/<role>/` | Role-specific components and nav config (dispatcher, store-manager, loader, driver) |
 | `src/hooks/` | Custom React hooks |
-| `src/store/` | Global state management |
-| `src/types/` | TypeScript type definitions |
-| `src/lib/` | Third-party library configs |
-| `src/utils/` | Utility functions |
-| `src/offline/` | PWA / offline support |
+| `src/store/` | Global/context state (e.g. dispatcher planning context) |
+| `src/types/` | Shared TypeScript type definitions |
+| `src/lib/` | Integrations and business-rule logic (e.g. dispatcher checker-parity validation) |
+| `src/data/` | Mock/demo datasets |
+
+`src/layouts/`, `src/services/`, `src/utils/`, and `src/offline/` aren't present yet —
+nothing in the current codebase needs them (no shared layout wrapper beyond each role's
+own chrome, no real API/service layer, no extracted pure helpers, no offline/PWA support).
+Reintroduce them when that work begins rather than keeping them as empty placeholders.

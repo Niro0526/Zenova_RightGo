@@ -1,5 +1,5 @@
 import DispatcherSidebar from '@/components/dispatcher/DispatcherSidebar';
-import { PlanningProvider } from './store/PlanningContext';
+import { PlanningProvider } from '@/store/dispatcher/PlanningContext';
 
 export default function DispatcherLayout({ children }: { children: React.ReactNode }) {
   return (

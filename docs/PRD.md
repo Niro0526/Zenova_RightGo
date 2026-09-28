@@ -22,7 +22,7 @@ Source IDs B/K/C refer to [SOURCE_REQUIREMENTS.md](SOURCE_REQUIREMENTS.md). The 
 | Driver | Execute assigned trips, record stop outcomes and problems on a phone | Assigned trips only |
 | Administrator | Provision users/scopes and reference data; manage access | Separate support role, not an invented competition persona |
 
-The four operational personas are inferred from project directories and UI interactions. Confirm them against Part One and the Day-5 design. Administrator is a proposed operational necessity, not a fifth required business persona from the supplied PDFs.
+The four operational personas are now sourced from the Challenge Booklet (p6), not inferred from project directories and UI interactions — see UI_UX_DESIGN_BRIEF.md's Personas section. Fidelity to the Day-5 design remains unconfirmed since that artifact still hasn't been supplied. Administrator is a proposed operational necessity, not a fifth required business persona from the supplied PDFs.
 
 ### Release priorities
 
@@ -87,4 +87,4 @@ These are proposed engineering targets, not measured results or organizer criter
 
 ## Release acceptance and unresolved decisions
 
-Run the Test Plan's four-role walkthrough and degradation scenario from a fresh seeded installation. Supply durable evidence, not a screen-only demo. No P0/P1 correctness or access-control finding may be declared closed without verification. UI fidelity remains pending the Day-5 artifact; challenge compliance remains pending Part One. Confirm U01-U09 in the source register before turning provisional product policies into hard-coded behavior.
+Run the Test Plan's four-role walkthrough and degradation scenario from a fresh seeded installation. Supply durable evidence, not a screen-only demo. No P0/P1 correctness or access-control finding may be declared closed without verification. UI fidelity remains pending the Day-5 artifact. Part One is now available (see SOURCE_REQUIREMENTS.md); confirm the source register's still-open items (U03, U04, U09, U10) before turning any remaining provisional product policy into hard-coded behavior.

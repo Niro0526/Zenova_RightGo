@@ -1,7 +1,5 @@
-'use client';
-
-import StoreManagerPage from '../page';
+import StoreManagerApp from '@/components/store-manager/StoreManagerApp';
 
 export default function DegradationPage() {
-  return <StoreManagerPage initialView="degradation" />;
+  return <StoreManagerApp initialView="degradation" />;
 }
