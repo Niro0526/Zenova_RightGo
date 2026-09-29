@@ -124,11 +124,6 @@ export default function PlaceOrderView({
 
   // Add Item from Catalog
   const handleAddItemFromCatalog = (catalogItem: any) => {
-    if (catalogItem.stockStatus === 'out_of_stock') {
-      alert('This SKU is currently out of stock at Peliyagoda Central Depot. Replenishment scheduled for next intake wave.');
-      return;
-    }
-
     setOrderItems((prev: any[]) => {
       const existing = prev.find((i: any) => i.id === catalogItem.id);
       if (existing) {
