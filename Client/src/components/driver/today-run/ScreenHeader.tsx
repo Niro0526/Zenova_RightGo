@@ -2,11 +2,13 @@ import { useConnectivity } from "@/context/DriverConnectivityContext";
 
 interface ScreenHeaderProps {
   title?: string;
+  subtitle?: string;
   isOnline?: boolean;
 }
 
 export default function ScreenHeader({
   title = "Today's Run",
+  subtitle = "Tuesday, September 29, 2026",
   isOnline: propIsOnline,
 }: ScreenHeaderProps) {
   const { connectionState, isOnline: contextIsOnline } = useConnectivity();
@@ -32,12 +34,19 @@ export default function ScreenHeader({
     <header
       id="driver-header"
       className="md:hidden absolute flex flex-row items-center justify-between bg-[#202D2D]"
-      style={{ top: 0, left: 0, width: 412, height: 55, padding: "14px 16px", boxSizing: "border-box" }}
+      style={{ top: 0, left: 0, width: 412, height: 60, padding: "10px 16px", boxSizing: "border-box" }}
     >
-      {/* Left — title */}
-      <span className="text-white font-bold" style={{ fontSize: 18, lineHeight: "27px" }}>
-        {title}
-      </span>
+      {/* Left — title & date */}
+      <div className="flex flex-col">
+        <span className="text-white font-bold leading-tight" style={{ fontSize: 16 }}>
+          {title}
+        </span>
+        {subtitle && (
+          <span className="text-slate-300 font-medium text-[11px] leading-tight mt-0.5">
+            {subtitle}
+          </span>
+        )}
+      </div>
 
       {/* Right — connectivity pill */}
       <div

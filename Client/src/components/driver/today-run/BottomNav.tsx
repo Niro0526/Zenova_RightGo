@@ -1,6 +1,4 @@
-/* ─── Bottom Navigation Bar — top: 829, h: 64 ──────────────── */
-
-import { RouteIcon, NavigationIcon, AlertTriangleIcon } from "./icons";
+import { RouteIcon, NavigationIcon, HistoryIcon } from "./icons";
 import type { TabId } from "./types";
 
 interface BottomNavProps {
@@ -83,12 +81,12 @@ export default function BottomNav({ activeTab, onTabChange }: BottomNavProps) {
           icon={<NavigationIcon className="w-[22px] h-[22px]" />}
         />
         <NavTab
-          id="tab-report"
-          label="Report"
-          tabId="report"
+          id="tab-history"
+          label="History"
+          tabId="history"
           activeTab={activeTab}
           onTabChange={onTabChange}
-          icon={<AlertTriangleIcon className="w-[22px] h-[22px]" />}
+          icon={<HistoryIcon className="w-[22px] h-[22px]" />}
         />
       </nav>
 

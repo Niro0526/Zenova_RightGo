@@ -1,10 +1,16 @@
+import { Suspense } from "react";
 import { DriverHistoryWorkflow } from "@/components/driver/today-run/history-workflow";
 
 export const metadata = {
-  title: "Delivery History - RightGo Driver Portal",
-  description: "View completed delivery stops, proof of delivery, and sync records.",
+  title: "Delivery & Report History - RightGo Driver Portal",
+  description: "View completed delivery stops, proof of delivery, issue reports, and sync records.",
 };
 
 export default function DriverHistoryPage() {
-  return <DriverHistoryWorkflow />;
+  return (
+    <Suspense fallback={<div className="p-8 text-slate-500 text-sm">Loading history records...</div>}>
+      <DriverHistoryWorkflow />
+    </Suspense>
+  );
 }
+

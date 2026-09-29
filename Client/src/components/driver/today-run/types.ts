@@ -1,7 +1,7 @@
 /* ─── Shared types & constants ─────────────────────────────── */
 
 export type StopStatus = "next" | "upcoming" | "completed";
-export type TabId = "myRun" | "currentStop" | "report";
+export type TabId = "myRun" | "currentStop" | "history";
 
 export interface Stop {
   id: number;

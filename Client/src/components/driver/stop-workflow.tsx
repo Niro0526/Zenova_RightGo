@@ -1874,9 +1874,9 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       </div>
 
       {/* ══════════════════════════════════════════
-          MOBILE layout  (< md) — Figma exact canvas
+          MOBILE layout  (< md) — Seamless mobile view
           ══════════════════════════════════════════ */}
-      <div className="md:hidden flex items-start justify-center min-h-full bg-[#E2E8F0] py-4">
+      <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F8FAFC]">
         <MobileCurrentStopCanvas
           deliveryStarted={deliveryStarted}
           completingDelivery={completingDelivery}
@@ -2177,253 +2177,355 @@ function MobileCurrentStopCanvas({
 
       {/* ── MODE 4: STOP RECORDED / DELIVERY RECORDED SUCCESS SCREEN (stopRecorded === true) ── */}
       {stopRecorded ? (
-        <div className="flex flex-col items-start w-[390px] mx-auto bg-[#F8FAFC]" style={{ marginTop: 55 }}>
+        <div
+          className="flex flex-col items-start bg-white mx-auto overflow-hidden"
+          style={{ width: 390, minHeight: 1008, marginTop: 55, fontFamily: "'Poppins', sans-serif" }}
+        >
           {/* Main content frame */}
           <div
-            className="flex flex-col items-center bg-[#F8FAFC] box-sizing-border"
-            style={{ width: 390, padding: "20px 16px", gap: 16 }}
+            className="flex flex-col items-center box-border"
+            style={{ width: 390, padding: 20, gap: 20 }}
           >
             {/* success-circle */}
             <div
               id="success-circle"
-              className="flex flex-col justify-center items-center bg-[#ECFDF5] border-2 border-[#22C55E] rounded-full shrink-0 shadow-sm"
-              style={{ width: 64, height: 64, boxSizing: "border-box" }}
+              className="flex flex-col justify-center items-center bg-[#ECFDF5] border-2 border-[#22C55E] rounded-full shrink-0"
+              style={{ width: 72, height: 72, boxSizing: "border-box" }}
             >
-              <CheckIcon className="w-[30px] h-[30px] text-[#22C55E]" />
+              <CheckIcon className="w-[32px] h-[32px] text-[#22C55E]" strokeWidth={2.5} />
             </div>
 
-            {/* Headline */}
-            <div className="flex flex-col items-center gap-1 shrink-0 text-center" style={{ width: 350 }}>
-              <span className="text-[#202D2D] font-extrabold text-xl leading-tight">
-                Delivery Recorded Successfully
-              </span>
-              <span className="text-[#485563] font-medium text-xs">
-                OUT001 / Colpetty Retailer • Recorded at {confirmedTimeStr}
-              </span>
-            </div>
-
-            {/* Mobile Delivery Receipt Card (width: 350px) */}
+            {/* Title / Store Frame */}
             <div
-              className="flex flex-col bg-white border border-[#E2E8F0] rounded-2xl shrink-0 p-4 gap-3 text-left shadow-sm"
-              style={{ width: 350, boxSizing: "border-box" }}
+              className="flex flex-col items-center shrink-0"
+              style={{ width: 209, height: 58, gap: 4 }}
             >
-              <div className="flex items-center justify-between border-b border-[#E2E8F0] pb-2.5">
-                <span className="text-[#202D2D] font-bold text-xs flex items-center gap-1.5 uppercase tracking-wide">
-                  <span>📋</span> Delivery Receipt
-                </span>
-                <span className="bg-[#F8FAFC] border border-[#CBD5E1] text-[#202D2D] font-mono font-bold text-[11px] px-2 py-0.5 rounded">
-                  DEL-S1-T001-001
-                </span>
-              </div>
-
-              {/* Outcome Badge Card */}
-              <div
-                className={`p-3 rounded-xl border flex flex-col gap-1 ${
-                  deliveryOutcome === "full"
-                    ? "bg-[#ECFDF5] border-[#A7F3D0]"
-                    : deliveryOutcome === "discrepancy"
-                    ? "bg-[#FFFBEB] border-[#FDE68A]"
-                    : "bg-[#FEF2F2] border-[#FECACA]"
-                }`}
+              <span
+                className="text-[#202D2D] font-[800] text-center"
+                style={{ fontSize: 22, lineHeight: "33px" }}
               >
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`font-bold text-xs uppercase tracking-wider ${
-                      deliveryOutcome === "full"
-                        ? "text-[#15803D]"
-                        : deliveryOutcome === "discrepancy"
-                        ? "text-[#B45309]"
-                        : "text-[#B91C1C]"
-                    }`}
-                  >
-                    {deliveryOutcome === "full"
-                      ? "Delivered in Full"
-                      : deliveryOutcome === "discrepancy"
-                      ? "With Discrepancy"
-                      : "Not Delivered"}
-                  </span>
-                  <span className="font-extrabold text-xs text-[#202D2D]">
-                    {deliveryOutcome === "discrepancy"
-                      ? `${deliveredQty} / ${expectedQty} Units`
-                      : deliveryOutcome === "none"
-                      ? `0 / ${expectedQty} Units`
-                      : `${expectedQty} / ${expectedQty} Units`}
-                  </span>
-                </div>
-
-                {deliveryOutcome === "discrepancy" && (
-                  <p className="text-[11px] text-[#78350F] m-0 font-medium leading-tight">
-                    <span className="font-bold">{discrepancyType}: </span>
-                    {discrepancyNotes || "Discrepancy observed and recorded."}
-                  </p>
-                )}
-                {deliveryOutcome === "none" && (
-                  <p className="text-[11px] text-[#991B1B] m-0 font-medium leading-tight">
-                    <span className="font-bold">{notDeliveredReason}: </span>
-                    {notDeliveredNotes || "Delivery could not be completed."}
-                  </p>
-                )}
-              </div>
-
-              {/* 2-column Quick Details */}
-              <div className="grid grid-cols-2 gap-2 text-[11px]">
-                <div className="bg-[#F8FAFC] p-2.5 rounded-xl border border-[#E2E8F0]">
-                  <span className="text-[#64748B] block font-medium">Store Signer</span>
-                  <span className="font-bold text-[#22C55E] mt-0.5 block truncate">
-                    ✓ {signatureFile ? signerName : "Store Manager"}
-                  </span>
-                </div>
-                <div className="bg-[#F8FAFC] p-2.5 rounded-xl border border-[#E2E8F0]">
-                  <span className="text-[#64748B] block font-medium">Photo Proof</span>
-                  <span className="font-bold text-[#22C55E] mt-0.5 block truncate">
-                    ✓ {photoFile ? "Attached" : discrepancyPhoto ? "Evidence" : notDeliveredPhoto ? "Evidence" : "Captured"}
-                  </span>
-                </div>
-              </div>
+                Delivery Recorded
+              </span>
+              <span
+                className="text-[#485563] font-medium text-center"
+                style={{ fontSize: 14, lineHeight: "21px" }}
+              >
+                OUT001 / Colpetty Retailer
+              </span>
             </div>
 
-            {/* Mobile Cloud Sync Card (width: 350px) */}
+            {/* Card 1: Saved on this device */}
             <div
-              className={`flex flex-col rounded-2xl border shrink-0 p-4 gap-3 text-left transition-all shadow-sm ${
-                isSynced
-                  ? "bg-[#F0FDF4] border-[#BBF7D0]"
-                  : isSyncing
-                  ? "bg-[#EFF6FF] border-[#BFDBFE]"
-                  : "bg-[#FFFBEB] border-[#FDE68A]"
-              }`}
-              style={{ width: 350, boxSizing: "border-box" }}
+              className="flex flex-col items-center bg-white border border-[#CBD5E1] rounded-xl shrink-0 box-border"
+              style={{ width: 350, height: 108, padding: 14, gap: 10 }}
             >
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                    isSynced
-                      ? "bg-green-100 text-green-700"
-                      : isSyncing
-                      ? "bg-blue-100 text-blue-700"
-                      : "bg-amber-100 text-amber-700"
-                  }`}
+              {/* Pill badge */}
+              <div
+                className="flex flex-row items-center bg-[#F9FAFB] rounded-full shrink-0"
+                style={{ width: 169, height: 30, padding: "6px 10px", gap: 8, boxSizing: "border-box" }}
+              >
+                <SmartphoneIcon className="w-[14px] h-[14px] text-[#485563] shrink-0" />
+                <span
+                  className="text-[#485563] font-bold"
+                  style={{ fontSize: 12, lineHeight: "18px" }}
                 >
-                  {isSynced ? (
-                    <CheckCircleIcon className="w-5 h-5 text-[#22C55E]" />
-                  ) : isSyncing ? (
-                    <RefreshCwIcon className="w-5 h-5 text-[#3B82F6] animate-spin" />
-                  ) : (
-                    <SmartphoneIcon className="w-5 h-5 text-[#F97316]" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <span className="text-sm font-bold text-[#202D2D] block leading-tight">
-                    {isSynced
-                      ? "Cloud Synchronized"
-                      : isSyncing
-                      ? "Syncing with Cloud..."
-                      : "Saved on Device (Offline)"}
-                  </span>
-                  <span className="text-[11px] text-[#64748B] font-medium block mt-0.5 truncate">
-                    {isSynced
-                      ? `Verified by Central Dispatch at ${confirmedTimeStr}`
-                      : isSyncing
-                      ? "Transmitting delivery record and evidence..."
-                      : "Preserved locally in IndexedDB cache."}
-                  </span>
-                </div>
+                  Saved on this device
+                </span>
               </div>
 
-              {/* 3-Step Lifecycle Indicator */}
-              <div className="pt-2.5 border-t border-black/5 flex flex-col gap-1.5 text-xs">
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className="flex items-center gap-1.5 font-medium text-[#202D2D]">
-                    <span className="w-3.5 h-3.5 rounded-full bg-[#22C55E] text-white flex items-center justify-center text-[9px] font-bold">✓</span>
-                    Saved to Device Cache
-                  </span>
-                  <span className="text-[#22C55E] font-bold text-[10px]">Secured</span>
-                </div>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className={`flex items-center gap-1.5 font-medium ${isSynced ? 'text-[#202D2D]' : isSyncing ? 'text-[#3B82F6]' : 'text-[#64748B]'}`}>
-                    <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                      isSynced ? "bg-[#22C55E] text-white" : isSyncing ? "bg-[#3B82F6] text-white animate-spin" : "bg-[#CBD5E1] text-white"
-                    }`}>
-                      {isSynced ? "✓" : isSyncing ? "↻" : "2"}
+              {/* Offline explanation text */}
+              <p
+                className="text-[#485563] font-medium text-center m-0"
+                style={{ width: 322, height: 40, fontSize: 13, lineHeight: "20px" }}
+              >
+                Data is secured offline. Will sync when connection returns.
+              </p>
+            </div>
+
+            {/* Card 2: CLOUD NETWORK SYNC STATUS */}
+            <div
+              className="flex flex-col items-start bg-white border border-[#CBD5E1] rounded-xl shrink-0 box-border"
+              style={{ width: 350, padding: 14, gap: 12 }}
+            >
+              {/* Card Title */}
+              <span
+                className="text-[#485563] font-bold tracking-wider"
+                style={{ fontSize: 12, lineHeight: "18px" }}
+              >
+                CLOUD NETWORK SYNC STATUS
+              </span>
+
+              {/* Status Items List Frame */}
+              <div
+                className="flex flex-col items-start shrink-0"
+                style={{ width: 322, gap: 12 }}
+              >
+                {/* 1. Saved on device */}
+                <div
+                  className="flex flex-row items-start shrink-0"
+                  style={{ width: 322, gap: 12 }}
+                >
+                  <div
+                    className="flex flex-col justify-center items-center shrink-0"
+                    style={{ width: 24, height: 24 }}
+                  >
+                    <CheckCircleIcon className="w-[24px] h-[24px] text-[#22C55E]" />
+                  </div>
+                  <div
+                    className="flex flex-col items-start flex-1"
+                    style={{ width: 286, gap: 4 }}
+                  >
+                    <span
+                      className="text-[#202D2D] font-bold"
+                      style={{ fontSize: 14, lineHeight: "21px" }}
+                    >
+                      Saved on device
                     </span>
-                    Cloud Transmission
-                  </span>
-                  <span className={`font-bold text-[10px] ${isSynced ? 'text-[#22C55E]' : isSyncing ? 'text-[#3B82F6]' : 'text-[#64748B]'}`}>
-                    {isSynced ? "Done" : isSyncing ? "Sending..." : "Pending"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-[11px]">
-                  <span className={`flex items-center gap-1.5 font-medium ${isSynced ? 'text-[#202D2D]' : 'text-[#64748B]'}`}>
-                    <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] font-bold ${
-                      isSynced ? "bg-[#22C55E] text-white" : "bg-[#CBD5E1] text-white"
-                    }`}>
-                      {isSynced ? "✓" : "3"}
+                    <span
+                      className="text-[#485563] font-medium"
+                      style={{ fontSize: 13, lineHeight: "20px" }}
+                    >
+                      Record DEL-S1-T001-001 secured locally.
                     </span>
-                    Dispatch Verification
-                  </span>
-                  <span className={`font-bold text-[10px] ${isSynced ? 'text-[#22C55E]' : 'text-[#64748B]'}`}>
-                    {isSynced ? confirmedTimeStr : "Awaiting"}
-                  </span>
+                    <span
+                      className="text-[#485563] font-medium"
+                      style={{ fontSize: 13, lineHeight: "20px" }}
+                    >
+                      Data is saved. Will sync when connection returns.
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Syncing... */}
+                <div
+                  className="flex flex-row items-start shrink-0"
+                  style={{ width: 322, gap: 12 }}
+                >
+                  <div
+                    className="flex flex-col justify-center items-center shrink-0"
+                    style={{ width: 24, height: 24 }}
+                  >
+                    <RefreshCwIcon
+                      className={`w-[24px] h-[24px] text-[#22C55E] ${
+                        isSyncing ? "animate-spin" : ""
+                      }`}
+                    />
+                  </div>
+                  <div
+                    className="flex flex-col items-start flex-1"
+                    style={{ width: 286, gap: 4 }}
+                  >
+                    <span
+                      className="text-[#22C55E] font-bold"
+                      style={{ fontSize: 14, lineHeight: "21px" }}
+                    >
+                      Syncing...
+                    </span>
+                    <span
+                      className="text-[#485563] font-medium"
+                      style={{ fontSize: 13, lineHeight: "20px" }}
+                    >
+                      Transmitting delivery record to cloud...
+                    </span>
+                  </div>
+                </div>
+
+                {/* 3. Synced successfully */}
+                <div
+                  className="flex flex-row items-start shrink-0"
+                  style={{ width: 322, gap: 12 }}
+                >
+                  <div
+                    className="flex flex-col justify-center items-center shrink-0"
+                    style={{ width: 24, height: 24 }}
+                  >
+                    {isSynced ? (
+                      <CheckCircleIcon className="w-[24px] h-[24px] text-[#22C55E]" />
+                    ) : (
+                      <div
+                        className="rounded-full bg-[#CBD5E1]"
+                        style={{ width: 10, height: 10 }}
+                      />
+                    )}
+                  </div>
+                  <div
+                    className="flex flex-col items-start flex-1"
+                    style={{ width: 286, gap: 4 }}
+                  >
+                    <span
+                      className={`font-bold ${isSynced ? "text-[#22C55E]" : "text-[#485563]"}`}
+                      style={{ fontSize: 14, lineHeight: "21px" }}
+                    >
+                      Synced successfully
+                    </span>
+                    <span
+                      className="text-[#485563] font-medium"
+                      style={{ fontSize: 13, lineHeight: "20px" }}
+                    >
+                      {isSynced
+                        ? `Confirmed at ${confirmedTimeStr || "Just now"}`
+                        : "Confirmed timestamp will appear here."}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 4. Sync failed - retry available */}
+                <div
+                  className="flex flex-row items-start shrink-0"
+                  style={{ width: 322, gap: 12 }}
+                >
+                  <div
+                    className="flex flex-col justify-center items-center shrink-0"
+                    style={{ width: 24, height: 24 }}
+                  >
+                    <div
+                      className="rounded-full bg-[#CBD5E1]"
+                      style={{ width: 10, height: 10 }}
+                    />
+                  </div>
+                  <div
+                    className="flex flex-col items-start flex-1"
+                    style={{ width: 286, gap: 4 }}
+                  >
+                    <span
+                      className="text-[#485563] font-bold"
+                      style={{ fontSize: 14, lineHeight: "21px" }}
+                    >
+                      Sync failed - retry available
+                    </span>
+                    <span
+                      className="text-[#485563] font-medium"
+                      style={{ fontSize: 13, lineHeight: "20px" }}
+                    >
+                      Delivery record preserved. Tap Retry to attempt sync again.
+                    </span>
+                    <button
+                      id="button-Retry"
+                      type="button"
+                      onClick={onRetrySync}
+                      className="flex flex-row justify-center items-center bg-[#F97316] hover:bg-[#ea6c0a] active:scale-[0.98] rounded-xl border-none cursor-pointer transition-all duration-150 mt-1"
+                      style={{ width: 286, height: 44, padding: "0 16px", gap: 8, boxSizing: "border-box" }}
+                    >
+                      <span
+                        className="text-white font-bold"
+                        style={{ fontSize: 14, lineHeight: "21px" }}
+                      >
+                        Retry
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* 5. Plan conflict - review required */}
+                <div
+                  className="flex flex-row items-start shrink-0"
+                  style={{ width: 322, gap: 12 }}
+                >
+                  <div
+                    className="flex flex-col justify-center items-center shrink-0"
+                    style={{ width: 24, height: 24 }}
+                  >
+                    <div
+                      className="rounded-full bg-[#CBD5E1]"
+                      style={{ width: 10, height: 10 }}
+                    />
+                  </div>
+                  <div
+                    className="flex flex-col items-start flex-1"
+                    style={{ width: 286, gap: 4 }}
+                  >
+                    <span
+                      className="text-[#485563] font-bold"
+                      style={{ fontSize: 14, lineHeight: "21px" }}
+                    >
+                      Plan conflict - review required
+                    </span>
+                    <span
+                      className="text-[#485563] font-medium"
+                      style={{ fontSize: 13, lineHeight: "20px" }}
+                    >
+                      A plan change occurred while you were delivering. Review changes before proceeding.
+                    </span>
+                    <button
+                      id="button-Review-Changes"
+                      type="button"
+                      onClick={onReviewChanges}
+                      className="flex flex-row justify-center items-center bg-[#F97316] hover:bg-[#ea6c0a] active:scale-[0.98] rounded-xl border-none cursor-pointer transition-all duration-150 mt-1"
+                      style={{ width: 286, height: 44, padding: "0 16px", gap: 8, boxSizing: "border-box" }}
+                    >
+                      <span
+                        className="text-white font-bold"
+                        style={{ fontSize: 14, lineHeight: "21px" }}
+                      >
+                        Review Changes
+                      </span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
 
-            {/* Frame: Proceed to Next Stop Button Frame */}
+            {/* Frame: Proceed to Next Stop Button */}
             <div
-              className="flex flex-col items-center shrink-0 gap-2 mt-2"
-              style={{ width: 350, boxSizing: "border-box" }}
+              className="flex flex-col items-start shrink-0"
+              style={{ width: 350, height: 64, padding: "16px 0px 0px", boxSizing: "border-box" }}
             >
               <button
-                id="btn-proceed-next-stop"
+                id="button-Proceed-to-Next-Stop"
                 type="button"
                 onClick={onPrimaryAction}
                 className="flex flex-row justify-center items-center bg-[#F97316] hover:bg-[#ea6c0a] active:scale-[0.98] rounded-xl border-none cursor-pointer transition-all duration-200 shadow-md"
-                style={{ width: 350, height: 48, padding: "0 16px", gap: 8, boxSizing: "border-box" }}
+                style={{ width: 350, height: 48, padding: "0px 16px", gap: 8, boxSizing: "border-box" }}
               >
-                <span className="text-white font-bold" style={{ fontSize: 15, lineHeight: "22px" }}>
+                <ArrowRightIcon className="w-[18px] h-[18px] text-white" />
+                <span
+                  className="text-white font-bold"
+                  style={{ fontSize: 15, lineHeight: "22px" }}
+                >
                   Proceed to Next Stop
                 </span>
-                <ArrowRightIcon className="w-[18px] h-[18px] text-white" />
               </button>
-
-              <Link
-                href="/driver/today-run"
-                className="text-[#485563] hover:text-[#202D2D] font-bold text-xs py-1.5 no-underline"
-              >
-                ← Return to Today&apos;s Run
-              </Link>
             </div>
           </div>
 
-          {/* bottom-nav (width 390px, height 77px, border-top 1px solid #CBD5E1, bg #FFFFFF) */}
+          {/* bottom-nav */}
           <nav
-            id="bottom-nav-canvas"
+            id="bottom-nav"
             aria-label="Driver navigation"
             className="flex flex-col items-start bg-white border-t border-[#CBD5E1] shrink-0"
             style={{ width: 390, height: 77, boxSizing: "border-box" }}
           >
             <div
               className="flex flex-row justify-between items-center"
-              style={{ width: 390, height: 64, padding: "0 12px", boxSizing: "border-box" }}
+              style={{ width: 390, height: 64, padding: "0px 12px", boxSizing: "border-box" }}
             >
+              {/* tab-My Run */}
               <Link
-                id="tab-my-run"
+                id="tab-My-Run"
                 href="/driver/today-run"
                 className="flex flex-col justify-center items-center border-none bg-transparent cursor-pointer no-underline"
                 style={{ width: 100, height: 52, gap: 4 }}
               >
                 <RouteIcon className="w-[22px] h-[22px] text-[#485563]" />
-                <span className="text-[#485563] font-semibold" style={{ fontSize: 11, lineHeight: "16px" }}>
+                <span
+                  className="text-[#485563] font-semibold"
+                  style={{ fontSize: 11, lineHeight: "16px" }}
+                >
                   My Run
                 </span>
               </Link>
 
+              {/* tab-Current Stop */}
               <div
-                id="tab-current-stop"
+                id="tab-Current-Stop"
                 className="flex flex-col justify-center items-center"
                 style={{ width: 100, height: 50, gap: 4 }}
               >
                 <NavigationIcon className="w-[22px] h-[22px] text-[#202D2D]" />
-                <span className="text-[#202D2D] font-semibold" style={{ fontSize: 11, lineHeight: "16px" }}>
+                <span
+                  className="text-[#202D2D] font-semibold"
+                  style={{ fontSize: 11, lineHeight: "16px" }}
+                >
                   Current Stop
                 </span>
                 <span
@@ -2432,23 +2534,28 @@ function MobileCurrentStopCanvas({
                 />
               </div>
 
+              {/* tab-Report */}
               <Link
-                id="tab-report"
-                href="/driver/report"
+                id="tab-Report"
+                href="/driver/history"
                 className="flex flex-col justify-center items-center border-none bg-transparent cursor-pointer no-underline"
                 style={{ width: 100, height: 52, gap: 4 }}
               >
                 <AlertTriangleIcon className="w-[22px] h-[22px] text-[#485563]" />
-                <span className="text-[#485563] font-semibold" style={{ fontSize: 11, lineHeight: "16px" }}>
+                <span
+                  className="text-[#485563] font-semibold"
+                  style={{ fontSize: 11, lineHeight: "16px" }}
+                >
                   Report
                 </span>
               </Link>
             </div>
 
+            {/* home-indicator */}
             <div
               id="home-indicator"
-              className="flex flex-row justify-center items-flex-start"
-              style={{ width: 390, height: 13, padding: "0 0 8px", boxSizing: "border-box" }}
+              className="flex flex-row justify-center items-start"
+              style={{ width: 390, height: 13, padding: "0px 0px 8px", boxSizing: "border-box" }}
             >
               <div
                 className="bg-[#202D2D] rounded-[100px]"

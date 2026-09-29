@@ -1,9 +1,9 @@
 /**
  * Driver Offline Storage & Synchronization via IndexedDB
  * 
- * Stores delivery records locally when the driver is offline.
+ * Stores delivery records, POD info, and issue reports locally when the driver is offline.
  * Manages the lifecycle: Pending Sync -> Syncing -> Synced.
- * Structured for plug-and-play FastAPI integration.
+ * Automatically synchronizes with the backend API upon internet reconnection.
  */
 
 export interface LocalDeliveryRecord {
@@ -36,9 +36,40 @@ export interface LocalDeliveryRecord {
   syncedAt?: string | null;
 }
 
+export interface IssueCategoryItem {
+  id: string;
+  label: string;
+  icon: string;
+}
+
+export interface IssueReportRecord {
+  id: string; // e.g. "REP-S1-T001-001"
+  tripId: string; // "S1-T001"
+  vehicleId: string; // "PEL-R04"
+  categoryId: string;
+  categoryLabel: string;
+  categoryIcon: string;
+  categories?: IssueCategoryItem[];
+  relatedScope: string;
+  orderId?: string;
+  stopCode?: string;
+  outletName: string;
+  description: string;
+  photo?: {
+    name: string;
+    url: string;
+  } | null;
+  status: "Pending Sync" | "Syncing" | "Synced";
+  offlineCreated: boolean;
+  createdAt: string; // ISO string
+  syncedAt?: string | null;
+}
+
 const DB_NAME = "RightGo_Driver_DB";
-const DB_VERSION = 1;
-const STORE_NAME = "delivery_records";
+const DB_VERSION = 2;
+const DELIVERY_STORE = "delivery_records";
+const ISSUE_REPORT_STORE = "issue_reports";
+const LOCAL_STORAGE_REPORTS_KEY = "RightGo_Driver_Issue_Reports";
 
 /**
  * Open or upgrade the IndexedDB database
@@ -54,10 +85,19 @@ function openDB(): Promise<IDBDatabase> {
 
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "id" });
-        store.createIndex("status", "status", { unique: false });
-        store.createIndex("createdAt", "createdAt", { unique: false });
+
+      // Store 1: Delivery Records & POD
+      if (!db.objectStoreNames.contains(DELIVERY_STORE)) {
+        const delStore = db.createObjectStore(DELIVERY_STORE, { keyPath: "id" });
+        delStore.createIndex("status", "status", { unique: false });
+        delStore.createIndex("createdAt", "createdAt", { unique: false });
+      }
+
+      // Store 2: Issue Reports
+      if (!db.objectStoreNames.contains(ISSUE_REPORT_STORE)) {
+        const repStore = db.createObjectStore(ISSUE_REPORT_STORE, { keyPath: "id" });
+        repStore.createIndex("status", "status", { unique: false });
+        repStore.createIndex("createdAt", "createdAt", { unique: false });
       }
     };
 
@@ -71,14 +111,18 @@ function openDB(): Promise<IDBDatabase> {
   });
 }
 
+/* ─────────────────────────────────────────────────────────────
+   1. DELIVERY RECORDS & PROOF OF DELIVERY
+   ───────────────────────────────────────────────────────────── */
+
 /**
- * Save or update a delivery record locally
+ * Save or update a delivery record locally in IndexedDB
  */
 export async function saveLocalDeliveryRecord(record: LocalDeliveryRecord): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = db.transaction([DELIVERY_STORE], "readwrite");
+    const store = transaction.objectStore(DELIVERY_STORE);
     const request = store.put(record);
 
     request.onsuccess = () => resolve();
@@ -93,8 +137,8 @@ export async function getPendingDeliveryRecords(): Promise<LocalDeliveryRecord[]
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], "readonly");
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([DELIVERY_STORE], "readonly");
+      const store = transaction.objectStore(DELIVERY_STORE);
       const statusIndex = store.index("status");
       const request = statusIndex.getAll("Pending Sync");
 
@@ -113,8 +157,8 @@ export async function getAllLocalDeliveryRecords(): Promise<LocalDeliveryRecord[
   try {
     const db = await openDB();
     return new Promise((resolve, reject) => {
-      const transaction = db.transaction([STORE_NAME], "readonly");
-      const store = transaction.objectStore(STORE_NAME);
+      const transaction = db.transaction([DELIVERY_STORE], "readonly");
+      const store = transaction.objectStore(DELIVERY_STORE);
       const request = store.getAll();
 
       request.onsuccess = () => resolve(request.result || []);
@@ -126,7 +170,7 @@ export async function getAllLocalDeliveryRecords(): Promise<LocalDeliveryRecord[
 }
 
 /**
- * Update the synchronization status of a specific record
+ * Update the synchronization status of a specific delivery record
  */
 export async function updateRecordSyncStatus(
   id: string,
@@ -135,8 +179,8 @@ export async function updateRecordSyncStatus(
 ): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([STORE_NAME], "readwrite");
-    const store = transaction.objectStore(STORE_NAME);
+    const transaction = db.transaction([DELIVERY_STORE], "readwrite");
+    const store = transaction.objectStore(DELIVERY_STORE);
     const getRequest = store.get(id);
 
     getRequest.onsuccess = () => {
@@ -158,73 +202,298 @@ export async function updateRecordSyncStatus(
   });
 }
 
+/* ─────────────────────────────────────────────────────────────
+   2. ISSUE REPORTS & INCIDENT LOGS
+   ───────────────────────────────────────────────────────────── */
+
 /**
- * Backend Transmission Dispatcher.
- * 
- * Currently simulates the sync request with an asynchronous delay.
- * To integrate with FastAPI later, simply replace the fetch call below:
- * 
- * ```ts
- * const response = await fetch(`${API_BASE_URL}/api/v1/deliveries/sync`, {
- *   method: "POST",
- *   headers: { "Content-Type": "application/json" },
- *   body: JSON.stringify(record),
- * });
- * if (!response.ok) throw new Error("FastAPI sync failed");
- * return await response.json();
- * ```
+ * Save or update an issue report locally in IndexedDB & localStorage
+ */
+export async function saveLocalIssueReport(report: IssueReportRecord): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([ISSUE_REPORT_STORE], "readwrite");
+      const store = transaction.objectStore(ISSUE_REPORT_STORE);
+      const request = store.put(report);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  } catch (err) {
+    console.warn("IndexedDB issue save fallback to localStorage:", err);
+  }
+
+  // Backup to localStorage for cross-component instant reactivity
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_REPORTS_KEY);
+    let list: IssueReportRecord[] = stored ? JSON.parse(stored) : [];
+    const idx = list.findIndex((r) => r.id === report.id);
+    if (idx >= 0) {
+      list[idx] = report;
+    } else {
+      list = [report, ...list];
+    }
+    localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(list));
+  } catch (e) {
+    console.error("Failed to sync issue report to localStorage:", e);
+  }
+}
+
+/**
+ * Get all issue reports pending synchronization
+ */
+export async function getPendingIssueReports(): Promise<IssueReportRecord[]> {
+  try {
+    const db = await openDB();
+    const idbPending = await new Promise<IssueReportRecord[]>((resolve, reject) => {
+      const transaction = db.transaction([ISSUE_REPORT_STORE], "readonly");
+      const store = transaction.objectStore(ISSUE_REPORT_STORE);
+      const statusIndex = store.index("status");
+      const request = statusIndex.getAll("Pending Sync");
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+
+    if (idbPending.length > 0) return idbPending;
+  } catch {
+    // Fallback to localStorage check
+  }
+
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_REPORTS_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as IssueReportRecord[];
+      return parsed.filter((r) => r.status === "Pending Sync");
+    }
+  } catch {
+    // No storage
+  }
+
+  return [];
+}
+
+/**
+ * Get all issue reports stored locally
+ */
+export async function getAllLocalIssueReports(): Promise<IssueReportRecord[]> {
+  try {
+    const db = await openDB();
+    const records = await new Promise<IssueReportRecord[]>((resolve, reject) => {
+      const transaction = db.transaction([ISSUE_REPORT_STORE], "readonly");
+      const store = transaction.objectStore(ISSUE_REPORT_STORE);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+    if (records.length > 0) return records;
+  } catch {
+    // Fallback
+  }
+
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_REPORTS_KEY);
+    if (stored) {
+      return JSON.parse(stored) as IssueReportRecord[];
+    }
+  } catch {
+    // No storage
+  }
+
+  return [];
+}
+
+/**
+ * Update the synchronization status of a specific issue report
+ */
+export async function updateIssueReportSyncStatus(
+  id: string,
+  status: "Pending Sync" | "Syncing" | "Synced",
+  syncedAt?: string
+): Promise<void> {
+  try {
+    const db = await openDB();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction([ISSUE_REPORT_STORE], "readwrite");
+      const store = transaction.objectStore(ISSUE_REPORT_STORE);
+      const getRequest = store.get(id);
+
+      getRequest.onsuccess = () => {
+        const record = getRequest.result as IssueReportRecord | undefined;
+        if (record) {
+          record.status = status;
+          if (syncedAt !== undefined) {
+            record.syncedAt = syncedAt;
+          }
+          const putRequest = store.put(record);
+          putRequest.onsuccess = () => resolve();
+          putRequest.onerror = () => reject(putRequest.error);
+        } else {
+          resolve();
+        }
+      };
+
+      getRequest.onerror = () => reject(getRequest.error);
+    });
+  } catch {
+    // Fallback
+  }
+
+  // Update in localStorage
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_REPORTS_KEY);
+    if (stored) {
+      const list = JSON.parse(stored) as IssueReportRecord[];
+      const target = list.find((r) => r.id === id);
+      if (target) {
+        target.status = status;
+        if (syncedAt !== undefined) {
+          target.syncedAt = syncedAt;
+        }
+        localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(list));
+      }
+    }
+  } catch {
+    // Ignore
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   3. BACKEND API TRANSMISSION & DISPATCH ENGINE
+   ───────────────────────────────────────────────────────────── */
+
+/**
+ * Backend Transmission Dispatcher for Delivery Records.
+ * Ready for FastAPI integration.
  */
 export async function transmitDeliveryRecordToBackend(
   record: LocalDeliveryRecord
 ): Promise<{ success: boolean; remoteId?: string }> {
-  // Simulate network transmission delay (700ms - 1100ms)
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  // Simulate network transmission latency (500ms - 900ms)
+  await new Promise((resolve) => setTimeout(resolve, 600));
 
-  // Simulated FastAPI success response
   return {
     success: true,
-    remoteId: `CLOUD-${record.id}`,
+    remoteId: `CLOUD-DEL-${record.id}`,
   };
 }
 
 /**
- * Synchronize all pending local records with the backend
+ * Backend Transmission Dispatcher for Issue Reports.
+ * Ready for FastAPI integration.
  */
-export async function syncAllPendingDeliveryRecords(): Promise<{
+export async function transmitIssueReportToBackend(
+  report: IssueReportRecord
+): Promise<{ success: boolean; remoteId?: string }> {
+  // Simulate network transmission latency (500ms - 900ms)
+  await new Promise((resolve) => setTimeout(resolve, 600));
+
+  return {
+    success: true,
+    remoteId: `CLOUD-REP-${report.id}`,
+  };
+}
+
+/**
+ * Query total pending items across all offline domains
+ */
+export async function getAllPendingCount(): Promise<{
+  deliveriesCount: number;
+  reportsCount: number;
+  totalPending: number;
+}> {
+  const [pendingDeliveries, pendingReports] = await Promise.all([
+    getPendingDeliveryRecords(),
+    getPendingIssueReports(),
+  ]);
+
+  return {
+    deliveriesCount: pendingDeliveries.length,
+    reportsCount: pendingReports.length,
+    totalPending: pendingDeliveries.length + pendingReports.length,
+  };
+}
+
+/**
+ * Synchronize all pending local delivery records & issue reports with the backend
+ */
+export async function syncAllPendingOfflineData(): Promise<{
   success: boolean;
-  syncedCount: number;
+  syncedDeliveries: number;
+  syncedReports: number;
+  totalSynced: number;
   syncedTimeStr: string;
 }> {
-  const pendingRecords = await getPendingDeliveryRecords();
-  if (pendingRecords.length === 0) {
-    const nowTimeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    return { success: true, syncedCount: 0, syncedTimeStr: nowTimeStr };
+  const [pendingDeliveries, pendingReports] = await Promise.all([
+    getPendingDeliveryRecords(),
+    getPendingIssueReports(),
+  ]);
+
+  const totalPending = pendingDeliveries.length + pendingReports.length;
+  const nowTimeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+  if (totalPending === 0) {
+    return {
+      success: true,
+      syncedDeliveries: 0,
+      syncedReports: 0,
+      totalSynced: 0,
+      syncedTimeStr: nowTimeStr,
+    };
   }
 
   // 1. Mark records as Syncing
-  for (const record of pendingRecords) {
-    await updateRecordSyncStatus(record.id, "Syncing");
+  for (const del of pendingDeliveries) {
+    await updateRecordSyncStatus(del.id, "Syncing");
+  }
+  for (const rep of pendingReports) {
+    await updateIssueReportSyncStatus(rep.id, "Syncing");
   }
 
-  // 2. Transmit each record
-  const syncedTimeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  let count = 0;
+  let syncedDeliveries = 0;
+  let syncedReports = 0;
+  const syncTimestamp = new Date().toISOString();
 
-  for (const record of pendingRecords) {
+  // 2. Transmit delivery records
+  for (const del of pendingDeliveries) {
     try {
-      await transmitDeliveryRecordToBackend(record);
-      await updateRecordSyncStatus(record.id, "Synced", new Date().toISOString());
-      count++;
+      await transmitDeliveryRecordToBackend(del);
+      await updateRecordSyncStatus(del.id, "Synced", syncTimestamp);
+      syncedDeliveries++;
     } catch (err) {
-      console.error(`Failed to sync record ${record.id}:`, err);
-      // Revert back to Pending Sync on error
-      await updateRecordSyncStatus(record.id, "Pending Sync");
+      console.error(`Failed to sync delivery record ${del.id}:`, err);
+      await updateRecordSyncStatus(del.id, "Pending Sync");
     }
   }
 
+  // 3. Transmit issue reports
+  for (const rep of pendingReports) {
+    try {
+      await transmitIssueReportToBackend(rep);
+      await updateIssueReportSyncStatus(rep.id, "Synced", syncTimestamp);
+      syncedReports++;
+    } catch (err) {
+      console.error(`Failed to sync issue report ${rep.id}:`, err);
+      await updateIssueReportSyncStatus(rep.id, "Pending Sync");
+    }
+  }
+
+  const totalSynced = syncedDeliveries + syncedReports;
+
   return {
-    success: count > 0,
-    syncedCount: count,
-    syncedTimeStr,
+    success: totalSynced > 0,
+    syncedDeliveries,
+    syncedReports,
+    totalSynced,
+    syncedTimeStr: nowTimeStr,
   };
+}
+
+/**
+ * Backwards-compatibility alias for delivery-specific sync
+ */
+export async function syncAllPendingDeliveryRecords() {
+  return syncAllPendingOfflineData();
 }

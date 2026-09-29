@@ -16,12 +16,12 @@ export function OfflineBanner() {
   }
 
   return (
-    <div className="w-full shrink-0 z-30 transition-all duration-300">
-      {/* ── Offline Banner ── */}
+    <div className="hidden md:block w-full shrink-0 z-30 transition-all duration-300">
+      {/* ── Offline Banner (Desktop only) ── */}
       {connectionState === "offline" && (
         <div
           id="driver-offline-banner"
-          className="flex flex-col sm:flex-row items-center justify-between px-4 py-2.5 bg-[#FFF4ED] border-b border-[#F97316]/40 text-[#EA580C] gap-2 shadow-sm animate-in slide-in-from-top duration-200"
+          className="flex flex-row items-center justify-between px-6 py-2 bg-[#FFF4ED] border-b border-[#F97316]/30 text-[#EA580C] shadow-sm animate-in slide-in-from-top duration-200"
         >
           <div className="flex items-center gap-2.5 text-xs sm:text-sm font-semibold">
             <span className="relative flex h-2.5 w-2.5">
