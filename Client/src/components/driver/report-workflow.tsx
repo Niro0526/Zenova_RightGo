@@ -17,6 +17,7 @@ import {
 import { CameraModal } from "@/components/driver/today-run/CameraModal";
 import { Toast, ToastState } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
+import { saveLocalIssueReport } from "@/lib/driver/driver-offline-db";
 import {
   ReportDetailsModal,
   type IssueReportRecord,
@@ -377,6 +378,9 @@ export function DriverReportWorkflow() {
     setTimeout(() => {
       const updatedReports = [newRecord, ...reports];
       setReports(updatedReports);
+      saveLocalIssueReport(newRecord).catch((err: unknown) =>
+        console.error("Failed to save issue report to IndexedDB:", err)
+      );
       try {
         localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(updatedReports));
       } catch (err) {
@@ -764,51 +768,30 @@ export function DriverReportWorkflow() {
                           }`}
                         >
                           <option value="" disabled>
-                            [ Select Order from Current Run ▼ ]
+                            [ Select Order from Current Stop 1 ▼ ]
                           </option>
 
-                          {/* Stop / Vehicle General Scopes */}
+                          {/* CURRENT STOP 1 (OUT001) ORDERS ONLY */}
+                          <optgroup label="📍 Stop 1 (OUT001 / Colpetty Retailer) Orders">
+                            <option value="S1-000">
+                              📦 Order S1-000 — 12 ambient units • 97.8 kg
+                            </option>
+                            <option value="S1-001">
+                              📦 Order S1-001 — 80 chilled units • 448.6 kg
+                            </option>
+                          </optgroup>
+
+                          {/* GENERAL / VEHICLE SCOPE */}
                           {!requiresOrderAny && (
-                            <optgroup label="General / Non-Order Scopes">
-                              {selectedIssues.includes("vehicle") ? (
-                                <option value="VEHICLE_PEL_R04">
-                                  🚚 Entire Trip &amp; Vehicle (PEL-R04) — Not Order Specific
-                                </option>
-                              ) : (
-                                <>
-                                  <option value="STOP_1_ENTIRE">
-                                    🚪 Entire Stop 1 (OUT001 / Colpetty Retailer) — Not Order Specific
-                                  </option>
-                                  <option value="STOP_2_ENTIRE">
-                                    🚪 Entire Stop 2 (OUT002 / Nugegoda Corner Store) — Not Order Specific
-                                  </option>
-                                  <option value="STOP_3_ENTIRE">
-                                    🚪 Entire Stop 3 (OUT003 / Mount Lavinia Super) — Not Order Specific
-                                  </option>
-                                  <option value="STOP_4_ENTIRE">
-                                    🚪 Entire Stop 4 (OUT004 / Dehiwala Co-op) — Not Order Specific
-                                  </option>
-                                  <option value="VEHICLE_PEL_R04">
-                                    🚚 Vehicle Issue / General Delay (PEL-R04)
-                                  </option>
-                                </>
-                              )}
+                            <optgroup label="🚚 Stop / Vehicle Level">
+                              <option value="STOP_1_ENTIRE">
+                                🚪 Entire Stop 1 (OUT001 / Colpetty Retailer)
+                              </option>
+                              <option value="VEHICLE_PEL_R04">
+                                🚚 Vehicle PEL-R04 / Trip S1-T001 General Delay
+                              </option>
                             </optgroup>
                           )}
-
-                          {/* Grouped orders assigned to this run */}
-                          {CURRENT_TRIP_INFO.stops.map((stop) => (
-                            <optgroup
-                              key={stop.stopId}
-                              label={`Stop ${stop.stopId} – ${stop.stopCode} / ${stop.stopName}`}
-                            >
-                              {stop.orders.map((ord) => (
-                                <option key={ord.orderId} value={ord.orderId}>
-                                  📦 Order {ord.orderId} — {ord.details} (Stop {stop.stopId})
-                                </option>
-                              ))}
-                            </optgroup>
-                          ))}
                         </select>
                       </div>
 
@@ -1481,43 +1464,30 @@ function MobileReportCanvas({
                   className="w-full p-2.5 bg-white rounded-xl text-xs font-semibold text-[#202D2D] border border-[#CBD5E1] focus:border-[#F97316] focus:outline-none"
                 >
                   <option value="" disabled>
-                    [ Select Order from Run ▼ ]
+                    [ Select Order from Current Stop 1 ▼ ]
                   </option>
 
+                  {/* CURRENT STOP 1 (OUT001) ORDERS ONLY */}
+                  <optgroup label="📍 Stop 1 (OUT001 / Colpetty Retailer) Orders">
+                    <option value="S1-000">
+                      📦 Order S1-000 (12 ambient units • 97.8 kg)
+                    </option>
+                    <option value="S1-001">
+                      📦 Order S1-001 (80 chilled units • 448.6 kg)
+                    </option>
+                  </optgroup>
+
+                  {/* GENERAL / VEHICLE SCOPE */}
                   {!requiresOrderAny && (
-                    <optgroup label="General Scopes">
-                      {selectedIssues.includes("vehicle") ? (
-                        <option value="VEHICLE_PEL_R04">
-                          🚚 Entire Trip &amp; Vehicle (PEL-R04)
-                        </option>
-                      ) : (
-                        <>
-                          <option value="STOP_1_ENTIRE">
-                            🚪 Entire Stop 1 (Colpetty Retailer)
-                          </option>
-                          <option value="STOP_2_ENTIRE">
-                            🚪 Entire Stop 2 (Nugegoda Corner Store)
-                          </option>
-                          <option value="VEHICLE_PEL_R04">
-                            🚚 Vehicle / Manifest Delay (PEL-R04)
-                          </option>
-                        </>
-                      )}
+                    <optgroup label="🚚 Stop / Vehicle Level">
+                      <option value="STOP_1_ENTIRE">
+                        🚪 Entire Stop 1 (Colpetty Retailer)
+                      </option>
+                      <option value="VEHICLE_PEL_R04">
+                        🚚 Vehicle PEL-R04 / Trip S1-T001 General Delay
+                      </option>
                     </optgroup>
                   )}
-
-                  {CURRENT_TRIP_INFO.stops.map((stop) => (
-                    <optgroup
-                      key={stop.stopId}
-                      label={`Stop ${stop.stopId} – ${stop.stopCode} / ${stop.stopName}`}
-                    >
-                      {stop.orders.map((ord) => (
-                        <option key={ord.orderId} value={ord.orderId}>
-                          📦 Order {ord.orderId} ({ord.details})
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
                 </select>
               </div>
 
