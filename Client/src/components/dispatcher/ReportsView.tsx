@@ -19,17 +19,17 @@ export default function ReportsView() {
   };
 
   return (
-    <div className="flex flex-col flex-1 p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
+    <div className="flex flex-col flex-1 p-4 md:p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
       
       {/* Header */}
-      <div className="flex flex-row justify-between items-center w-full">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center w-full gap-4 md:gap-0">
         <div className="flex flex-col gap-1.5">
-          <h1 className="font-bold text-[28px] text-[#202D2D] m-0">Reports & Analytics</h1>
+          <h1 className="font-bold text-[24px] md:text-[28px] text-[#202D2D] m-0">Reports & Analytics</h1>
           <h2 className="font-medium text-[11px] text-[#485563] uppercase tracking-wider m-0">Generate operational reports and view KPIs</h2>
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-6 mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-4">
         {/* Generate Report Panel */}
         <div className="col-span-1 bg-white border border-gray-200 rounded-[10px] p-6 shadow-sm flex flex-col">
           <h3 className="font-bold text-lg text-gray-900 mb-6 flex items-center gap-2">
@@ -86,9 +86,9 @@ export default function ReportsView() {
         </div>
 
         {/* Dashboard / Graphs Panel */}
-        <div className="col-span-2 flex flex-col gap-6">
+        <div className="col-span-1 lg:col-span-2 flex flex-col gap-6">
           {/* KPI Cards */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white border border-gray-200 rounded-[10px] p-5 shadow-sm">
               <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Avg Fleet Utilization</span>
               <div className="text-3xl font-black text-gray-900 mt-2">84.2%</div>
@@ -113,7 +113,7 @@ export default function ReportsView() {
             </h3>
             
             {/* Mock Graph using pure CSS */}
-            <div className="flex-1 min-h-[200px] flex items-end justify-between gap-4 mt-auto pt-8 border-b border-gray-200 pb-2 relative">
+            <div className="flex-1 min-h-[200px] flex items-end justify-between gap-1 sm:gap-2 md:gap-4 mt-auto pt-8 border-b border-gray-200 pb-2 relative overflow-x-auto">
               
               {/* Y-axis labels */}
               <div className="absolute left-0 top-0 bottom-0 flex flex-col justify-between text-[10px] text-gray-400 font-semibold py-2">
@@ -124,9 +124,9 @@ export default function ReportsView() {
                 <span>0%</span>
               </div>
               
-              <div className="w-8"></div> {/* Spacer for Y-axis */}
+              <div className="w-6 sm:w-8 flex-shrink-0"></div> {/* Spacer for Y-axis */}
               
-              <div className="w-full h-full flex items-end justify-between gap-2">
+              <div className="w-full h-full flex items-end justify-between gap-1 sm:gap-2 min-w-[250px]">
                 {[75, 82, 90, 85, 78, 88, 92].map((height, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-2 group">
                     <div className="w-full bg-blue-100 rounded-t-sm relative flex items-end justify-center h-[200px]">
