@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Route, Navigation, History, AlertTriangle } from "lucide-react";
+import { Route, Navigation, History } from "lucide-react";
 import Logo from "@/components/common/Logo";
 import NavItem from "@/components/common/NavItem";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
@@ -25,12 +25,6 @@ export const DRIVER_NAV_ITEMS = [
     href: "/driver/history",
     icon: History,
     id: "nav-history",
-  },
-  {
-    label: "Report",
-    href: "/driver/report",
-    icon: AlertTriangle,
-    id: "nav-report",
   },
 ] as const;
 

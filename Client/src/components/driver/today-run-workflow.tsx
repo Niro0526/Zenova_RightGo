@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { STOPS } from "@/components/driver/today-run/types";
 import {
+  RouteIcon,
   ClockIcon,
   ExternalLinkIcon,
   NavigationIcon,
@@ -11,6 +12,7 @@ import {
   CheckCircleIcon,
   HistoryIcon,
   ArrowRightIcon,
+  CalendarIcon,
 } from "@/components/driver/today-run/icons";
 import type { Stop, StopStatus } from "@/components/driver/today-run/types";
 import ScreenHeader from "@/components/driver/today-run/ScreenHeader";
@@ -241,22 +243,111 @@ export function StopRow({
   );
 }
 
+/* ─── Offline & Cloud Sync Status Banner Card ──────────────── */
+export function DriverOfflineSyncNotice() {
+  const { connectionState, pendingCount, lastSyncedTime } = useConnectivity();
+
+  if (connectionState === "online" && pendingCount === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      id="driver-offline-sync-notice"
+      className={`rounded-xl p-3.5 border transition-all duration-300 shadow-sm flex flex-col gap-2 ${
+        connectionState === "offline"
+          ? "bg-[#FFF4ED] border-[#F97316]/40 text-[#9A3412]"
+          : connectionState === "syncing"
+          ? "bg-[#EFF6FF] border-[#3B82F6]/40 text-[#1E40AF]"
+          : "bg-[#ECFDF5] border-[#22C55E]/40 text-[#166534]"
+      }`}
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="relative flex h-2.5 w-2.5">
+            <span
+              className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                connectionState === "offline"
+                  ? "bg-orange-400"
+                  : connectionState === "syncing"
+                  ? "bg-blue-400"
+                  : "bg-green-400"
+              }`}
+            />
+            <span
+              className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                connectionState === "offline"
+                  ? "bg-[#EA580C]"
+                  : connectionState === "syncing"
+                  ? "bg-[#2563EB]"
+                  : "bg-[#16A34A]"
+              }`}
+            />
+          </span>
+          <span className="font-bold text-xs uppercase tracking-wider">
+            {connectionState === "offline"
+              ? "Offline Mode — Local Storage Active"
+              : connectionState === "syncing"
+              ? "Cloud Sync in Progress..."
+              : "Sync Completed"}
+          </span>
+        </div>
+
+        <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-white/90 border border-current/20 shadow-xs">
+          {connectionState === "offline"
+            ? pendingCount > 0
+              ? `${pendingCount} Saved Offline`
+              : "Saved on Device"
+            : connectionState === "syncing"
+            ? "Syncing Fast-API"
+            : `Synced at ${lastSyncedTime || "Just now"}`}
+        </span>
+      </div>
+
+      <p className="text-xs font-medium m-0 leading-relaxed">
+        {connectionState === "offline" ? (
+          <>
+            You are currently offline. Current status, delivery confirmations, and POD records are stored locally on this device. <strong className="font-bold">Once you return online, all pending data will automatically sync with Central Dispatch.</strong>
+          </>
+        ) : connectionState === "syncing" ? (
+          <>
+            Internet connection restored. Synchronizing <strong className="font-bold">{pendingCount > 0 ? `${pendingCount} pending record(s)` : "records"}</strong> with the cloud...
+          </>
+        ) : (
+          <>
+            All offline deliveries and completed stop records are verified and synced with cloud dispatch.
+          </>
+        )}
+      </p>
+
+      {connectionState === "offline" && pendingCount > 0 && (
+        <div className="flex items-center justify-between pt-1 border-t border-orange-200/60 text-[11px] font-semibold">
+          <span>{pendingCount} stop record(s) queued for sync</span>
+          <span className="text-orange-700 bg-orange-100/80 px-2 py-0.5 rounded">Auto-sync on Reconnect</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Mobile canvas (412×917, Figma spec) ───────────────────── */
 export function TodayRunMobileCanvas({
   completedCount,
   nextStop,
   stops,
+  dateStr = "Tuesday, September 29, 2026",
 }: {
   completedCount: number;
   nextStop: Stop;
   stops: Stop[];
+  dateStr?: string;
 }) {
   return (
     <div
       className="relative bg-white overflow-hidden shadow-2xl"
       style={{ width: 412, height: 917, fontFamily: "'Poppins', sans-serif", flexShrink: 0 }}
     >
-      <ScreenHeader isOnline={true} />
+      <ScreenHeader title="Today's Run" subtitle={dateStr} />
       <TripInfoCard vehicleId="PEL-R04" tripPlanId="S1-T001" planVersion="Plan v2" />
       <ProgressBox completedCount={completedCount} totalCount={stops.length} />
       <NextStopCard stop={nextStop} onOpenStop={(s) => console.log("Opening stop", s.id)} />
@@ -271,7 +362,7 @@ export function TodayRunWorkflow() {
   const { connectionState } = useConnectivity();
   const [completedRecords, setCompletedRecords] = useState<LocalDeliveryRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<LocalDeliveryRecord | null>(null);
-  const [dateStr, setDateStr] = useState<string>("");
+  const [dateStr, setDateStr] = useState<string>("Tuesday, September 29, 2026");
 
   useEffect(() => {
     getAllLocalDeliveryRecords()
@@ -280,14 +371,19 @@ export function TodayRunWorkflow() {
   }, [connectionState]);
 
   useEffect(() => {
-    setDateStr(
-      new Date().toLocaleDateString("en-US", {
+    try {
+      const formatted = new Date().toLocaleDateString("en-US", {
         weekday: "long",
         year: "numeric",
         month: "long",
         day: "numeric",
-      })
-    );
+      });
+      if (formatted) {
+        setDateStr(formatted);
+      }
+    } catch {
+      setDateStr("Tuesday, September 29, 2026");
+    }
   }, []);
 
   // Compute status for stops: if completed in local IndexedDB, mark as completed
@@ -318,15 +414,49 @@ export function TodayRunWorkflow() {
           DESKTOP layout  (md+) — fluid, full-width
           ══════════════════════════════════════════ */}
       <div className="hidden md:flex flex-col gap-5 p-6 lg:p-8 min-h-full">
-        {/* Page title row */}
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-[#202D2D] font-bold text-2xl">Today&apos;s Run</h1>
-            <p className="text-[#485563] text-sm mt-0.5">
-              {dateStr}
-            </p>
+        {/* Page Header Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-[#CBD5E1]">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-orange-50 border border-orange-200 flex items-center justify-center shrink-0">
+              <RouteIcon className="w-6 h-6 text-[#F97316]" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#F97316] bg-orange-50 px-2.5 py-0.5 rounded border border-orange-200">
+                  Active Dispatch Run
+                </span>
+                <span className="text-xs font-bold text-[#485563]">Vehicle: PEL-R04 · Plan v2</span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-[#202D2D] mt-1 m-0">
+                Today&apos;s Run
+              </h1>
+              <div className="flex items-center gap-1.5 mt-1 text-[#485563] text-sm font-semibold">
+                <CalendarIcon className="w-4 h-4 text-[#F97316]" />
+                <span>{dateStr}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <Link
+              href="/driver/current-stop"
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#F97316] hover:bg-[#ea6c0a] text-white font-bold text-xs rounded-xl shadow-sm no-underline active:scale-95 transition-all"
+            >
+              <NavigationIcon className="w-4 h-4 text-white" />
+              <span>Current Stop</span>
+            </Link>
+            <Link
+              href="/driver/history"
+              className="flex items-center gap-2 px-4 py-2.5 bg-white border border-[#CBD5E1] hover:bg-slate-50 text-[#202D2D] font-bold text-xs rounded-xl shadow-sm no-underline transition-all"
+            >
+              <HistoryIcon className="w-4 h-4 text-[#485563]" />
+              <span>History</span>
+            </Link>
           </div>
         </div>
+
+        {/* Offline / Cloud Sync Notice */}
+        <DriverOfflineSyncNotice />
 
         {/* Stat chips */}
         <div className="grid grid-cols-4 gap-4">
@@ -408,13 +538,14 @@ export function TodayRunWorkflow() {
       </div>
 
       {/* ══════════════════════════════════════════
-          MOBILE layout  (< md) — Figma 412px canvas
+          MOBILE layout  (< md) — Seamless mobile view
           ══════════════════════════════════════════ */}
-      <div className="md:hidden flex items-start justify-center min-h-full bg-[#E2E8F0] py-4">
+      <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F8FAFC]">
         <TodayRunMobileCanvas
           completedCount={completedCount}
           nextStop={nextStop}
           stops={stopsWithStatus}
+          dateStr={dateStr}
         />
       </div>
     </>

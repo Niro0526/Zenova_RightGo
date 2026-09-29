@@ -2,8 +2,8 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import {
-  getPendingDeliveryRecords,
-  syncAllPendingDeliveryRecords,
+  getAllPendingCount,
+  syncAllPendingOfflineData,
 } from "@/lib/driver/driver-offline-db";
 
 export type ConnectionState = "online" | "offline" | "syncing" | "synced";
@@ -27,18 +27,18 @@ export function DriverConnectivityProvider({ children }: { children: React.React
 
   const refreshPendingCount = useCallback(async () => {
     try {
-      const pending = await getPendingDeliveryRecords();
-      setPendingCount(pending.length);
+      const { totalPending } = await getAllPendingCount();
+      setPendingCount(totalPending);
     } catch {
       setPendingCount(0);
     }
   }, []);
 
-  // Perform synchronization
+  // Perform automatic or manual synchronization
   const triggerSync = useCallback(async () => {
     setConnectionState("syncing");
     try {
-      const result = await syncAllPendingDeliveryRecords();
+      const result = await syncAllPendingOfflineData();
       setLastSyncedTime(result.syncedTimeStr);
       await refreshPendingCount();
       setConnectionState("synced");
@@ -65,34 +65,59 @@ export function DriverConnectivityProvider({ children }: { children: React.React
       setConnectionState(online ? "online" : "offline");
       refreshPendingCount();
 
+      // Trigger automatic sync whenever connection is restored
       const handleOnline = async () => {
         setIsOnline(true);
-        const pending = await getPendingDeliveryRecords();
-        setPendingCount(pending.length);
+        const { totalPending } = await getAllPendingCount();
+        setPendingCount(totalPending);
 
-        if (pending.length > 0) {
-          // Required flow: Connection Returns -> Syncing -> Synced -> Online
+        if (totalPending > 0) {
+          // Flow: Connection Restored -> Syncing -> Synced -> Online
           await triggerSync();
         } else {
           setConnectionState("online");
         }
       };
 
+      // Handle offline connection loss
       const handleOffline = () => {
-        // Required flow: Online -> Connection Lost -> Offline
         setIsOnline(false);
         setConnectionState("offline");
       };
 
+      // Periodic check when tab gains focus or on interval if pending records exist
+      const handleFocus = async () => {
+        if (navigator.onLine) {
+          const { totalPending } = await getAllPendingCount();
+          setPendingCount(totalPending);
+          if (totalPending > 0 && connectionState !== "syncing") {
+            await triggerSync();
+          }
+        }
+      };
+
       window.addEventListener("online", handleOnline);
       window.addEventListener("offline", handleOffline);
+      window.addEventListener("focus", handleFocus);
+
+      // Auto-heartbeat sync check every 15 seconds if there are pending offline records and online
+      const interval = setInterval(async () => {
+        if (navigator.onLine) {
+          const { totalPending } = await getAllPendingCount();
+          if (totalPending > 0 && connectionState === "online") {
+            await triggerSync();
+          }
+        }
+      }, 15000);
 
       return () => {
         window.removeEventListener("online", handleOnline);
         window.removeEventListener("offline", handleOffline);
+        window.removeEventListener("focus", handleFocus);
+        clearInterval(interval);
       };
     }
-  }, [refreshPendingCount, triggerSync]);
+  }, [refreshPendingCount, triggerSync, connectionState]);
 
   return (
     <DriverConnectivityContext.Provider
