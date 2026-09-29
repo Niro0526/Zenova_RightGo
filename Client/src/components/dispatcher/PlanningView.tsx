@@ -81,10 +81,10 @@ export default function Planning() {
 
   return (
     <>
-      <div className="flex flex-col flex-1 p-10 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
+      <div className="flex flex-col flex-1 p-4 md:p-10 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
         
         {/* Stepper Header */}
-        <div className="flex flex-row items-center justify-between py-4 px-6 bg-white border border-[#CBD5E1] rounded-[10px] mb-6 shadow-sm">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between py-4 px-6 bg-white border border-[#CBD5E1] rounded-[10px] mb-6 shadow-sm gap-4 md:gap-0">
           <div className="flex items-center gap-3">
             <h1 className="font-bold text-xl text-[#202D2D] m-0">Planning</h1>
             <span className="py-1 px-2 bg-gray-100 border border-gray-300 rounded font-semibold text-[11px] text-gray-600 uppercase tracking-wider">
@@ -92,7 +92,7 @@ export default function Planning() {
             </span>
           </div>
           
-          <div className="flex items-center gap-4 text-sm font-semibold">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-4 text-xs sm:text-sm font-semibold">
             <div className={`flex items-center gap-2 ${planningStage === 'prepare' ? 'text-orange-600' : 'text-gray-400'}`}>
               <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs ${planningStage === 'prepare' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-500'}`}>1</div>
               Prepare
@@ -130,20 +130,20 @@ export default function Planning() {
 function PrepareStage({ onGenerate, isGenerating, onManual }: any) {
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-300">
-      <div className="bg-white border border-[#CBD5E1] rounded-[10px] p-8 flex flex-col gap-6 shadow-sm">
+      <div className="bg-white border border-[#CBD5E1] rounded-[10px] p-4 md:p-8 flex flex-col gap-6 shadow-sm">
         
-        <div className="flex flex-row justify-between items-start">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 sm:gap-0">
           <div className="flex flex-col gap-1">
-            <h2 className="font-bold text-2xl text-gray-900 m-0">Prepare Planning Run</h2>
+            <h2 className="font-bold text-xl sm:text-2xl text-gray-900 m-0">Prepare Planning Run</h2>
             <p className="text-sm text-gray-500 m-0">Review inputs before generating a suggested draft allocation.</p>
           </div>
-          <div className="flex flex-col text-right gap-0.5 bg-gray-50 p-3 rounded-lg border border-gray-200">
+          <div className="flex flex-col text-left sm:text-right gap-0.5 bg-gray-50 p-3 rounded-lg border border-gray-200 w-full sm:w-auto">
             <span className="font-semibold text-sm text-gray-900">Peliyagoda Depot</span>
             <span className="text-xs text-gray-500">Run Date: 27 Sep 2026 (Assumed)</span>
           </div>
         </div>
 
-        <div className="grid grid-cols-4 gap-4 mt-2">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
           <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">Eligible Orders</span>
             <span className="text-3xl font-black text-gray-900">842</span>
@@ -183,7 +183,7 @@ function PrepareStage({ onGenerate, isGenerating, onManual }: any) {
           </div>
         </details>
 
-        <div className="flex flex-row justify-end gap-4 mt-6 pt-6 border-t border-gray-100">
+        <div className="flex flex-col sm:flex-row justify-end gap-4 mt-6 pt-6 border-t border-gray-100">
           <button onClick={onManual} className="py-2.5 px-6 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition-colors">
             View Orders (Manual Fallback)
           </button>
@@ -218,8 +218,8 @@ function ReviewStage({ onNext, onBack, onManual }: any) {
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-300 relative h-full">
       {/* Summary Bar */}
-      <div className="flex items-center justify-between bg-white border border-gray-200 rounded-[10px] p-5 shadow-sm">
-        <div className="flex gap-8">
+      <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between bg-white border border-gray-200 rounded-[10px] p-5 shadow-sm gap-4 xl:gap-0">
+        <div className="flex flex-wrap gap-4 md:gap-8">
           <div className="flex flex-col">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Orders Allocated</span>
             <span className="text-xl font-black text-gray-900 mt-1">814 <span className="text-sm font-semibold text-gray-400">/ 842</span></span>
@@ -235,30 +235,30 @@ function ReviewStage({ onNext, onBack, onManual }: any) {
             <span className="text-xl font-black text-amber-600 mt-1">28</span>
           </div>
         </div>
-        <div className="flex gap-3">
-          <button onClick={onManual} className="py-2.5 px-5 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50">
+        <div className="flex flex-wrap gap-2 sm:gap-3 w-full xl:w-auto">
+          <button onClick={onManual} className="flex-1 xl:flex-none py-2.5 px-5 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50">
             Fallback
           </button>
-          <button onClick={onBack} className="py-2.5 px-5 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50">
+          <button onClick={onBack} className="flex-1 xl:flex-none py-2.5 px-5 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50">
             Regenerate
           </button>
-          <button onClick={onNext} className="py-2.5 px-6 bg-orange-500 hover:bg-orange-600 rounded-lg font-semibold text-sm text-white shadow-sm">
+          <button onClick={onNext} className="w-full xl:w-auto py-2.5 px-6 bg-orange-500 hover:bg-orange-600 rounded-lg font-semibold text-sm text-white shadow-sm">
             Continue to Release
           </button>
         </div>
       </div>
 
-      <div className="flex gap-6 min-h-[500px]">
+      <div className="flex flex-col lg:flex-row gap-6 min-h-[500px]">
         {/* Main Workspace */}
         <div className="flex flex-col flex-1 bg-white border border-gray-200 rounded-[10px] overflow-hidden shadow-sm">
-          <div className="flex border-b border-gray-200 bg-gray-50">
-            <button onClick={() => setActiveTab('trips')} className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'trips' ? 'border-orange-500 text-orange-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}>Suggested Trips (24)</button>
-            <button onClick={() => setActiveTab('exceptions')} className={`flex-1 py-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'exceptions' ? 'border-amber-500 text-amber-600 bg-white' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}>Exceptions & Attention (28)</button>
+          <div className="flex flex-col sm:flex-row border-b border-gray-200 bg-gray-50">
+            <button onClick={() => setActiveTab('trips')} className={`flex-1 py-4 px-2 text-sm font-bold sm:border-b-2 sm:border-r-0 border-b border-r sm:border-r-transparent transition-colors ${activeTab === 'trips' ? 'border-b-orange-500 text-orange-600 bg-white' : 'border-b-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}>Suggested Trips (24)</button>
+            <button onClick={() => setActiveTab('exceptions')} className={`flex-1 py-4 px-2 text-sm font-bold sm:border-b-2 border-b-transparent transition-colors ${activeTab === 'exceptions' ? 'sm:border-b-amber-500 text-amber-600 bg-white' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'}`}>Exceptions & Attention (28)</button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-5 bg-[#F9FAFB]">
+          <div className="flex-1 overflow-y-auto p-3 sm:p-5 bg-[#F9FAFB]">
             {activeTab === 'trips' ? (
-              <div className="grid grid-cols-2 gap-5">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-5">
                 {trips.map(t => (
                   <div key={t.id} onClick={() => setSelectedTrip(t)} className={`bg-white border rounded-xl p-5 cursor-pointer transition-all ${selectedTrip?.id === t.id ? 'border-orange-500 shadow-md ring-1 ring-orange-500' : 'border-gray-200 hover:border-orange-300 hover:shadow-sm'}`}>
                     <div className="flex justify-between items-start mb-4">
@@ -300,11 +300,11 @@ function ReviewStage({ onNext, onBack, onManual }: any) {
                       <h4 className="font-bold text-gray-900 text-base">S1-009 (OUT009 - Malabe)</h4>
                       <p className="text-sm text-gray-600 mt-1"><strong>Reason:</strong> No available compatible reefer van remaining in the active fleet for this timeframe.</p>
                     </div>
-                    <span className="py-1 px-2 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase">Needs Decision</span>
+                    <span className="py-1 px-2 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase mt-2 sm:mt-0 whitespace-nowrap">Needs Decision</span>
                   </div>
-                  <div className="flex gap-2">
-                    <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Review Alternatives</button>
-                    <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Confirm Deferral</button>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Review Alternatives</button>
+                    <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Confirm Deferral</button>
                   </div>
                 </div>
                 
@@ -314,11 +314,11 @@ function ReviewStage({ onNext, onBack, onManual }: any) {
                       <h4 className="font-bold text-gray-900 text-base">S1-015 (OUT012 - Kottawa)</h4>
                       <p className="text-sm text-gray-600 mt-1"><strong>Reason:</strong> Weight exceeds remaining compatible capacity in this sector.</p>
                     </div>
-                    <span className="py-1 px-2 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase">Needs Decision</span>
+                    <span className="py-1 px-2 bg-amber-100 text-amber-800 rounded text-[10px] font-bold uppercase mt-2 sm:mt-0 whitespace-nowrap">Needs Decision</span>
                   </div>
-                  <div className="flex gap-2">
-                    <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Adjust Trip</button>
-                    <button className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Confirm Deferral</button>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Adjust Trip</button>
+                    <button className="flex-1 sm:flex-none px-4 py-2 bg-white border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50">Confirm Deferral</button>
                   </div>
                 </div>
               </div>
@@ -328,7 +328,7 @@ function ReviewStage({ onNext, onBack, onManual }: any) {
 
         {/* Details Drawer */}
         {selectedTrip && (
-          <div className="w-[420px] bg-white border border-gray-200 rounded-[10px] flex flex-col shadow-xl overflow-hidden shrink-0 animate-in slide-in-from-right-8 duration-300">
+          <div className="w-full lg:w-[420px] bg-white border border-gray-200 rounded-[10px] flex flex-col shadow-xl overflow-hidden shrink-0 animate-in slide-in-from-right-8 duration-300">
             <div className="p-5 border-b border-gray-200 flex justify-between items-start bg-gray-50">
               <div>
                 <h3 className="font-black text-xl text-gray-900">Trip {selectedTrip.id}</h3>
@@ -412,16 +412,16 @@ function ReviewStage({ onNext, onBack, onManual }: any) {
 
 function ReleaseStage({ onBack }: any) {
   return (
-    <div className="flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-300 max-w-[800px] mx-auto w-full mt-10">
-      <div className="bg-white border border-[#CBD5E1] rounded-2xl p-10 flex flex-col items-center text-center shadow-lg">
+    <div className="flex flex-col gap-6 animate-in fade-in zoom-in-95 duration-300 max-w-[800px] mx-auto w-full mt-4 md:mt-10 p-4 md:p-0">
+      <div className="bg-white border border-[#CBD5E1] rounded-2xl p-6 md:p-10 flex flex-col items-center text-center shadow-lg">
         <div className="w-20 h-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center mb-6 ring-8 ring-green-50">
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
         </div>
         
         <h2 className="font-black text-3xl text-gray-900 m-0">Review & Release</h2>
-        <p className="text-gray-500 mt-3 mb-10 text-base max-w-md">The suggested plan is fully validated and ready for operational handoff to loaders and drivers.</p>
+        <p className="text-gray-500 mt-3 mb-10 text-sm md:text-base max-w-md">The suggested plan is fully validated and ready for operational handoff to loaders and drivers.</p>
         
-        <div className="grid grid-cols-2 gap-6 w-full text-left mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full text-left mb-10">
           <div className="bg-gray-50 border border-gray-200 rounded-xl p-6 shadow-sm">
             <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Assigned Orders</span>
             <div className="text-4xl font-black text-gray-900 mt-2">814</div>
@@ -460,7 +460,7 @@ function ReleaseStage({ onBack }: any) {
           </button>
         </div>
 
-        <div className="flex gap-4 w-full">
+        <div className="flex flex-col sm:flex-row gap-4 w-full">
           <button onClick={onBack} className="flex-1 py-3.5 px-4 border border-gray-300 rounded-xl font-bold text-gray-700 hover:bg-gray-50 transition-colors">
             Back to Review
           </button>
@@ -507,10 +507,10 @@ function ManualPlanningFallback({ onBack }: any) {
 
   return (
     <>
-      <div className="flex flex-col flex-1 p-10 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto">
+      <div className="flex flex-col flex-1 p-4 md:p-10 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto">
         {/* Top Bar */}
-        <div className="flex flex-row justify-between items-center py-4 px-6 bg-white border border-[#CBD5E1] rounded-t-[10px]">
-          <div className="flex flex-row items-center gap-3">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between py-4 px-6 bg-white border border-[#CBD5E1] rounded-t-[10px] gap-4 md:gap-0">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
             <button onClick={onBack} className="mr-2 p-1 text-gray-500 hover:bg-gray-100 rounded">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             </button>
@@ -523,10 +523,10 @@ function ManualPlanningFallback({ onBack }: any) {
         </div>
 
         {/* 2-Column Split */}
-        <div className="flex flex-row flex-1 bg-[#CBD5E1] gap-[1px] border-x border-b border-[#CBD5E1] rounded-b-[10px] overflow-hidden min-h-[600px]">
+        <div className="flex flex-col md:flex-row flex-1 bg-[#CBD5E1] gap-[1px] border-x border-b border-[#CBD5E1] rounded-b-[10px] overflow-hidden min-h-0 md:min-h-[600px]">
 
           {/* Left Column - Queue */}
-          <div className="w-[340px] bg-white flex flex-col p-4 gap-4 flex-shrink-0 h-[calc(100vh-170px)] overflow-y-auto">
+          <div className="w-full md:w-[340px] bg-white flex flex-col p-4 gap-4 flex-shrink-0 h-[300px] md:h-[calc(100vh-170px)] overflow-y-auto">
             <div className="flex flex-row p-1 bg-gray-100 rounded-lg">
               <button
                 onClick={() => { setQueueTab('unallocated'); setSelectedOrder(null); }}
@@ -574,22 +574,22 @@ function ManualPlanningFallback({ onBack }: any) {
           </div>
 
           {/* Right Column - Order Details View */}
-          <div className="flex-1 bg-white flex flex-col p-8 overflow-y-auto h-[calc(100vh-170px)] relative">
+          <div className="flex-1 bg-white flex flex-col p-4 md:p-8 overflow-y-auto h-auto md:h-[calc(100vh-170px)] relative">
             {selectedOrder ? (
               selectedOrder.status === 'assigned' ? (
-                <div className="flex flex-col max-w-[800px] w-full mx-auto pb-20">
+                <div className="flex flex-col max-w-[800px] w-full mx-auto pb-10 md:pb-20">
                   <div className="flex justify-between items-center mb-6 border-b border-gray-200 pb-4">
                     <div>
-                      <h2 className="font-bold text-2xl text-gray-900 m-0">Live Trip Execution</h2>
+                      <h2 className="font-bold text-xl md:text-2xl text-gray-900 m-0">Live Trip Execution</h2>
                       <p className="text-gray-500 text-sm mt-1">Order {selectedOrder.ref} · {selectedOrder.customer}</p>
                     </div>
-                    <span className="py-1 px-3 bg-green-50 text-green-700 border border-green-200 rounded font-bold text-[11px] uppercase">
+                    <span className="py-1 px-3 bg-green-50 text-green-700 border border-green-200 rounded font-bold text-[10px] md:text-[11px] uppercase ml-2 text-center">
                       IN PROGRESS
                     </span>
                   </div>
 
                   {/* Status Cards */}
-                  <div className="grid grid-cols-2 gap-4 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <div className="p-5 bg-white border border-gray-200 rounded-xl shadow-sm flex items-start gap-4">
                       <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center shrink-0">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>
@@ -646,12 +646,12 @@ function ManualPlanningFallback({ onBack }: any) {
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col max-w-[800px] w-full mx-auto pb-20">
+                <div className="flex flex-col max-w-[800px] w-full mx-auto pb-10 md:pb-20">
                   {/* Order Header */}
-                  <div className="flex flex-row justify-between items-start border-b border-gray-200 pb-5 mb-5">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-200 pb-5 mb-5 gap-4 sm:gap-0">
                     <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-3">
-                        <h2 className="font-bold text-2xl text-[#202D2D] m-0">Order {selectedOrder.ref}</h2>
+                      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                        <h2 className="font-bold text-xl md:text-2xl text-[#202D2D] m-0">Order {selectedOrder.ref}</h2>
                         <span className="py-1 px-2 bg-blue-50 text-blue-600 border border-blue-200 rounded font-semibold text-[11px] uppercase">UNALLOCATED</span>
                       </div>
                       <p className="font-medium text-sm text-[#485563] m-0">{selectedOrder.customer}</p>
@@ -723,7 +723,7 @@ function ManualPlanningFallback({ onBack }: any) {
                   </div>
 
                   {/* Action Buttons - Fixed at bottom of container */}
-                  <div className="flex flex-row gap-4 mt-auto pt-4 border-t border-gray-200">
+                  <div className="flex flex-col sm:flex-row gap-4 mt-auto pt-4 border-t border-gray-200">
                     <button
                       onClick={() => setShowAssignModal(true)}
                       className="flex-1 py-3 px-4 bg-orange-500 hover:bg-orange-600 rounded-lg font-semibold text-sm text-white transition-colors flex justify-center items-center gap-2"
@@ -732,7 +732,7 @@ function ManualPlanningFallback({ onBack }: any) {
                     </button>
                     <button
                       onClick={() => setShowDeferModal(true)}
-                      className="flex-1 py-3 px-4 bg-white border-2 border-gray-300 hover:border-gray-400 rounded-lg font-semibold text-sm text-gray-700 transition-colors"
+                      className="flex-1 py-3 px-4 bg-white border-2 border-gray-300 hover:border-gray-400 rounded-lg font-semibold text-sm text-gray-700 transition-colors flex justify-center items-center"
                     >
                       Defer Order
                     </button>
@@ -754,8 +754,8 @@ function ManualPlanningFallback({ onBack }: any) {
 
       {/* ASSIGN MODAL */}
       {showAssignModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6">
-          <div className="bg-white rounded-xl w-[900px] max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 sm:p-6">
+          <div className="bg-white rounded-xl w-full max-w-[900px] max-h-[90vh] md:max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
             {/* Modal Header */}
             <div className="flex justify-between items-center p-5 border-b border-gray-200">
               <div>
@@ -768,9 +768,9 @@ function ManualPlanningFallback({ onBack }: any) {
             </div>
 
             {/* Modal Body */}
-            <div className="flex flex-row flex-1 overflow-hidden bg-gray-50">
+            <div className="flex flex-col md:flex-row flex-1 overflow-hidden bg-gray-50">
               {/* Vehicles List */}
-              <div className="w-[350px] bg-white border-r border-gray-200 p-4 overflow-y-auto flex flex-col gap-3">
+              <div className="w-full md:w-[350px] bg-white border-b md:border-b-0 md:border-r border-gray-200 p-4 flex-shrink-0 md:flex-shrink overflow-y-auto flex flex-col gap-3 h-[40vh] md:h-auto">
                 <h3 className="font-bold text-sm text-gray-700 uppercase mb-1">Available Vehicles</h3>
                 {availableVehicles.map(v => {
                   const isBlocked = v.status === 'Blocked';
@@ -804,7 +804,7 @@ function ManualPlanningFallback({ onBack }: any) {
               </div>
 
               {/* Validation / Passport */}
-              <div className="flex-1 p-6 overflow-y-auto">
+              <div className="flex-1 p-4 md:p-6 overflow-y-auto h-[40vh] md:h-auto">
                 {selectedVehicle ? (
                   <div className="flex flex-col h-full">
                     <h3 className="font-bold text-sm text-gray-700 uppercase mb-4">Constraint Validation</h3>
@@ -865,17 +865,17 @@ function ManualPlanningFallback({ onBack }: any) {
             </div>
 
             {/* Modal Footer */}
-            <div className="p-4 border-t border-gray-200 bg-white flex justify-end gap-3">
+            <div className="p-4 border-t border-gray-200 bg-white flex flex-col-reverse sm:flex-row justify-end gap-3">
               <button
                 onClick={() => { setShowAssignModal(false); setSelectedVehicle(null); }}
-                className="py-2 px-4 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                className="w-full sm:w-auto py-3 sm:py-2 px-4 border border-gray-300 rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
               >
                 Cancel
               </button>
               <button
                 disabled={!selectedVehicle || selectedVehicle.status === 'Blocked' || (selectedOrder.weight + selectedVehicle.currentLoadKg > selectedVehicle.capacityKg)}
                 onClick={handleAssign}
-                className="py-2 px-6 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 disabled:cursor-not-allowed rounded-lg text-sm font-semibold text-white transition-colors"
+                className="w-full sm:w-auto py-3 sm:py-2 px-6 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 disabled:cursor-not-allowed rounded-lg text-sm font-semibold text-white transition-colors text-center"
               >
                 Confirm Assignment
               </button>
@@ -886,8 +886,8 @@ function ManualPlanningFallback({ onBack }: any) {
 
       {/* DEFER MODAL */}
       {showDeferModal && selectedOrder && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-6">
-          <div className="bg-white rounded-xl w-[450px] flex flex-col shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 sm:p-6">
+          <div className="bg-white rounded-xl w-full max-w-[450px] flex flex-col shadow-2xl overflow-hidden">
             <div className="p-5 border-b border-gray-200">
               <h2 className="font-bold text-xl text-gray-900">Defer Order</h2>
               <p className="text-sm text-gray-500 mt-1">Order {selectedOrder.ref} will be removed from the active queue.</p>
@@ -902,17 +902,17 @@ function ManualPlanningFallback({ onBack }: any) {
                 placeholder="E.g., Outlet closed early, insufficient reefer capacity..."
               ></textarea>
             </div>
-            <div className="p-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+            <div className="p-4 border-t border-gray-200 bg-gray-50 flex flex-col-reverse sm:flex-row justify-end gap-3">
               <button
                 onClick={() => { setShowDeferModal(false); setDeferReason(''); }}
-                className="py-2 px-4 border border-gray-300 bg-white rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                className="w-full sm:w-auto py-3 sm:py-2 px-4 border border-gray-300 bg-white rounded-lg text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
               >
                 Cancel
               </button>
               <button
                 disabled={!deferReason.trim()}
                 onClick={handleDefer}
-                className="py-2 px-6 bg-red-600 hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed rounded-lg text-sm font-semibold text-white transition-colors"
+                className="w-full sm:w-auto py-3 sm:py-2 px-6 bg-red-600 hover:bg-red-700 disabled:bg-red-300 disabled:cursor-not-allowed rounded-lg text-sm font-semibold text-white transition-colors text-center"
               >
                 Submit Deferral
               </button>

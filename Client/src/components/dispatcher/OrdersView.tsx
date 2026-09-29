@@ -43,20 +43,20 @@ export default function Orders() {
   });
 
   return (
-    <div className="flex flex-col flex-1 p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
+    <div className="flex flex-col flex-1 p-4 md:p-10 gap-6 w-full max-w-[1160px] mx-auto bg-[#F9FAFB] h-full overflow-y-auto font-sans">
 
         {/* Header */}
-        <div className="flex flex-row justify-between items-center w-full h-[69px]">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full gap-4 sm:gap-0">
           <div className="flex flex-col gap-1.5">
-            <h1 className="font-bold text-[28px] text-[#202D2D] leading-[42px] m-0">Orders</h1>
+            <h1 className="font-bold text-[24px] sm:text-[28px] text-[#202D2D] leading-tight sm:leading-[42px] m-0">Orders</h1>
             <h2 className="font-medium text-[11px] text-[#485563] uppercase tracking-wider m-0">842 Ready for Planning</h2>
           </div>
-          <div className="flex flex-row gap-3">
-            <button className="flex flex-row items-center px-4 py-2 bg-white border border-[#CBD5E1] rounded-lg gap-2 font-semibold text-sm text-[#485563] cursor-pointer">
+          <div className="flex flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+            <button className="flex-1 sm:flex-none flex flex-row items-center justify-center px-4 py-2 bg-white border border-[#CBD5E1] rounded-lg gap-2 font-semibold text-sm text-[#485563] cursor-pointer">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
               Filter / Sort
             </button>
-            <button className="flex flex-row items-center px-4 py-2 bg-[#F97316] rounded-lg gap-2 font-semibold text-sm text-white cursor-pointer">
+            <button className="flex-1 sm:flex-none flex flex-row items-center justify-center px-4 py-2 bg-[#F97316] rounded-lg gap-2 font-semibold text-sm text-white cursor-pointer">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Export CSV
             </button>
@@ -64,8 +64,9 @@ export default function Orders() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-row items-center justify-between w-full">
-          <div className="flex flex-row gap-3">
+        {/* Filters */}
+        <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between w-full gap-4">
+          <div className="flex flex-row flex-wrap gap-2 sm:gap-3">
             <button
               onClick={() => setActiveFilter('All')}
               className={`flex flex-row items-center py-1.5 px-4 rounded-full gap-2 border cursor-pointer transition-colors ${activeFilter === 'All' ? 'bg-[#F97316] border-[#F97316] text-white shadow-sm' : 'bg-white border-[#CBD5E1] hover:bg-gray-50'}`}
@@ -97,16 +98,17 @@ export default function Orders() {
           </div>
 
           {/* Date Range Filter */}
-          <div className="flex flex-row items-center gap-3">
+          <div className="flex flex-row flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
             <span className="font-semibold text-[13px] text-[#485563]">Date Limit:</span>
-            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
+            <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="flex-1 lg:flex-none py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
             <span className="text-[#485563] text-[13px] font-medium">to</span>
-            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
+            <input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="flex-1 lg:flex-none py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
           </div>
         </div>
 
         {/* Table Container */}
-        <div className="flex flex-col bg-white border border-[#CBD5E1] rounded-[10px] w-full flex-1 overflow-hidden">
+        <div className="flex flex-col bg-white border border-[#CBD5E1] rounded-[10px] w-full flex-1 overflow-x-auto">
+          <div className="min-w-[900px]">
 
           {/* Table Header */}
           <div className="flex flex-row items-center py-4 px-6 gap-6 border-b border-[#CBD5E1] bg-[#F9FAFB]">
@@ -153,6 +155,7 @@ export default function Orders() {
               </div>
             </div>
           ))}
+          </div>
         </div>
       </div>
   );
