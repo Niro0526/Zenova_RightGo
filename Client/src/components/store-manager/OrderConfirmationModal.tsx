@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Check, ArrowLeft, Info, Edit3, XCircle, Ban, X, CheckCircle2 } from 'lucide-react';
+import { formatColomboDate } from '@/lib/dateUtils';
 
 interface OrderConfirmationModalProps {
   order?: any;
@@ -107,7 +108,7 @@ export default function OrderConfirmationModal({
 
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
             <span style={{ color: '#64748B' }}>Requested For</span>
-            <span style={{ fontWeight: 600, color: '#1E293B' }}>{order.requested_for || 'Tomorrow, 9 Jan 2026'}</span>
+            <span style={{ fontWeight: 600, color: '#1E293B' }}>{order.requested_for || formatColomboDate(1, true)}</span>
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between' }}>

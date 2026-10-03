@@ -10,6 +10,7 @@ import ConfirmReceiptView from './ConfirmReceiptView';
 import DegradationView from './DegradationView';
 import OrderConfirmationModal from './OrderConfirmationModal';
 import { MOCK_OUTLETS } from '../../data/mockData';
+import { getInitialStoreOrders } from '@/hooks/useStoreManagerOrders';
 
 export interface StoreManagerContentProps {
   initialView?: string;
@@ -18,107 +19,28 @@ export interface StoreManagerContentProps {
 export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   const [selectedOutlet, setSelectedOutlet] = useState(MOCK_OUTLETS[0]);
 
-  // Master Interactive State for All Store Orders
-  const [orders, setOrders] = useState<any[]>([
-    {
-      delivery_id: 'S1-000',
-      brand: 'Fresh',
-      brand_code: 'FR',
-      order_type: 'Brand Fresh · Ambient',
-      order_date: 'Today, 8 Jan 2026',
-      status: 'Out for Delivery',
-      expected_arrival: 'Today, 05:00-07:30',
-      section: 'active',
-      vehicle_id: 'VEH014 (Dry-Box 6T)',
-      driver_name: 'Sunil Jayawardena',
-      items: [
-        { name: 'Keeri Samba Rice (10kg Bags)', qty: 20, unit: 'bags', expected: 20, loaded: 20 },
-        { name: 'Pure Ceylon Tea Pack (500g)', qty: 50, unit: 'boxes', expected: 50, loaded: 50 },
-        { name: 'Refined White Sugar (1kg)', qty: 40, unit: 'packs', expected: 40, loaded: 40 }
-      ]
-    },
-    {
-      delivery_id: 'S1-001',
-      brand: 'Fresh',
-      brand_code: 'FR',
-      order_type: 'Brand Fresh · Chilled',
-      order_date: 'Today, 8 Jan 2026',
-      status: 'Out for Delivery',
-      expected_arrival: 'Today, 05:00-07:30',
-      section: 'active',
-      vehicle_id: 'VEH003 (Reefer Van)',
-      driver_name: 'Chaminda Vithanage',
-      items: [
-        { id: 'item-1', name: 'Organic Chicken Breast (Fresh Cut)', qty: 4, unit: 'cases (5kg)', expected: 4, loaded: 4, temp: 'Chilled (+4°C)' },
-        { id: 'item-2', name: 'Farm Fresh Milk (1L Bottles)', qty: 8, unit: 'crates (12 btls)', expected: 8, loaded: 8, temp: 'Chilled (+4°C)' },
-        { id: 'item-3', name: 'Keeri Samba Rice (10kg Bags)', qty: 3, unit: 'bags (10kg)', expected: 3, loaded: 3, temp: 'Ambient' }
-      ]
-    },
-    {
-      delivery_id: 'RG-F-3201',
-      brand: 'Fresh',
-      brand_code: 'FR',
-      order_type: 'Brand Fresh',
-      order_date: '8 Jan 2026',
-      status: 'Awaiting Planning',
-      planned_dispatch: '9 Jan',
-      section: 'future',
-      items: [
-        { name: 'Keeri Samba Rice (10kg Bags)', qty: 15, unit: 'bags' },
-        { name: 'Coconut Milk Powder (1kg)', qty: 30, unit: 'packs' }
-      ]
-    },
-    {
-      delivery_id: 'RG-F-3180',
-      brand: 'Fresh',
-      brand_code: 'FR',
-      order_type: 'Brand Fresh',
-      order_date: '7 Jan 2026',
-      status: 'Deferred',
-      degradation_level: 'Critical (Tier 3)',
-      reason: 'Fleet dry-dock emergency: 2x 10T trucks grounded at Peliyagoda. Prioritised perishables.',
-      section: 'deferred',
-      items: [
-        { name: 'Keeri Samba Rice (10kg Bags)', qty: 10, unit: 'bags' },
-        { name: 'Pure Ceylon Tea Pack (500g)', qty: 25, unit: 'boxes' },
-        { name: 'Full Cream Milk Powder (400g)', qty: 20, unit: 'pouches' }
-      ]
-    },
-    {
-      delivery_id: 'RG-F-2741',
-      brand: 'Fresh',
-      brand_code: 'FR',
-      order_type: 'Brand Fresh · Ambient',
-      order_date: '6 Jan 2026',
-      status: 'Delivered',
-      delivered_date: '7 Jan 2026',
-      delivery_time: '7 Jan, 08:45',
-      section: 'completed',
-      receipt_ref: 'REC-S1-0988-001',
-      items: [
-        { name: 'Keeri Samba Rice (10kg Bags)', qty: 20, unit: 'bags' },
-        { name: 'Pure Coconut Oil (1L Bottles)', qty: 25, unit: 'bottles' },
-        { name: 'Refined White Sugar (1kg)', qty: 30, unit: 'packs' }
-      ]
-    },
-    {
-      delivery_id: 'RG-F-2891',
-      brand: 'Fresh',
-      brand_code: 'FR',
-      order_type: 'Brand Fresh · Chilled',
-      order_date: '5 Jan 2026',
-      status: 'Delivered',
-      delivered_date: '6 Jan 2026',
-      delivery_time: '6 Jan, 07:15',
-      section: 'completed',
-      receipt_ref: 'REC-S1-0975-002',
-      items: [
-        { name: 'Farm Fresh Milk (1L Bottles)', qty: 40, unit: 'bottles' },
-        { name: 'Highland Set Yoghurt (Cup pk)', qty: 48, unit: 'cups' },
-        { name: 'Fresh Farm Eggs (Crate of 30)', qty: 10, unit: 'crates' }
-      ]
+  // Master Interactive State with LocalStorage Persistence
+  const [orders, setOrders] = useState<any[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('rightgo_store_manager_orders');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      } catch {}
     }
-  ]);
+    return getInitialStoreOrders();
+  });
+
+  // Keep localStorage synced across tabs and route navigations
+  useEffect(() => {
+    if (typeof window !== 'undefined' && orders && orders.length > 0) {
+      try {
+        localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(orders));
+      } catch {}
+    }
+  }, [orders]);
 
   const [currentView, setCurrentView] = useState(initialView || 'dashboard');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -198,10 +120,15 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   const handleOrderCreated = (newOrder: any) => {
     setOrders(prev => {
       const existing = prev.find(o => o.delivery_id === newOrder.delivery_id);
-      if (existing) {
-        return prev.map(o => o.delivery_id === newOrder.delivery_id ? newOrder : o);
+      const updated = existing
+        ? prev.map(o => o.delivery_id === newOrder.delivery_id ? newOrder : o)
+        : [newOrder, ...prev];
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(updated));
+        } catch {}
       }
-      return [newOrder, ...prev];
+      return updated;
     });
     setEditingOrder(null);
     setJustConfirmedOrder(newOrder);
@@ -214,7 +141,15 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   };
 
   const handleCancelOrder = (orderId: string) => {
-    setOrders(prev => prev.filter(o => o.delivery_id !== orderId));
+    setOrders(prev => {
+      const updated = prev.filter(o => o.delivery_id !== orderId);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(updated));
+        } catch {}
+      }
+      return updated;
+    });
     setJustConfirmedOrder(null);
     setEditingOrder(null);
     alert('✓ Order #' + orderId + ' cancelled and removed from queue.');
@@ -222,18 +157,26 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   };
 
   const handleReceiptConfirmed = (deliveryId: string, receiptData: any) => {
-    setOrders(prev => prev.map(ord => {
-      if (ord.delivery_id === deliveryId) {
-        return {
-          ...ord,
-          status: 'Delivered',
-          section: 'completed',
-          delivery_time: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          receipt_details: receiptData
-        };
+    setOrders(prev => {
+      const updated = prev.map(ord => {
+        if (ord.delivery_id === deliveryId) {
+          return {
+            ...ord,
+            status: 'Delivered',
+            section: 'completed',
+            delivery_time: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            receipt_details: receiptData
+          };
+        }
+        return ord;
+      });
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(updated));
+        } catch {}
       }
-      return ord;
-    }));
+      return updated;
+    });
     alert('✓ Electronic Proof of Delivery (e-POD) signed and submitted to Central Depot dispatcher!');
     navigateTo('dashboard');
   };

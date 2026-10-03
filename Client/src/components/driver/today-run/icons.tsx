@@ -61,9 +61,9 @@ export const PlayIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-export const CheckIcon = ({ className }: { className?: string }) => (
+export const CheckIcon = ({ className, strokeWidth = 2 }: { className?: string; strokeWidth?: number | string }) => (
   <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
-    <path d="M2.333 7L5.25 9.917L11.667 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M2.333 7L5.25 9.917L11.667 3.5" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 

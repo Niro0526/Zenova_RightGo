@@ -28,6 +28,7 @@ import {
   List
 } from 'lucide-react';
 import { PRODUCT_CATALOG } from '../../data/mockData';
+import { formatColomboDate, formatShortDate, formatTimeColombo } from '@/lib/dateUtils';
 
 interface PlaceOrderViewProps {
   selectedOutlet?: any;
@@ -165,6 +166,9 @@ export default function PlaceOrderView({
   const estimatedWeightKg = orderItems.reduce((acc: number, itm: any) => acc + ((Number(itm.unitWeight) || 5.0) * (Number(itm.qty) || 1)), 0);
   const estimatedVolumeCbm = orderItems.reduce((acc: number, itm: any) => acc + ((Number(itm.unitVol) || 0.01) * (Number(itm.qty) || 1)), 0);
 
+  const targetDeliveryLabel = storeClosureNotice ? formatColomboDate(2, true) : formatColomboDate(1, true);
+  const targetDeliveryShort = storeClosureNotice ? formatShortDate(2) : formatShortDate(1);
+
   const handlePlaceOrderSubmit = () => {
     if (orderItems.length === 0) {
       alert('Please select at least 1 item to place a requisition.');
@@ -179,9 +183,10 @@ export default function PlaceOrderView({
       order_type: chilledUnits > 0 
         ? (ambientUnits > 0 ? 'Brand Fresh · Chilled + Ambient' : 'Brand Fresh · Chilled Only') 
         : 'Brand Fresh · Ambient Dry',
-      order_date: 'Today, 8 Jan 2026',
-      requested_for: storeClosureNotice ? '10 Jan 2026' : '9 Jan 2026',
-      placed_at: 'Today, ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      order_date: formatColomboDate(0, true),
+      requested_for: targetDeliveryLabel,
+      planned_dispatch: targetDeliveryShort,
+      placed_at: `Today, ${formatTimeColombo()}`,
       status: 'Awaiting Planning',
       section: 'future',
       order_units: totalUnits,
@@ -199,6 +204,24 @@ export default function PlaceOrderView({
         image: i.image
       }))
     };
+
+    // Forward to backend API if available
+    try {
+      fetch('http://localhost:8000/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          outlet_id: newOrder.outlet_id,
+          order_type: newOrder.order_type,
+          requested_delivery_date: new Date().toISOString().split('T')[0],
+          total_weight_kg: newOrder.weight_kg,
+          total_volume_cbm: newOrder.volume_cbm,
+          items: newOrder.items
+        })
+      }).catch(() => { /* Silent fallback for offline simulation */ });
+    } catch {
+      // Ignore network errors
+    }
 
     onOrderCreated(newOrder);
   };
@@ -234,7 +257,7 @@ export default function PlaceOrderView({
             {editingOrder ? `Modify Requisition #${editingOrder.delivery_id}` : 'Place Daily Store Requisition'}
           </h1>
           <p className="page-subtitle-text">
-            Peliyagoda Central Depot Fulfillment Catalog • Target Delivery: <strong>{storeClosureNotice ? '10 Jan 2026' : '9 Jan 2026'}</strong>
+            Peliyagoda Central Depot Fulfillment Catalog • Target Delivery: <strong>{targetDeliveryLabel}</strong>
           </p>
         </div>
 

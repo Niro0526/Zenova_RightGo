@@ -16,6 +16,7 @@ import {
   XCircle,
   Ban
 } from 'lucide-react';
+import { formatShortDate } from '@/lib/dateUtils';
 
 interface DegradationViewProps {
   order?: any;
@@ -30,13 +31,13 @@ export default function DegradationView({
   order, 
   selectedOutlet = { outlet_id: 'S1', name: 'RightGo Super - Colombo 03 (Kollupitiya)' }, 
   onBack, 
-  onAcknowledge,
-  onEscalate,
-  onCancel
+  onAcknowledge, 
+  onEscalate, 
+  onCancel 
 }: DegradationViewProps) {
   const activeOrder = order || {
     delivery_id: 'RG-F-3180',
-    placed_at: '7 Jan, 14:20',
+    placed_at: `${formatShortDate(-1)}, 14:20`,
     brand: 'Fresh',
     order_type: 'Brand Fresh · Ambient & Chilled',
     reason: 'Fleet capacity shortage: 2x 10T primary vehicles undergoing emergency dry-dock maintenance at Peliyagoda Central Depot. Rolled over to next planning cycle.',
@@ -500,7 +501,7 @@ export default function DegradationView({
                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22C55E', marginTop: '4px' }}></div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#22C55E' }}>1. Order Received & Queued</div>
-                  <div style={{ fontSize: '11.5px', color: '#64748B' }}>7 Jan, 14:20 · Store requisition confirmed</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748B' }}>{formatShortDate(-1)}, 14:20 · Store requisition confirmed</div>
                 </div>
               </div>
 
@@ -509,7 +510,7 @@ export default function DegradationView({
                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#22C55E', marginTop: '4px' }}></div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#22C55E' }}>2. Planning Cutoff Reached</div>
-                  <div style={{ fontSize: '11.5px', color: '#64748B' }}>7 Jan, 16:00 · Orders locked for route optimization</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748B' }}>{formatShortDate(-1)}, 16:00 · Orders locked for route optimization</div>
                 </div>
               </div>
 
@@ -518,7 +519,7 @@ export default function DegradationView({
                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#EF4444', marginTop: '4px' }}></div>
                 <div>
                   <div style={{ fontSize: '13px', fontWeight: 700, color: '#EF4444' }}>3. Order Deferred (Fleet Capacity)</div>
-                  <div style={{ fontSize: '11.5px', color: '#64748B' }}>8 Jan, 05:10 · Vehicle constraint at Peliyagoda Hub</div>
+                  <div style={{ fontSize: '11.5px', color: '#64748B' }}>{formatShortDate(0)}, 05:10 · Vehicle constraint at Peliyagoda Hub</div>
                 </div>
               </div>
 

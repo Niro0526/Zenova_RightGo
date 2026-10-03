@@ -1,26 +1,30 @@
-﻿version: '3.9'
+version: '3.9'
 
 services:
   backend:
-    build: ./backend
+    build:
+      context: ./Server
+      dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    env_file: .env
-    depends_on:
-      - db
-
-  db:
-    image: postgres:16-alpine
     environment:
-      POSTGRES_DB: \
-      POSTGRES_USER: \
-      POSTGRES_PASSWORD: \
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.your-project:your-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
+      - RIGHTGO_DATA_DIR=/app/data
+      - RIGHTGO_DEMO_OTP_IN_APP=true
+      - SECRET_KEY=${SECRET_KEY:-rightgo-tech-triathlon-2026-super-secret-key-zenova}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - ./data:/app/data:ro
+    restart: unless-stopped
 
-  ml:
-    build: ./ml
-    env_file: .env
-
-volumes:
-  pgdata:
+  client:
+    build:
+      context: ./Client
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped

@@ -13,6 +13,12 @@ import {
   X,
   Check
 } from 'lucide-react';
+import { 
+  formatColomboDate, 
+  formatShortDate, 
+  formatIsoDate, 
+  getSecondsUntilCutoff 
+} from '@/lib/dateUtils';
 
 interface DashboardViewProps {
   selectedOutlet?: any;
@@ -36,12 +42,24 @@ export default function DashboardView({
   const outletName = selectedOutlet.name || 'Colpetty Retailer';
   const outletCode = selectedOutlet.outlet_id || 'OUT001';
 
-  // Live Cutoff Countdown Timer (Ticking towards 16:00 cutoff for 8 Jan 2026 simulation)
-  const [secondsRemaining, setSecondsRemaining] = useState(4 * 3600 + 22 * 60 + 45);
+  // Live Cutoff Countdown Timer (Calculated dynamically for Asia/Colombo 16:00 cutoff)
+  const [cutoffState, setCutoffState] = useState(() => getSecondsUntilCutoff(16, 0));
+  const [secondsRemaining, setSecondsRemaining] = useState(cutoffState.seconds);
 
   useEffect(() => {
+    const initial = getSecondsUntilCutoff(16, 0);
+    setCutoffState(initial);
+    setSecondsRemaining(initial.seconds);
+
     const timer = setInterval(() => {
-      setSecondsRemaining(prev => (prev > 0 ? prev - 1 : 0));
+      setSecondsRemaining(prev => {
+        if (prev <= 1) {
+          const updated = getSecondsUntilCutoff(16, 0);
+          setCutoffState(updated);
+          return updated.seconds;
+        }
+        return prev - 1;
+      });
     }, 1000);
     return () => clearInterval(timer);
   }, []);
@@ -52,8 +70,8 @@ export default function DashboardView({
 
   // Modal State for Store Closure
   const [showClosureModal, setShowClosureModal] = useState(false);
-  const [closureStartDate, setClosureStartDate] = useState('2026-01-09');
-  const [closureEndDate, setClosureEndDate] = useState('2026-01-09');
+  const [closureStartDate, setClosureStartDate] = useState(() => formatIsoDate(1));
+  const [closureEndDate, setClosureEndDate] = useState(() => formatIsoDate(1));
   const [closureReason, setClosureReason] = useState('Store Maintenance / Renovation');
   const [closureRemarks, setClosureRemarks] = useState('Store closed for power grid maintenance. Resuming operations afterwards.');
 
@@ -110,7 +128,7 @@ export default function DashboardView({
             <span>RightGo {selectedOutlet.brand}</span>
             <span style={{ color: '#CBD5E1' }}>•</span>
             <Calendar size={14} color="#485563" />
-            <span style={{ fontWeight: 600, color: '#202D2D' }}>Today, 8 Jan 2026</span>
+            <span style={{ fontWeight: 600, color: '#202D2D' }}>{formatColomboDate(0, true)}</span>
           </div>
 
           {/* Report Store Closed Action Button */}
@@ -215,7 +233,7 @@ export default function DashboardView({
 
             <div style={{ marginTop: '12px' }}>
               <div className="delivery-timing-large">
-                Today, 8 Jan - arriving between {selectedOutlet.window_open_time || '05:00'}-{selectedOutlet.window_close_time || '07:30'}
+                Today, {formatShortDate(0)} - arriving between {selectedOutlet.window_open_time || '05:00'}-{selectedOutlet.window_close_time || '07:30'}
               </div>
               <div className="delivery-timing-sub" style={{ marginTop: '4px' }}>
                 Operating Run Brand: {selectedOutlet.brand} · {activeOrders.length} active orders ({activeOrders.map(o => o.delivery_id).join(', ') || 'None in transit'})
@@ -235,11 +253,15 @@ export default function DashboardView({
 
         {/* Order Cutoff Countdown Card */}
         <div className="cutoff-hero-card">
-          <div className="cutoff-title-text">ORDER CUTOFF: 16:00 TODAY</div>
+          <div className="cutoff-title-text">
+            ORDER CUTOFF: 16:00 {cutoffState.isPastToday ? 'TOMORROW' : 'TODAY'}
+          </div>
           <div className="cutoff-timer-countdown">
             {hoursLeft}h {String(minutesLeft).padStart(2, '0')}m {String(secondsLeft).padStart(2, '0')}s remaining
           </div>
-          <div className="cutoff-sub-desc">For guaranteed delivery on 9 Jan</div>
+          <div className="cutoff-sub-desc">
+            For guaranteed delivery on {formatShortDate(cutoffState.isPastToday ? 2 : 1)}
+          </div>
 
           <button 
             className="btn-place-order-figma"
@@ -319,7 +341,7 @@ export default function DashboardView({
               <div className="order-middle-group">
                 <div className="meta-column-box">
                   <span className="meta-col-label">Planned Dispatch</span>
-                  <span className="meta-col-value">{order.planned_dispatch || '9 Jan'}</span>
+                  <span className="meta-col-value">{order.planned_dispatch || formatShortDate(1)}</span>
                 </div>
                 <span className="status-pill-figma awaiting-planning">Awaiting Planning</span>
                 <button 
@@ -401,7 +423,7 @@ export default function DashboardView({
               <div className="order-middle-group">
                 <div className="meta-column-box">
                   <span className="meta-col-label">Delivered</span>
-                  <span className="meta-col-value">{order.delivered_date || '7 Jan 2026'}</span>
+                  <span className="meta-col-value">{order.delivered_date || formatColomboDate(-1, false)}</span>
                 </div>
                 <span className="status-pill-figma delivered">Delivered</span>
                 <button 
@@ -471,11 +493,11 @@ export default function DashboardView({
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
                   <button
                     type="button"
-                    onClick={() => { setClosureStartDate('2026-01-09'); setClosureEndDate('2026-01-09'); }}
+                    onClick={() => { setClosureStartDate(formatIsoDate(1)); setClosureEndDate(formatIsoDate(1)); }}
                     style={{
-                      background: (closureStartDate === '2026-01-09' && closureEndDate === '2026-01-09') ? '#FFF4ED' : '#F8FAFC',
-                      border: (closureStartDate === '2026-01-09' && closureEndDate === '2026-01-09') ? '1.5px solid #F97316' : '1px solid #CBD5E1',
-                      color: (closureStartDate === '2026-01-09' && closureEndDate === '2026-01-09') ? '#F97316' : '#485563',
+                      background: (closureStartDate === formatIsoDate(1) && closureEndDate === formatIsoDate(1)) ? '#FFF4ED' : '#F8FAFC',
+                      border: (closureStartDate === formatIsoDate(1) && closureEndDate === formatIsoDate(1)) ? '1.5px solid #F97316' : '1px solid #CBD5E1',
+                      color: (closureStartDate === formatIsoDate(1) && closureEndDate === formatIsoDate(1)) ? '#F97316' : '#485563',
                       borderRadius: '6px',
                       padding: '6px 10px',
                       fontSize: '11px',
@@ -483,16 +505,16 @@ export default function DashboardView({
                       cursor: 'pointer'
                     }}
                   >
-                    Tomorrow (9 Jan)
+                    Tomorrow ({formatShortDate(1)})
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => { setClosureStartDate('2026-01-10'); setClosureEndDate('2026-01-10'); }}
+                    onClick={() => { setClosureStartDate(formatIsoDate(2)); setClosureEndDate(formatIsoDate(2)); }}
                     style={{
-                      background: (closureStartDate === '2026-01-10' && closureEndDate === '2026-01-10') ? '#FFF4ED' : '#F8FAFC',
-                      border: (closureStartDate === '2026-01-10' && closureEndDate === '2026-01-10') ? '1.5px solid #F97316' : '1px solid #CBD5E1',
-                      color: (closureStartDate === '2026-01-10' && closureEndDate === '2026-01-10') ? '#F97316' : '#485563',
+                      background: (closureStartDate === formatIsoDate(2) && closureEndDate === formatIsoDate(2)) ? '#FFF4ED' : '#F8FAFC',
+                      border: (closureStartDate === formatIsoDate(2) && closureEndDate === formatIsoDate(2)) ? '1.5px solid #F97316' : '1px solid #CBD5E1',
+                      color: (closureStartDate === formatIsoDate(2) && closureEndDate === formatIsoDate(2)) ? '#F97316' : '#485563',
                       borderRadius: '6px',
                       padding: '6px 10px',
                       fontSize: '11px',
@@ -500,16 +522,16 @@ export default function DashboardView({
                       cursor: 'pointer'
                     }}
                   >
-                    10 Jan
+                    {formatShortDate(2)}
                   </button>
 
                   <button
                     type="button"
-                    onClick={() => { setClosureStartDate('2026-01-09'); setClosureEndDate('2026-01-11'); }}
+                    onClick={() => { setClosureStartDate(formatIsoDate(1)); setClosureEndDate(formatIsoDate(3)); }}
                     style={{
-                      background: (closureStartDate === '2026-01-09' && closureEndDate === '2026-01-11') ? '#FFF4ED' : '#F8FAFC',
-                      border: (closureStartDate === '2026-01-09' && closureEndDate === '2026-01-11') ? '1.5px solid #F97316' : '1px solid #CBD5E1',
-                      color: (closureStartDate === '2026-01-09' && closureEndDate === '2026-01-11') ? '#F97316' : '#485563',
+                      background: (closureStartDate === formatIsoDate(1) && closureEndDate === formatIsoDate(3)) ? '#FFF4ED' : '#F8FAFC',
+                      border: (closureStartDate === formatIsoDate(1) && closureEndDate === formatIsoDate(3)) ? '1.5px solid #F97316' : '1px solid #CBD5E1',
+                      color: (closureStartDate === formatIsoDate(1) && closureEndDate === formatIsoDate(3)) ? '#F97316' : '#485563',
                       borderRadius: '6px',
                       padding: '6px 10px',
                       fontSize: '11px',
@@ -517,7 +539,7 @@ export default function DashboardView({
                       cursor: 'pointer'
                     }}
                   >
-                    3-Day Window (9-11 Jan)
+                    3-Day Window ({formatShortDate(1)}-{formatShortDate(3)})
                   </button>
                 </div>
 
@@ -528,7 +550,7 @@ export default function DashboardView({
                     <div style={{ position: 'relative' }}>
                       <input
                         type="date"
-                        min="2026-01-09"
+                        min={formatIsoDate(1)}
                         value={closureStartDate}
                         onChange={(e) => {
                           setClosureStartDate(e.target.value);

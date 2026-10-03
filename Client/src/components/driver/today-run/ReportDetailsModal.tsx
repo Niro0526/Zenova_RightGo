@@ -7,33 +7,8 @@ import {
   CheckIcon,
 } from "@/components/driver/today-run/icons";
 
-export interface IssueCategoryItem {
-  id: string;
-  label: string;
-  icon: string;
-}
-
-export interface IssueReportRecord {
-  id: string; // e.g. "REP-S1-T001-001"
-  tripId: string; // "S1-T001"
-  vehicleId: string; // "PEL-R04"
-  categoryId: string; // Primary category or comma-separated
-  categoryLabel: string;
-  categoryIcon: string;
-  categories?: IssueCategoryItem[]; // All selected categories
-  relatedScope: string;
-  orderId?: string;
-  stopCode?: string;
-  outletName: string;
-  description: string;
-  photo?: {
-    name: string;
-    url: string;
-  } | null;
-  status: "Synced" | "Pending Sync";
-  offlineCreated: boolean;
-  createdAt: string; // ISO String
-}
+import type { IssueCategoryItem, IssueReportRecord } from "@/lib/driver/driver-offline-db";
+export type { IssueCategoryItem, IssueReportRecord };
 
 interface ReportDetailsModalProps {
   isOpen: boolean;
