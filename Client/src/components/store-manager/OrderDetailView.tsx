@@ -13,6 +13,7 @@ import {
   X,
   Truck
 } from 'lucide-react';
+import { formatTimeColombo } from '@/lib/dateUtils';
 
 interface OrderDetailViewProps {
   order?: any;
@@ -36,7 +37,7 @@ export default function OrderDetailView({
   const activeOrder = order || {
     delivery_id: 'S1-001',
     brand: 'Fresh',
-    placed_at: '7 Jan, 14:32',
+    placed_at: `Today, ${formatTimeColombo()}`,
     status: 'Out for Delivery'
   };
 
