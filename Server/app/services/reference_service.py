@@ -14,6 +14,7 @@ from app.models.reference import (
     ScenarioFleetEntry,
     ServiceAllowance,
     DistrictTravel,
+    Calendar,
 )
 from app.models.order import Order
 from app.models.plan import DraftPlan, DraftAssignment, ReleasedManifest, ReleasedTrip
@@ -89,23 +90,15 @@ def seed_reference_data(db: Session, force_reload: bool = False):
     seed_users(db)
 
     # 1. Check if already seeded
-    if not force_reload and db.query(Vehicle).count() > 0:
+    has_dataset_orders = db.query(Order.delivery_id).filter(Order.delivery_id.isnot(None)).first()
+    if not force_reload and db.query(Vehicle).count() > 0 and has_dataset_orders:
         return
 
     print("[RightGo] Seeding reference data from competition CSVs...")
 
-    # 2. Service Allowance
-    allowance_path = find_csv_file("service_allowance.csv")
-    if allowance_path and allowance_path.exists():
-        df_al = pd.read_csv(allowance_path)
-        db.query(ServiceAllowance).delete()
-        for _, row in df_al.iterrows():
-            db.add(ServiceAllowance(
-                brand=str(row["brand"]),
-                dock_type=str(row["dock_type"]),
-                service_allowance_min=float(row["service_allowance_min"]),
-            ))
-        db.commit()
+    # 2. Service allowances are not part of the supplied dataset set.
+    db.query(ServiceAllowance).delete()
+    db.commit()
 
     # 3. District Travel
     travel_path = find_csv_file("district_travel.csv")
@@ -122,6 +115,28 @@ def seed_reference_data(db: Session, force_reload: bool = False):
                 depot_to_district_freeflow_min=float(row["depot_to_district_freeflow_min"]),
                 inter_stop_km=float(row["inter_stop_km"]),
                 inter_stop_freeflow_min=float(row["inter_stop_freeflow_min"]),
+            ))
+        db.commit()
+
+    # 3b. Calendar
+    calendar_path = find_csv_file("calendar.csv")
+    if calendar_path and calendar_path.exists():
+        df_calendar = pd.read_csv(calendar_path)
+        db.query(Calendar).delete()
+        for _, row in df_calendar.iterrows():
+            db.add(Calendar(
+                date=pd.to_datetime(row["date"]).date(),
+                dow=int(row["dow"]),
+                dow_name=str(row["dow_name"]),
+                is_weekend=bool(row["is_weekend"]),
+                iso_year=int(row["iso_year"]),
+                iso_week=int(row["iso_week"]),
+                is_payday=bool(row["is_payday"]),
+                festival=str(row["festival"]) if pd.notna(row["festival"]) else None,
+                festival_ramp=float(row["festival_ramp"]),
+                is_holiday=bool(row["is_holiday"]),
+                monsoon=bool(row["monsoon"]),
+                is_operating=bool(row["is_operating"]),
             ))
         db.commit()
 
@@ -144,18 +159,11 @@ def seed_reference_data(db: Session, force_reload: bool = False):
             ))
         db.commit()
 
-    # 5. Scenario Fleet
-    fleet_path = find_csv_file("task2b_peak_day_fleet.csv")
-    if fleet_path and fleet_path.exists():
-        df_fleet = pd.read_csv(fleet_path)
-        db.query(ScenarioFleetEntry).delete()
-        for _, row in df_fleet.iterrows():
-            db.add(ScenarioFleetEntry(
-                scenario=str(row["scenario"]),
-                vehicle_id=str(row["vehicle_id"]),
-                status=str(row["status"]),
-            ))
-        db.commit()
+    # 5. Scenario fleet: the supplied vehicle dataset is the fleet source.
+    db.query(ScenarioFleetEntry).delete()
+    for vehicle in db.query(Vehicle).all():
+        db.add(ScenarioFleetEntry(scenario="S1", vehicle_id=vehicle.vehicle_id, status="available"))
+    db.commit()
 
     # 6. Outlets
     outlets_path = find_csv_file("outlets.csv")
@@ -183,32 +191,38 @@ def seed_reference_data(db: Session, force_reload: bool = False):
             ))
         db.commit()
 
-    # 7. Orders (Scenario S1)
-    scenarios_path = find_csv_file("task2b_peak_day_scenarios.csv")
-    if scenarios_path and scenarios_path.exists():
-        df_scn = pd.read_csv(scenarios_path)
+    # 7. Orders: deliveries_train.csv is the supplied order/delivery source.
+    deliveries_path = find_csv_file("deliveries_train.csv")
+    if deliveries_path and deliveries_path.exists():
+        df_deliveries = pd.read_csv(deliveries_path)
         db.query(Order).filter(Order.scenario == "S1").delete()
-        for _, row in df_scn.iterrows():
-            mall_win = str(row["mall_window"]) if pd.notna(row.get("mall_window")) and str(row["mall_window"]).strip() else None
+        outlets_by_id = {o.outlet_id: o for o in db.query(Outlet).all()}
+        for _, row in df_deliveries.iterrows():
+            delivery_id = str(row["delivery_id"])
+            outlet = outlets_by_id.get(str(row["outlet_id"]))
+            if not outlet:
+                continue
             db.add(Order(
-                scenario=str(row["scenario"]),
-                order_ref=str(row["order_ref"]),
+                scenario="S1",
+                order_ref=delivery_id,
+                delivery_id=delivery_id,
                 outlet_id=str(row["outlet_id"]),
                 brand=str(row["brand"]),
-                district=str(row["district"]),
-                depot=str(row["depot"]),
-                dock_type=str(row["dock_type"]),
-                parking_constraint=str(row["parking_constraint"]),
-                mall_window=mall_win,
+                district=outlet.district,
+                depot=outlet.depot,
+                dock_type=outlet.dock_type,
+                parking_constraint=outlet.parking_constraint,
+                mall_window=outlet.mall_window,
                 window_open_time=str(row["window_open_time"]),
                 window_close_time=str(row["window_close_time"]),
                 temp_requirement=str(row["temp_requirement"]),
                 order_units=int(row["order_units"]),
                 order_weight_kg=float(row["order_weight_kg"]),
                 order_volume_m3=float(row["order_volume_m3"]),
-                deferred_yesterday=bool(row["deferred_yesterday"]),
-                days_since_last_served=int(row["days_since_last_served"]),
+                deferred_yesterday=False,
+                days_since_last_served=1,
                 status="awaiting_planning",
+                created_at=pd.to_datetime(row["order_date"], utc=True).to_pydatetime(),
             ))
         db.commit()
 

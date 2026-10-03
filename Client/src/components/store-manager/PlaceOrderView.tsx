@@ -27,7 +27,6 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
-import { PRODUCT_CATALOG } from '../../data/mockData';
 import { formatColomboDate, formatShortDate, formatTimeColombo } from '@/lib/dateUtils';
 
 interface PlaceOrderViewProps {
@@ -56,12 +55,7 @@ export default function PlaceOrderView({
   const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
 
-  // Default seed items for Fresh store replenishment or editingOrder items
-  const [orderItems, setOrderItems] = useState<any[]>(editingOrder?.items || [
-    { id: 'FC-03', name: 'Organic Chicken Breast (Fresh Cut)', qty: 4, unit: 'cases (5kg)', unitWeight: 5.0, unitVol: 0.008, temp: 'Chilled (+4°C)', isChilled: true, sku: 'SKU-FR-PL-103', image: 'https://images.unsplash.com/photo-1604503468506-a8da13d82791?w=300&auto=format&fit=crop&q=80' },
-    { id: 'FC-01', name: 'Farm Fresh Pasteurised Milk (1L Bottles)', qty: 8, unit: 'crates (12 btls)', unitWeight: 1.05, unitVol: 0.0015, temp: 'Chilled (+4°C)', isChilled: true, sku: 'SKU-FR-ML-101', image: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?w=300&auto=format&fit=crop&q=80' },
-    { id: 'FD-01', name: 'Keeri Samba Rice (10kg Bags)', qty: 3, unit: 'bags (10kg)', unitWeight: 10.0, unitVol: 0.015, temp: 'Ambient', isChilled: false, sku: 'SKU-FR-GR-001', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=300&auto=format&fit=crop&q=80' }
-  ]);
+  const [orderItems, setOrderItems] = useState<any[]>(editingOrder?.items || []);
 
   useEffect(() => {
     if (editingOrder?.items) {
@@ -69,15 +63,18 @@ export default function PlaceOrderView({
     }
   }, [editingOrder]);
 
-  // Build Master Fresh Catalog
-  const allDryItems = PRODUCT_CATALOG?.Fresh?.dry?.map((i: any) => ({ ...i, isChilled: false, tempDisplay: 'Ambient Dry' })) || [];
-  const allChilledItems = PRODUCT_CATALOG?.Fresh?.chilled?.map((i: any) => ({ ...i, isChilled: true, tempDisplay: 'Chilled (+4°C)' })) || [];
-  const masterCatalog = [...allDryItems, ...allChilledItems];
+  const masterCatalog = orderItems.map((item: any) => ({
+    ...item,
+    category: item.category || 'Dataset item',
+    stockStatus: item.stockStatus || 'in_stock',
+    isChilled: item.isChilled ?? item.temp === 'Chilled (+4°C)',
+    tempDisplay: item.temp || 'Ambient',
+  }));
 
   // Filter Catalog
   const filteredCatalog = masterCatalog.filter((item: any) => {
     const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
     
     let matchesCategory = true;
@@ -351,8 +348,8 @@ export default function PlaceOrderView({
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
           {[
             { id: 'all', label: '🌟 All Fresh Items', count: masterCatalog.length },
-            { id: 'chilled', label: '❄️ Chilled Perishables (+4°C)', count: allChilledItems.length },
-            { id: 'ambient', label: '📦 Ambient Dry Goods', count: allDryItems.length },
+            { id: 'chilled', label: '❄️ Chilled Perishables (+4°C)', count: masterCatalog.filter(item => item.isChilled).length },
+            { id: 'ambient', label: '📦 Ambient Dry Goods', count: masterCatalog.filter(item => !item.isChilled).length },
             { id: 'dairy', label: '🥛 Chilled Dairy', count: masterCatalog.filter(i => i.category.toLowerCase().includes('dairy')).length },
             { id: 'poultry', label: '🍗 Poultry & Meats', count: masterCatalog.filter(i => i.category.toLowerCase().includes('poultry')).length },
             { id: 'grains', label: '🌾 Grains & Pantry Staples', count: masterCatalog.filter(i => i.category.toLowerCase().includes('grain') || i.category.toLowerCase().includes('pantry')).length },

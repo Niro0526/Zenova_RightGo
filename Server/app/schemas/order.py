@@ -9,6 +9,7 @@ class OrderSchema(BaseModel):
 
     scenario: str = "S1"
     order_ref: str
+    delivery_id: Optional[str] = None
     outlet_id: str
     brand: str
     district: str

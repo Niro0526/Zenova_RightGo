@@ -1,6 +1,7 @@
 'use client';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { apiGet } from '@/lib/api-client';
 
 const IconDashboard = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>;
 const IconList = () => <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>;
@@ -17,17 +18,32 @@ export default function Orders() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  const initialOrders = [
-    { ref: 'S1-001', brand: 'FRESH', outlet: 'OUT001', temp: 'Cold Chain', weight: '226.4 kg', vol: '1.145 m³', date: '2026-01-08', status: 'Confirmed' },
-    { ref: 'S1-002', brand: 'STYLE', outlet: 'OUT002', temp: 'Ambient', weight: '80.0 kg', vol: '1.200 m³', date: '2026-01-07', status: 'Confirmed' },
-    { ref: 'S1-003', brand: 'TECH', outlet: 'OUT003', temp: 'Ambient', weight: '85.0 kg', vol: '0.500 m³', date: '2026-01-06', status: 'Deferred' },
-    { ref: 'S1-004', brand: 'FRESH', outlet: 'OUT004', temp: 'Cold Chain', weight: '150.0 kg', vol: '0.800 m³', date: '2026-01-08', status: 'Confirmed' },
-    { ref: 'S1-005', brand: 'STYLE', outlet: 'OUT005', temp: 'Ambient', weight: '120.0 kg', vol: '1.500 m³', date: '2026-01-05', status: 'Deferred' },
-    { ref: 'S1-006', brand: 'FRESH', outlet: 'OUT006', temp: 'Cold Chain', weight: '90.0 kg', vol: '0.600 m³', date: '2026-01-09', status: 'Confirmed' },
-    { ref: 'S1-007', brand: 'TECH', outlet: 'OUT007', temp: 'Ambient', weight: '200.0 kg', vol: '2.000 m³', date: '2026-01-10', status: 'Confirmed' },
-  ];
+  const [orders, setOrders] = useState<any[]>([]);
 
-  const filteredOrders = initialOrders.filter(o => {
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<any[]>('/orders?scenario=S1')
+      .then(rows => {
+        if (cancelled) return;
+        setOrders(rows.map(order => ({
+          ref: order.delivery_id || order.order_ref,
+          brand: String(order.brand || '').toUpperCase(),
+          outlet: order.outlet_id,
+          temp: order.temp_requirement === 'chilled' ? 'Cold Chain' : 'Ambient',
+          weight: `${order.order_weight_kg ?? 0} kg`,
+          vol: `${order.order_volume_m3 ?? 0} m³`,
+          date: order.created_at?.slice(0, 10) || '',
+          status: order.status === 'deferred' ? 'Deferred' : 'Confirmed',
+        })));
+      })
+      .catch(error => console.error('Failed to load seeded orders:', error));
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const filteredOrders = orders.filter(o => {
     const matchesBrand = activeFilter === 'All' || o.brand.toLowerCase() === activeFilter.toLowerCase();
 
     let matchesDate = true;

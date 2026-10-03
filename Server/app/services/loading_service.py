@@ -256,6 +256,25 @@ def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
 
+    if trip.loading_status in ("in_transit", "departed", "completed"):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Trip has already departed")
+
+    states = db.query(OrderLoadingState).filter(
+        OrderLoadingState.released_trip_id == trip.id,
+    ).all()
+    if not states or any(not state.is_loaded for state in states):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Departure blocked: all orders must be loaded first.",
+        )
+
+    manifest = db.query(ReleasedManifest).filter(ReleasedManifest.id == trip.manifest_id).first()
+    if not manifest or manifest.acknowledgement != "acknowledged":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Departure blocked: manifest acknowledgement is required.",
+        )
+
     open_issues = db.query(LoadingIssue).filter(
         LoadingIssue.manifest_version == trip.manifest_version,
         LoadingIssue.vehicle_id == trip.vehicle_id,
@@ -268,7 +287,7 @@ def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
             detail=f"Departure blocked: {open_issues} open loading issue(s) remain on vehicle {trip.vehicle_id}.",
         )
 
-    trip.loading_status = "departed"
+    trip.loading_status = "in_transit"
     trip.departed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(trip)

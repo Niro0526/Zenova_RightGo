@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { 
   Calendar, 
   Clock, 
@@ -41,6 +42,72 @@ export default function DashboardView({
 }: DashboardViewProps) {
   const outletName = selectedOutlet.name || 'Colpetty Retailer';
   const outletCode = selectedOutlet.outlet_id || 'OUT001';
+  const [isMounted, setIsMounted] = useState(false);
+  const [liveOrders, setLiveOrders] = useState(orders);
+  const [completedStopIds, setCompletedStopIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setLiveOrders(orders);
+    setCompletedStopIds(
+      orders
+        .filter((order: any) => order.status === 'Delivered' || order.delivery_status === 'completed')
+        .map((order: any) => order.outlet_id || order.stop_id || order.delivery_id)
+        .filter(Boolean)
+    );
+  }, [orders]);
+
+  useEffect(() => {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !supabaseKey) return;
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const channel = supabase
+      .channel(`store-manager-dashboard-${outletCode}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'delivery_records' },
+        ({ new: payload }) => {
+          const delivery = payload as Record<string, any>;
+          const stopId = delivery.stop_id || delivery.outlet_id;
+          if (!stopId) return;
+
+          setCompletedStopIds((current) => current.includes(stopId) ? current : [...current, stopId]);
+          setLiveOrders((current) => current.map((order: any) => {
+            const orderStopId = order.outlet_id || order.stop_id;
+            return orderStopId === stopId || order.delivery_id === delivery.order_ref
+              ? { ...order, status: 'Delivered', delivery_status: 'completed' }
+              : order;
+          }));
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'trip_stops', filter: 'delivery_status=eq.completed' },
+        ({ new: payload }) => {
+          const stop = payload as Record<string, any>;
+          const stopId = stop.outlet_id || stop.stop_id;
+          if (!stopId || stop.delivery_status !== 'completed') return;
+
+          setCompletedStopIds((current) => current.includes(stopId) ? current : [...current, stopId]);
+          setLiveOrders((current) => current.map((order: any) => {
+            const orderStopId = order.outlet_id || order.stop_id;
+            return orderStopId === stopId
+              ? { ...order, status: 'Delivered', delivery_status: 'completed' }
+              : order;
+          }));
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [outletCode]);
 
   // Live Cutoff Countdown Timer (Calculated dynamically for Asia/Colombo 16:00 cutoff)
   const [cutoffState, setCutoffState] = useState(() => getSecondsUntilCutoff(16, 0));
@@ -89,10 +156,12 @@ export default function DashboardView({
     : `${formatDateLabel(closureStartDate)} to ${formatDateLabel(closureEndDate)}`;
 
   // Group orders dynamically by section or status
-  const activeOrders = orders.filter((o: any) => o.section === 'active' || o.status === 'Out for Delivery' || o.status === 'In Transit');
-  const futureOrders = orders.filter((o: any) => o.section === 'future' || o.status === 'Awaiting Planning' || o.status === 'Queued');
-  const deferredOrders = orders.filter((o: any) => o.section === 'deferred' || o.section === 'degraded' || (o.status && (o.status.toLowerCase().includes('defer') || o.status.toLowerCase().includes('escalat') || o.status.toLowerCase().includes('reschedule'))));
-  const completedOrders = orders.filter((o: any) => o.section === 'completed' || o.section === 'past' || o.status === 'Delivered');
+  const activeOrders = liveOrders.filter((o: any) => o.section === 'active' || o.status === 'Out for Delivery' || o.status === 'In Transit');
+  const renderedActiveOrders = isMounted ? activeOrders : [];
+  const futureOrders = liveOrders.filter((o: any) => o.section === 'future' || o.status === 'Awaiting Planning' || o.status === 'Queued');
+  const deferredOrders = liveOrders.filter((o: any) => o.section === 'deferred' || o.section === 'degraded' || (o.status && (o.status.toLowerCase().includes('defer') || o.status.toLowerCase().includes('escalat') || o.status.toLowerCase().includes('reschedule'))));
+  const completedOrders = liveOrders.filter((o: any) => o.section === 'completed' || o.section === 'past' || o.status === 'Delivered');
+  const nextStop = activeOrders.find((order: any) => !completedStopIds.includes(order.outlet_id || order.stop_id || order.delivery_id));
 
   const handleSaveClosure = (e: any) => {
     e.preventDefault();
@@ -227,7 +296,7 @@ export default function DashboardView({
                 <span>Next Expected Delivery</span>
               </div>
               <span className="badge-out-delivery">
-                {activeOrders.length > 0 ? 'Out for Delivery' : 'All Runs Completed'}
+                {renderedActiveOrders.length > 0 ? 'Out for Delivery' : 'All Runs Completed'}
               </span>
             </div>
 
@@ -236,7 +305,8 @@ export default function DashboardView({
                 Today, {formatShortDate(0)} - arriving between {selectedOutlet.window_open_time || '05:00'}-{selectedOutlet.window_close_time || '07:30'}
               </div>
               <div className="delivery-timing-sub" style={{ marginTop: '4px' }}>
-                Operating Run Brand: {selectedOutlet.brand} · {activeOrders.length} active orders ({activeOrders.map(o => o.delivery_id).join(', ') || 'None in transit'})
+                Operating Run Brand: {selectedOutlet.brand} · {renderedActiveOrders.length} active orders ({renderedActiveOrders.map(o => o.delivery_id).join(', ') || 'None in transit'})
+                <br />Completed stops: {completedStopIds.length} · Next stop: {nextStop?.delivery_id || nextStop?.outlet_id || 'None'}
               </div>
             </div>
           </div>
@@ -244,7 +314,7 @@ export default function DashboardView({
           <div className="delivery-card-footer">
             <span style={{ fontWeight: 500, color: '#485563' }}>Status:</span>
             <span>
-              {activeOrders.length > 0 
+              {renderedActiveOrders.length > 0
                 ? `Driver has departed ${selectedOutlet.depot} depot (Assigned: VEH014)`
                 : 'All morning deliveries verified and signed off at counter.'}
             </span>
@@ -281,12 +351,12 @@ export default function DashboardView({
         <h2 className="section-title-heading">Active Operating Orders</h2>
 
         <div className="orders-cards-list">
-          {activeOrders.length === 0 ? (
+          {renderedActiveOrders.length === 0 ? (
             <div className="figma-order-row-card" style={{ justifyContent: 'center', color: '#64748B', padding: '24px' }}>
               No active deliveries in transit. Check Completed Deliveries below.
             </div>
           ) : (
-            activeOrders.map(order => (
+            renderedActiveOrders.map(order => (
               <div key={order.delivery_id} className="figma-order-row-card">
                 <div className="order-left-group">
                   <div className={`brand-avatar-box ${order.brand === 'Style' ? 'style-brand' : ''}`}>

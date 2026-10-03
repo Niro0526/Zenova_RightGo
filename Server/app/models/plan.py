@@ -84,13 +84,23 @@ class ReleasedTrip(Base):
     leave_by_time = Column(String(16), nullable=True)
     stop_outlet_ids = Column(JSON, default=list, nullable=False) # Physical stop sequence
     order_refs = Column(JSON, default=list, nullable=False) # All order refs in trip
-    loading_status = Column(String(32), default="planned", nullable=False) # planned, loading, ready, departed, completed
+    loading_status = Column(String(32), default="planned", nullable=False) # planned, loading, ready, in_transit, completed
+    completed_stops_count = Column(Integer, default=0, nullable=False)
     otp_code = Column(String(16), nullable=True)
     otp_attempts = Column(Integer, default=0, nullable=False)
     otp_unlocked = Column(Boolean, default=False, nullable=False)
     otp_unlocked_at = Column(DateTime(timezone=True), nullable=True)
     departed_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
+
+class TripStop(Base):
+    __tablename__ = "trip_stops"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    trip_id = Column(Integer, ForeignKey("released_trips.id"), nullable=False, index=True)
+    outlet_id = Column(String(32), nullable=False, index=True)
+    seq = Column(Integer, nullable=False)
+    delivery_status = Column(String(32), default="pending", nullable=False)
 
 class OrderLoadingState(Base):
     __tablename__ = "order_loading_states"

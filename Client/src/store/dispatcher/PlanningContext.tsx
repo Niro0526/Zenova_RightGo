@@ -1,7 +1,8 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useMemo, useReducer } from 'react';
-import { demoAdapter } from '@/lib/dispatcher/adapter';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useState } from 'react';
+import { demoAdapter, hydrateDispatcherAdapter } from '@/lib/dispatcher/adapter';
+import { apiGet, apiPost } from '@/lib/api-client';
 import {
   buildPassportForCandidate, buildTripStops, computeStopSchedule, computeTripDistanceKm, getOrdersOnTrip, rankCandidates, validatePlan,
   type FleetVehicle, type PlanCheckRow, type RankedCandidate, type StopSchedule, type TripStop,
@@ -44,7 +45,15 @@ export type Action =
   | { type: 'PUBLISH'; expectedRevision: number }
   | { type: 'ACKNOWLEDGE_MANIFEST'; revision: number }
   | { type: 'REPORT_SHORTFALL'; orderRef: string }
-  | { type: 'SET_SHORTFALL_RESOLUTION'; id: string; resolution: 'replace' | 'defer'; note: string };
+  | { type: 'SET_SHORTFALL_RESOLUTION'; id: string; resolution: 'replace' | 'defer'; note: string }
+  | {
+      type: 'HYDRATE_DRAFT';
+      draftRevision: number;
+      assignments: Record<string, OrderAssignment>;
+      stopSequences: Record<string, string[]>;
+      tripMeta: Record<string, TripMeta>;
+      vehicleFuelInputs: Record<string, number | null>;
+    };
 
 function nowLocal(): string {
   return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -285,6 +294,16 @@ export function reducer(state: PlanningState, action: Action): PlanningState {
         shortfallEvents: state.shortfallEvents.map(e => e.id === action.id ? { ...e, resolution: action.resolution, resolvedNote: action.note } : e),
       };
     }
+    case 'HYDRATE_DRAFT': {
+      return {
+        ...state,
+        draftRevision: action.draftRevision,
+        assignments: action.assignments,
+        stopSequences: action.stopSequences,
+        tripMeta: action.tripMeta,
+        vehicleFuelInputs: action.vehicleFuelInputs,
+      };
+    }
     default:
       return state;
   }
@@ -322,10 +341,48 @@ interface DispatcherPlanValue {
 
 const DispatcherPlanContext = createContext<DispatcherPlanValue | null>(null);
 
+type DraftApiResponse = {
+  draftRevision: number;
+  assignments: Record<string, OrderAssignment>;
+  stopSequences: Record<string, string[]>;
+  tripMeta: Record<string, TripMeta>;
+  vehicleFuelInputs: Record<string, number | null>;
+};
+
+async function pullDraftFromServer(): Promise<DraftApiResponse> {
+  return apiGet<DraftApiResponse>('/plan/draft');
+}
+
+function mapDraftToHydrate(draft: DraftApiResponse) {
+  return {
+    type: 'HYDRATE_DRAFT' as const,
+    draftRevision: draft.draftRevision,
+    assignments: draft.assignments,
+    stopSequences: draft.stopSequences,
+    tripMeta: draft.tripMeta,
+    vehicleFuelInputs: draft.vehicleFuelInputs,
+  };
+}
+
 export function PlanningProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, makeInitialState);
+  const [referenceReady, setReferenceReady] = useState(false);
 
-  const orders = useMemo(() => demoAdapter.listOrders(), []);
+  useEffect(() => {
+    (async () => {
+      try {
+        await hydrateDispatcherAdapter();
+        const draft = await pullDraftFromServer();
+        dispatch(mapDraftToHydrate(draft));
+      } catch (err) {
+        console.error('Dispatcher reference/draft hydrate failed:', err);
+      } finally {
+        setReferenceReady(true);
+      }
+    })();
+  }, []);
+
+  const orders = useMemo(() => demoAdapter.listOrders(), [referenceReady]);
   const fleetVehicles = useMemo(() => demoAdapter.listFleetVehicles(), []);
   const allowances = useMemo(() => demoAdapter.listServiceAllowances(), []);
   const districtTravel = useMemo(() => demoAdapter.listDistrictTravel(), []);
@@ -372,25 +429,43 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
 
   const planChecklist = useMemo(() => computeChecklist(state, orders, vehiclesById), [state, orders, vehiclesById]);
 
-  const assignOrder = useCallback((orderRef: string, vehicleId: string, tripNo: 1 | 2) => {
-    dispatch({ type: 'ASSIGN', orderRef, vehicleId, tripNo });
+  const syncDraft = useCallback(async () => {
+    const draft = await pullDraftFromServer();
+    dispatch(mapDraftToHydrate(draft));
   }, []);
-  const reassignOrder = useCallback((orderRef: string, vehicleId: string, tripNo: 1 | 2, reasonNote: string) => {
-    dispatch({ type: 'REASSIGN', orderRef, vehicleId, tripNo, reasonNote });
-  }, []);
-  const deferOrder = useCallback((orderRef: string, reasonCode: DeferReasonCode, reasonNote: string) => {
-    dispatch({ type: 'DEFER', orderRef, reasonCode, reasonNote });
-  }, []);
-  const reorderTrip = useCallback((vehicleId: string, tripNo: 1 | 2, newOutletOrder: string[]) => {
-    dispatch({ type: 'REORDER', vehicleId, tripNo, newOutletOrder });
-  }, []);
-  const setTripDeparture = useCallback((vehicleId: string, tripNo: 1 | 2, departureTime: string | null) => {
-    dispatch({ type: 'SET_TRIP_DEPARTURE', vehicleId, tripNo, departureTime });
-  }, []);
-  const setVehicleFuelInput = useCallback((vehicleId: string, priorWeeklyFuelUsageL: number | null) => {
-    dispatch({ type: 'SET_VEHICLE_FUEL_INPUT', vehicleId, priorWeeklyFuelUsageL });
-  }, []);
-  const publishPlan = useCallback(() => dispatch({ type: 'PUBLISH', expectedRevision: state.draftRevision }), [state.draftRevision]);
+
+  const assignOrder = useCallback(async (orderRef: string, vehicleId: string, tripNo: 1 | 2) => {
+    await apiPost('/plan/assign', { order_ref: orderRef, vehicle_id: vehicleId, trip_no: tripNo });
+    await syncDraft();
+  }, [syncDraft]);
+  const reassignOrder = useCallback(async (orderRef: string, vehicleId: string, tripNo: 1 | 2, reasonNote: string) => {
+    await apiPost('/plan/reassign', { order_ref: orderRef, vehicle_id: vehicleId, trip_no: tripNo, reason_note: reasonNote });
+    await syncDraft();
+  }, [syncDraft]);
+  const deferOrder = useCallback(async (orderRef: string, reasonCode: DeferReasonCode, reasonNote: string) => {
+    await apiPost('/plan/defer', { order_ref: orderRef, reason_code: reasonCode, reason_note: reasonNote });
+    await syncDraft();
+  }, [syncDraft]);
+  const reorderTrip = useCallback(async (vehicleId: string, tripNo: 1 | 2, newOutletOrder: string[]) => {
+    await apiPost('/plan/reorder', { vehicle_id: vehicleId, trip_no: tripNo, new_outlet_order: newOutletOrder });
+    await syncDraft();
+  }, [syncDraft]);
+  const setTripDeparture = useCallback(async (vehicleId: string, tripNo: 1 | 2, departureTime: string | null) => {
+    await apiPost('/plan/departure', { vehicle_id: vehicleId, trip_no: tripNo, departure_time: departureTime });
+    await syncDraft();
+  }, [syncDraft]);
+  const setVehicleFuelInput = useCallback(async (vehicleId: string, priorWeeklyFuelUsageL: number | null) => {
+    await apiPost('/plan/fuel-input', { vehicle_id: vehicleId, prior_weekly_fuel_usage_l: priorWeeklyFuelUsageL });
+    await syncDraft();
+  }, [syncDraft]);
+  const publishPlan = useCallback(async () => {
+    await apiPost('/plan/publish', {
+      expected_revision: state.draftRevision,
+      shortfall_policy: 'ship_good_tell_store',
+      decision_maker: DECISION_MAKER,
+    });
+    await syncDraft();
+  }, [state.draftRevision, syncDraft]);
   const acknowledgeManifest = useCallback((revision: number) => dispatch({ type: 'ACKNOWLEDGE_MANIFEST', revision }), []);
   const reportShortfall = useCallback((orderRef: string) => dispatch({ type: 'REPORT_SHORTFALL', orderRef }), []);
   const setShortfallResolution = useCallback((id: string, resolution: 'replace' | 'defer', note: string) => dispatch({ type: 'SET_SHORTFALL_RESOLUTION', id, resolution, note }), []);

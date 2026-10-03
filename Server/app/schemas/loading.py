@@ -51,7 +51,7 @@ class TripReadinessResponseSchema(BaseModel):
     tripId: str
     vehicleId: str
     tripNo: int
-    loadingStatus: str # planned, loading, ready, departed, completed
+    loadingStatus: str # planned, loading, ready, in_transit, completed
     totalOrders: int
     loadedOrders: int
     hasOpenIssues: bool

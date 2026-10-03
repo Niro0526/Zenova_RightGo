@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
-from app.models.plan import ReleasedManifest, ReleasedTrip, OrderLoadingState
+from app.models.plan import ReleasedManifest, ReleasedTrip, TripStop, OrderLoadingState
 from app.models.operations import DeliveryRecord, DriverIssue
 from app.models.order import Order
 from app.models.reference import Outlet
@@ -17,18 +17,16 @@ from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
 
 def get_driver_active_trip(db: Session, vehicle_id: Optional[str] = "PEL-R04") -> Optional[ReleasedTrip]:
-    """Fetch the active released trip for the driver/vehicle."""
+    """Fetch the in-transit released trip assigned to the driver vehicle."""
     query = db.query(ReleasedTrip).join(
         ReleasedManifest, ReleasedTrip.manifest_id == ReleasedManifest.id
     ).filter(
         ReleasedManifest.is_active == True,
+        ReleasedTrip.loading_status == "in_transit",
     )
     if vehicle_id:
-        trip = query.filter(ReleasedTrip.vehicle_id == vehicle_id).first()
-        if trip:
-            return trip
-    # Fallback to first active trip in demo
-    return query.first()
+        return query.filter(ReleasedTrip.vehicle_id == vehicle_id).order_by(ReleasedTrip.id.desc()).first()
+    return None
 
 def verify_driver_otp(
     db: Session,
@@ -159,6 +157,10 @@ def record_driver_delivery(
     if existing:
         return existing
 
+    outlet = db.query(Outlet).filter(Outlet.outlet_id == record.stopId).first()
+    if not outlet:
+        raise HTTPException(status_code=404, detail="Delivery outlet not found")
+
     discrepancy_type = None
     discrepancy_notes = None
     expected_qty = 0
@@ -220,15 +222,37 @@ def record_driver_delivery(
     )
     db.add(delivery)
 
-    # Update order statuses
-    orders = db.query(Order).filter(Order.outlet_id == record.stopId).all()
+    active_trip = db.query(ReleasedTrip).filter(
+        ReleasedTrip.vehicle_id == record.vehicleId,
+        ReleasedTrip.loading_status == "in_transit",
+    ).order_by(ReleasedTrip.id.desc()).first()
+
+    if active_trip:
+        stop = db.query(TripStop).filter(
+            TripStop.trip_id == active_trip.id,
+            TripStop.outlet_id == record.stopId,
+        ).first()
+        if not stop:
+            stop = TripStop(
+                trip_id=active_trip.id,
+                outlet_id=record.stopId,
+                seq=(active_trip.stop_outlet_ids or []).index(record.stopId) + 1
+                if record.stopId in (active_trip.stop_outlet_ids or []) else 0,
+                delivery_status="pending",
+            )
+            db.add(stop)
+
+        if stop.delivery_status != "completed":
+            stop.delivery_status = "completed"
+            active_trip.completed_stops_count = (active_trip.completed_stops_count or 0) + 1
+
+    # Update only orders belonging to the completed trip and stop.
+    order_query = db.query(Order).filter(Order.outlet_id == record.stopId)
+    if active_trip and active_trip.order_refs:
+        order_query = order_query.filter(Order.order_ref.in_(active_trip.order_refs))
+    orders = order_query.all()
     for o in orders:
-        if record.outcome == "full":
-            o.status = "delivered"
-        elif record.outcome == "discrepancy":
-            o.status = "delivered_short"
-        elif record.outcome == "none":
-            o.status = "not_delivered"
+        o.status = "delivered"
 
     db.commit()
     db.refresh(delivery)
@@ -266,6 +290,19 @@ def record_driver_issue(
     existing = db.query(DriverIssue).filter(DriverIssue.id == report.id).first()
     if existing:
         return existing
+
+    trip = db.query(ReleasedTrip).filter(
+        ReleasedTrip.trip_id_str == report.tripId,
+        ReleasedTrip.vehicle_id == report.vehicleId,
+    ).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Driver trip not found")
+
+    if report.stopCode and not db.query(Outlet).filter(Outlet.outlet_id == report.stopCode).first():
+        raise HTTPException(status_code=404, detail="Issue outlet not found")
+
+    if report.orderId and not db.query(Order).filter(Order.order_ref == report.orderId).first():
+        raise HTTPException(status_code=404, detail="Issue order not found")
 
     now_utc = datetime.now(timezone.utc)
     rec_time = now_utc

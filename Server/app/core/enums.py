@@ -74,6 +74,7 @@ class LoadingStatus(str, Enum):
     PLANNED = "planned"
     LOADING = "loading"
     READY = "ready"
+    IN_TRANSIT = "in_transit"
     DEPARTED = "departed"
     COMPLETED = "completed"
 

@@ -9,38 +9,20 @@ import OrderDetailView from './OrderDetailView';
 import ConfirmReceiptView from './ConfirmReceiptView';
 import DegradationView from './DegradationView';
 import OrderConfirmationModal from './OrderConfirmationModal';
-import { MOCK_OUTLETS } from '../../data/mockData';
-import { getInitialStoreOrders } from '@/hooks/useStoreManagerOrders';
+import { useStoreManagerOrders } from '@/hooks/useStoreManagerOrders';
 
 export interface StoreManagerContentProps {
   initialView?: string;
 }
 
 export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
-  const [selectedOutlet, setSelectedOutlet] = useState(MOCK_OUTLETS[0]);
-
-  // Master Interactive State with LocalStorage Persistence
-  const [orders, setOrders] = useState<any[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('rightgo_store_manager_orders');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-        }
-      } catch {}
-    }
-    return getInitialStoreOrders();
-  });
-
-  // Keep localStorage synced across tabs and route navigations
-  useEffect(() => {
-    if (typeof window !== 'undefined' && orders && orders.length > 0) {
-      try {
-        localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(orders));
-      } catch {}
-    }
-  }, [orders]);
+  const {
+    outlets,
+    selectedOutlet,
+    setSelectedOutlet,
+    orders,
+    setOrders,
+  } = useStoreManagerOrders();
 
   const [currentView, setCurrentView] = useState(initialView || 'dashboard');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -123,11 +105,6 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       const updated = existing
         ? prev.map(o => o.delivery_id === newOrder.delivery_id ? newOrder : o)
         : [newOrder, ...prev];
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(updated));
-        } catch {}
-      }
       return updated;
     });
     setEditingOrder(null);
@@ -142,13 +119,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
 
   const handleCancelOrder = (orderId: string) => {
     setOrders(prev => {
-      const updated = prev.filter(o => o.delivery_id !== orderId);
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(updated));
-        } catch {}
-      }
-      return updated;
+      return prev.filter(o => o.delivery_id !== orderId);
     });
     setJustConfirmedOrder(null);
     setEditingOrder(null);
@@ -170,11 +141,6 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
         }
         return ord;
       });
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(updated));
-        } catch {}
-      }
       return updated;
     });
     alert('✓ Electronic Proof of Delivery (e-POD) signed and submitted to Central Depot dispatcher!');
@@ -234,14 +200,14 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       case 'my-orders':
         return (
           <DashboardView
-            selectedOutlet={selectedOutlet}
+            selectedOutlet={selectedOutlet || {}}
             orders={orders}
             setCurrentView={(v: string) => navigateTo(v)}
             setSelectedOrder={(o: any) => setSelectedOrder(o)}
             storeClosureNotice={storeClosureNotice}
             onSetStoreClosureNotice={(notice: any) => {
               setStoreClosureNotice(notice);
-              alert('✓ Central Dispatcher notified! Store ' + selectedOutlet.outlet_id + ' flagged as UNAVAILABLE for ' + notice.date + '. Fleet routing paused.');
+              alert('Central Dispatcher notified.');
             }}
             onCancelStoreClosureNotice={() => {
               setStoreClosureNotice(null);
@@ -252,7 +218,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       case 'place-order':
         return (
           <PlaceOrderView
-            selectedOutlet={selectedOutlet}
+            selectedOutlet={selectedOutlet || {}}
             onOrderCreated={handleOrderCreated}
             setCurrentView={(v: string) => navigateTo(v)}
             storeClosureNotice={storeClosureNotice}
@@ -279,7 +245,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
         return (
           <OrderDetailView
             order={selectedOrder || orders[1]}
-            selectedOutlet={selectedOutlet}
+            selectedOutlet={selectedOutlet || {}}
             onBack={() => navigateTo('dashboard')}
             onConfirmReceipt={(ord: any) => {
               navigateTo('confirm-receipt', ord);
@@ -296,7 +262,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
         return (
           <ConfirmReceiptView
             order={selectedOrder || orders[1]}
-            selectedOutlet={selectedOutlet}
+            selectedOutlet={selectedOutlet || {}}
             onReceiptConfirmed={handleReceiptConfirmed}
             onBack={() => navigateTo('dashboard')}
           />
@@ -305,7 +271,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
         return (
           <DegradationView
             order={selectedOrder || orders[3]}
-            selectedOutlet={selectedOutlet}
+            selectedOutlet={selectedOutlet || {}}
             onBack={() => navigateTo('dashboard')}
             onAcknowledge={handleAcknowledgeDeferral}
             onEscalate={handleEscalateDeferral}
@@ -315,7 +281,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       default:
         return (
           <DashboardView
-            selectedOutlet={selectedOutlet}
+            selectedOutlet={selectedOutlet || {}}
             orders={orders}
             setCurrentView={(v: string) => navigateTo(v)}
             setSelectedOrder={(o: any) => setSelectedOrder(o)}
@@ -340,9 +306,9 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       <main className="main-content-viewport">
         {/* Top Header Bar & Profile */}
         <TopNavbar
-          selectedOutlet={selectedOutlet}
+          selectedOutlet={selectedOutlet || {}}
           onSelectOutlet={setSelectedOutlet}
-          outlets={MOCK_OUTLETS}
+          outlets={outlets}
         />
 
         {renderContent()}

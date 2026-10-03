@@ -6,6 +6,8 @@
  * Automatically synchronizes with the backend API upon internet reconnection.
  */
 
+import { apiPost } from "@/lib/api-client";
+
 export interface LocalDeliveryRecord {
   id: string; // e.g. "DEL-S1-T001-001"
   stopId: string; // "OUT001"
@@ -364,35 +366,91 @@ export async function updateIssueReportSyncStatus(
    3. BACKEND API TRANSMISSION & DISPATCH ENGINE
    ───────────────────────────────────────────────────────────── */
 
+export interface DeliverySyncResult {
+  success: boolean;
+  remoteId?: string;
+  tripStops?: Array<{
+    id: number;
+    trip_id: number;
+    outlet_id: string;
+    seq: number;
+    delivery_status: string;
+  }>;
+  nextStop?: {
+    id: number;
+    trip_id: number;
+    outlet_id: string;
+    seq: number;
+    delivery_status: string;
+  } | null;
+}
+
 /**
- * Backend Transmission Dispatcher for Delivery Records.
- * Ready for FastAPI integration.
+ * Persist delivery record to FastAPI / Supabase.
  */
 export async function transmitDeliveryRecordToBackend(
   record: LocalDeliveryRecord
-): Promise<{ success: boolean; remoteId?: string }> {
-  // Simulate network transmission latency (500ms - 900ms)
-  await new Promise((resolve) => setTimeout(resolve, 600));
+): Promise<DeliverySyncResult> {
+  const payload = {
+    id: record.id,
+    stopId: record.stopId,
+    stopName: record.stopName,
+    vehicleId: record.vehicleId,
+    outcome: record.outcome,
+    discrepancyDetails: record.discrepancyDetails,
+    notDeliveredDetails: record.notDeliveredDetails,
+    podDetails: record.podDetails,
+    status: record.status,
+    offlineCreated: record.offlineCreated,
+    createdAt: record.createdAt,
+    syncedAt: record.syncedAt,
+  };
+  const result = await apiPost<{
+    success: boolean;
+    deliveryId?: string;
+    tripStops?: DeliverySyncResult["tripStops"];
+    nextStop?: DeliverySyncResult["nextStop"];
+  }>("/driver/deliveries", payload);
 
   return {
-    success: true,
-    remoteId: `CLOUD-DEL-${record.id}`,
+    success: Boolean(result.success),
+    remoteId: result.deliveryId || record.id,
+    tripStops: result.tripStops,
+    nextStop: result.nextStop,
   };
 }
 
 /**
- * Backend Transmission Dispatcher for Issue Reports.
- * Ready for FastAPI integration.
+ * Persist driver issue report to FastAPI / Supabase.
  */
 export async function transmitIssueReportToBackend(
   report: IssueReportRecord
 ): Promise<{ success: boolean; remoteId?: string }> {
-  // Simulate network transmission latency (500ms - 900ms)
-  await new Promise((resolve) => setTimeout(resolve, 600));
-
+  const result = await apiPost<{ success: boolean; issueId?: string }>(
+    "/driver/issues",
+    {
+      id: report.id,
+      tripId: report.tripId,
+      vehicleId: report.vehicleId,
+      categoryId: report.categoryId,
+      categoryLabel: report.categoryLabel,
+      categoryIcon: report.categoryIcon,
+      categories: report.categories,
+      relatedScope: report.relatedScope,
+      orderId: report.orderId,
+      stopCode: report.stopCode,
+      outletName: report.outletName,
+      description: report.description,
+      photo: report.photo,
+      status: report.status,
+      offlineCreated: report.offlineCreated,
+      createdAt: report.createdAt,
+      syncedAt: report.syncedAt,
+    }
+  );
   return {
-    success: true,
-    remoteId: `CLOUD-REP-${report.id}`,
+    success: Boolean(result.success),
+    remoteId: result.issueId || report.id,
   };
 }
 
@@ -481,6 +539,10 @@ export async function syncAllPendingOfflineData(): Promise<{
   }
 
   const totalSynced = syncedDeliveries + syncedReports;
+
+  if (typeof window !== "undefined" && totalSynced > 0) {
+    window.dispatchEvent(new Event("driver-run-refresh"));
+  }
 
   return {
     success: totalSynced > 0,

@@ -1,41 +1,53 @@
-import { MOCK_OUTLETS } from "@/data/mockData";
+import { apiGet } from "@/lib/api-client";
 
 export interface OutletContact {
   outletId: string;
   name: string;
-  phone?: string;
-  managerName?: string;
-  address?: string;
-  dockType?: string;
-  windowTime?: string;
+  managerName: string;
+  phone: string;
+  address: string;
 }
 
-/**
- * Retrieve verified outlet contact information from official dataset.
- * Returns null if outlet is not found.
- * Phone is ONLY present if valid non-empty contact info exists in data.
- */
-export function getOutletContact(outletId: string): OutletContact | null {
-  if (!outletId) return null;
-  
-  const match = MOCK_OUTLETS.find(
-    (o) => o.outlet_id.toLowerCase() === outletId.toLowerCase() ||
-           outletId.toLowerCase().includes(o.outlet_id.toLowerCase())
-  );
-  
-  if (!match) return null;
+let outletCache: OutletContact[] | null = null;
 
-  // Strict check: only return phone if valid string in dataset
-  const rawPhone = match.phone?.trim();
-  const phone = rawPhone && rawPhone.length > 5 ? rawPhone : undefined;
+async function loadOutlets(): Promise<OutletContact[]> {
+  if (outletCache) return outletCache;
+  try {
+    const rows = await apiGet<
+      Array<{
+        outlet_id: string;
+        name: string;
+        manager_name?: string;
+        phone?: string;
+        address?: string;
+      }>
+    >("/reference/outlets");
+    outletCache = rows.map((o) => ({
+      outletId: o.outlet_id,
+      name: o.name,
+      managerName: o.manager_name || "Store Manager",
+      phone: o.phone || "+94 77 0000000",
+      address: o.address || "Commercial Ave",
+    }));
+  } catch {
+    outletCache = [];
+  }
+  return outletCache;
+}
 
+export function getOutletContact(outletId: string): OutletContact {
+  const cached = outletCache?.find((o) => o.outletId === outletId);
+  if (cached) return cached;
+  void loadOutlets();
   return {
-    outletId: match.outlet_id,
-    name: match.name,
-    phone,
-    managerName: match.manager_name,
-    address: match.address,
-    dockType: match.dock_type,
-    windowTime: `${match.window_open_time} - ${match.window_close_time}`,
+    outletId,
+    name: outletId,
+    managerName: "Store Manager",
+    phone: "+94 77 0000000",
+    address: "Commercial Ave",
   };
+}
+
+export async function prefetchOutletContacts(): Promise<void> {
+  await loadOutlets();
 }

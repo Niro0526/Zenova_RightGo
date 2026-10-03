@@ -15,6 +15,7 @@ from app.models.plan import (
     ReleasedManifest,
     ReleasedTrip,
     OrderLoadingState,
+    TripStop,
 )
 from app.models.memory import DeferralMemory
 from app.services.validation_service import ValidationEngine, compute_trip_duration, format_hhmm, parse_hhmm
@@ -417,7 +418,7 @@ def suggest_plan_greedy(
 
     db.query(DraftStopSequence).filter(DraftStopSequence.scenario == scenario).delete()
     for key, seq in stop_seqs.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         db.add(DraftStopSequence(
             scenario=scenario,
             vehicle_id=vid,
@@ -427,7 +428,7 @@ def suggest_plan_greedy(
 
     db.query(DraftTripMeta).filter(DraftTripMeta.scenario == scenario).delete()
     for key, dep_time in trip_meta.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         db.add(DraftTripMeta(
             scenario=scenario,
             vehicle_id=vid,
@@ -541,7 +542,7 @@ def release_plan(
 
     trip_counter = 1
     for key, trip_orders in trip_map.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         tno = int(tno_str)
         outlet_seq = draft_state["stopSequences"].get(key, list(dict.fromkeys(o.outlet_id for o in trip_orders)))
         dep_time = draft_state["tripMeta"].get(key, {}).get("plannedDepartureTime")
@@ -577,6 +578,16 @@ def release_plan(
         )
         db.add(rel_trip)
         db.flush()
+
+        for seq, outlet_id in enumerate(outlet_seq, 1):
+            db.add(
+                TripStop(
+                    trip_id=rel_trip.id,
+                    outlet_id=outlet_id,
+                    seq=seq,
+                    delivery_status="pending",
+                )
+            )
 
         # Seed order loading states
         for o in trip_orders:

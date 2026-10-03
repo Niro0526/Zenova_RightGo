@@ -1,6 +1,6 @@
 """Reference dataset models representing competition domains."""
 
-from sqlalchemy import Column, String, Float, Integer, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, Boolean, Date, ForeignKey
 from app.database.base import Base
 
 class Outlet(Base):
@@ -62,3 +62,19 @@ class DistrictTravel(Base):
     depot_to_district_freeflow_min = Column(Float, nullable=False)
     inter_stop_km = Column(Float, nullable=False)
     inter_stop_freeflow_min = Column(Float, nullable=False)
+
+class Calendar(Base):
+    __tablename__ = "calendar"
+
+    date = Column(Date, primary_key=True)
+    dow = Column(Integer, nullable=False)
+    dow_name = Column(String(16), nullable=False)
+    is_weekend = Column(Boolean, nullable=False)
+    iso_year = Column(Integer, nullable=False)
+    iso_week = Column(Integer, nullable=False)
+    is_payday = Column(Boolean, nullable=False)
+    festival = Column(String(128), nullable=True)
+    festival_ramp = Column(Float, nullable=False)
+    is_holiday = Column(Boolean, nullable=False)
+    monsoon = Column(Boolean, nullable=False)
+    is_operating = Column(Boolean, nullable=False)

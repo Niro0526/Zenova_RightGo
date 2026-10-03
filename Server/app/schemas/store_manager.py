@@ -13,6 +13,8 @@ class ReceiptConfirmRequest(BaseModel):
     issue_type: Optional[str] = None # short, damaged, temperature, late
     notes: Optional[str] = None
     confirmed_by: Optional[str] = "K. Perera (Manager)"
+    pod_signer_name: Optional[str] = None
+    pod_signature_url: Optional[str] = None
 
 class DeferralAckRequest(BaseModel):
     outlet_id: str

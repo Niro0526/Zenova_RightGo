@@ -9,7 +9,6 @@ import OrderDetailView from '@/components/store-manager/OrderDetailView';
 import ConfirmReceiptView from '@/components/store-manager/ConfirmReceiptView';
 import DegradationView from '@/components/store-manager/DegradationView';
 import OrderConfirmationModal from '@/components/store-manager/OrderConfirmationModal';
-import { MOCK_OUTLETS } from '@/data/mockData';
 import { useStoreManagerOrders } from '@/hooks/useStoreManagerOrders';
 import { useStoreManagerNavigation } from '@/hooks/useStoreManagerNavigation';
 
@@ -19,6 +18,7 @@ interface StoreManagerAppProps {
 
 export default function StoreManagerApp({ initialView }: StoreManagerAppProps) {
   const {
+    outlets,
     selectedOutlet, setSelectedOutlet,
     orders, setOrders,
     editingOrder, setEditingOrder,
@@ -137,7 +137,7 @@ export default function StoreManagerApp({ initialView }: StoreManagerAppProps) {
             storeClosureNotice={storeClosureNotice}
             onSetStoreClosureNotice={(notice: any) => {
               setStoreClosureNotice(notice);
-              alert('✓ Central Dispatcher notified! Store ' + selectedOutlet.outlet_id + ' flagged as UNAVAILABLE for ' + notice.date + '. Fleet routing paused.');
+              alert('Central Dispatcher notified for ' + (selectedOutlet?.outlet_id || 'selected outlet') + '.');
             }}
             onCancelStoreClosureNotice={() => {
               setStoreClosureNotice(null);
@@ -238,7 +238,7 @@ export default function StoreManagerApp({ initialView }: StoreManagerAppProps) {
         <TopNavbar
           selectedOutlet={selectedOutlet}
           onSelectOutlet={setSelectedOutlet}
-          outlets={MOCK_OUTLETS}
+          outlets={outlets}
         />
 
         {renderContent()}

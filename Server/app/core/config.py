@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     
     # Database - Supabase PostgreSQL as primary database
     DATABASE_URL: str = "postgresql://postgres.your-project:your-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
+    SUPABASE_URL: str = ""
+    SUPABASE_KEY: str = ""
     
     # Dataset directory
     RIGHTGO_DATA_DIR: str = str(DATA_DIR_DEFAULT)

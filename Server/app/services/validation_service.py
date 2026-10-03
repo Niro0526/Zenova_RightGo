@@ -518,12 +518,15 @@ class ValidationEngine:
         all_volume_ok = True
         all_grouping_ok = True
         all_budgets_ok = True
+        all_trip_limits_ok = True
 
         for k, ords in trip_groups.items():
-            vid, tno_str = k.split("-")
+            vid, tno_str = k.rsplit("-", 1)
             veh = self.vehicles_map.get(vid)
             if not veh:
                 continue
+            if int(tno_str) not in (1, 2):
+                all_trip_limits_ok = False
             if any(o.depot != veh.depot for o in ords):
                 all_depot_ok = False
             if veh.temp != "reefer" and any(o.temp_requirement == "chilled" for o in ords):
@@ -555,13 +558,24 @@ class ValidationEngine:
         checklist.append({"label": "Weight limits within capacity", "kind": "checker_pass" if all_weight_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_weight_ok else "Weight limit exceeded"})
         checklist.append({"label": "Volume limits within capacity", "kind": "checker_pass" if all_volume_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_volume_ok else "Volume limit exceeded"})
         checklist.append({"label": "One brand and one district per trip", "kind": "checker_pass" if all_grouping_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_grouping_ok else "Mixed brand or district"})
-        checklist.append({"label": "Maximum 2 trips per vehicle", "kind": "checker_pass", "group": "checker", "detail": "Pass - max 2 trips allowed"})
+        trip_numbers_by_vehicle: Dict[str, Set[int]] = {}
+        for key in trip_groups:
+            vehicle_id, trip_number = key.rsplit("-", 1)
+            trip_numbers_by_vehicle.setdefault(vehicle_id, set()).add(int(trip_number))
+        if any(len(trips) > 2 for trips in trip_numbers_by_vehicle.values()):
+            all_trip_limits_ok = False
+        checklist.append({
+            "label": "Maximum 2 trips per vehicle",
+            "kind": "checker_pass" if all_trip_limits_ok else "checker_fail",
+            "group": "checker",
+            "detail": "Pass - max 2 trips allowed" if all_trip_limits_ok else "A vehicle has more than 2 assigned trips",
+        })
         checklist.append({"label": "Fresh trips <=270 cumulative minutes per vehicle", "kind": "checker_pass" if all_budgets_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_budgets_ok else "Time budget exceeded"})
         checklist.append({"label": "Style + Tech trips <=480 cumulative minutes per vehicle", "kind": "checker_pass" if all_budgets_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_budgets_ok else "Time budget exceeded"})
 
         # Operational items
         for k, ords in trip_groups.items():
-            vid, tno_str = k.split("-")
+            vid, tno_str = k.rsplit("-", 1)
             tno = int(tno_str)
             dep_time = trip_meta.get(k)
             outlet_seq = stop_sequences.get(k, [])

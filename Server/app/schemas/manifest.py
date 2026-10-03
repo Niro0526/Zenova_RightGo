@@ -5,6 +5,7 @@ from typing import List, Optional, Any, Dict
 from pydantic import BaseModel
 
 class ManifestTripSnapshotSchema(BaseModel):
+    releasedTripId: Optional[int] = None
     vehicleId: str
     tripNo: int
     tripId: Optional[str] = None

@@ -8,6 +8,7 @@ from app.models.reference import (
     ScenarioFleetEntry,
     ServiceAllowance,
     DistrictTravel,
+    Calendar,
 )
 from app.models.order import Order
 from app.models.plan import (
@@ -18,6 +19,7 @@ from app.models.plan import (
     DraftVehicleFuelInput,
     ReleasedManifest,
     ReleasedTrip,
+    TripStop,
     OrderLoadingState,
 )
 from app.models.operations import (
@@ -42,6 +44,7 @@ __all__ = [
     "ScenarioFleetEntry",
     "ServiceAllowance",
     "DistrictTravel",
+    "Calendar",
     "Order",
     "DraftPlan",
     "DraftAssignment",
@@ -50,6 +53,7 @@ __all__ = [
     "DraftVehicleFuelInput",
     "ReleasedManifest",
     "ReleasedTrip",
+    "TripStop",
     "OrderLoadingState",
     "LoadingIssue",
     "DriverIssue",

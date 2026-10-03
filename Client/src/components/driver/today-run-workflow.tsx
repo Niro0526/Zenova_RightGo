@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { STOPS } from "@/components/driver/today-run/types";
+import { useDriverRun } from "@/context/DriverRunContext";
 import {
   RouteIcon,
   ClockIcon,
@@ -358,17 +358,40 @@ export function TodayRunMobileCanvas({
 }
 
 /* ─── Today Run Workflow Component ───────────────────────────── */
+function mapRunStopToUi(
+  stop: import("@/context/DriverRunContext").DriverRunStop,
+  completedRecords: LocalDeliveryRecord[]
+): Stop {
+  const isDone =
+    stop.isCompleted ||
+    completedRecords.some(
+      (r) => r.stopId === stop.stopId || r.stopName.includes(stop.stopId)
+    );
+  return {
+    id: stop.stopNumber,
+    code: stop.stopId,
+    name: stop.name,
+    outlets: 1,
+    orders: stop.orderRefs ?? [],
+    status: isDone ? "completed" : "upcoming",
+    timeWindow: `${stop.windowOpen ?? "05:00"} – ${stop.windowClose ?? "08:00"}`,
+  };
+}
+
 export function TodayRunWorkflow() {
   const { connectionState } = useConnectivity();
+  const { isMounted, run, stops: runStops, completedCount: apiCompleted, refreshRun, loading } =
+    useDriverRun();
   const [completedRecords, setCompletedRecords] = useState<LocalDeliveryRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<LocalDeliveryRecord | null>(null);
-  const [dateStr, setDateStr] = useState<string>("Tuesday, September 29, 2026");
+  const [dateStr, setDateStr] = useState<string>("");
 
   useEffect(() => {
     getAllLocalDeliveryRecords()
       .then((records: LocalDeliveryRecord[]) => setCompletedRecords(records))
       .catch((err: unknown) => console.error("Error loading delivery records:", err));
-  }, [connectionState]);
+    void refreshRun();
+  }, [connectionState, refreshRun]);
 
   useEffect(() => {
     try {
@@ -382,25 +405,51 @@ export function TodayRunWorkflow() {
         setDateStr(formatted);
       }
     } catch {
-      setDateStr("Tuesday, September 29, 2026");
+      setDateStr("");
     }
   }, []);
 
-  // Compute status for stops: if completed in local IndexedDB, mark as completed
-  const stopsWithStatus: Stop[] = STOPS.map((stop) => {
-    const isDone = completedRecords.some(
-      (r) => r.stopId === stop.code || r.stopName.includes(stop.code)
-    );
-    if (isDone) {
-      return { ...stop, status: "completed" as StopStatus };
+  const baseStops: Stop[] =
+    runStops.length > 0
+      ? runStops.map((s) => mapRunStopToUi(s, completedRecords))
+      : [];
+
+  const stopsWithStatus: Stop[] = baseStops.map((stop) => {
+    if (stop.status === "completed") return stop;
+    const firstOpen = baseStops.find((s) => s.status !== "completed");
+    if (firstOpen && firstOpen.code === stop.code) {
+      return { ...stop, status: "next" as StopStatus };
     }
     return stop;
   });
 
-  const completedCount = stopsWithStatus.filter((s) => s.status === "completed").length;
+  const completedCount = Math.max(
+    apiCompleted,
+    stopsWithStatus.filter((s) => s.status === "completed").length
+  );
+  const totalStops = stopsWithStatus.length;
   const nextStop =
-    stopsWithStatus.find((s) => s.status === "next" || s.status === "upcoming") ??
+    stopsWithStatus.find((s) => s.status === "next") ??
+    stopsWithStatus.find((s) => s.status === "upcoming") ??
     stopsWithStatus[0];
+
+  const vehicleId = run?.vehicleId ?? "—";
+  const tripPlanId = run?.tripId ?? "—";
+  const planVersion = run?.manifestVersion ? `Plan v${run.manifestVersion}` : "—";
+
+  if (!isMounted || loading) {
+    return (
+      <div className="p-8 text-slate-500 text-sm">Loading today&apos;s run from dispatch...</div>
+    );
+  }
+
+  if (!run?.hasRun || totalStops === 0) {
+    return (
+      <div className="p-8 text-slate-600 text-sm">
+        {run?.message || "No active in-transit run assigned. Depart a loaded trip from the loader workflow first."}
+      </div>
+    );
+  }
 
   return (
     <>
@@ -425,7 +474,7 @@ export function TodayRunWorkflow() {
                 <span className="text-xs font-bold uppercase tracking-wider text-[#F97316] bg-orange-50 px-2.5 py-0.5 rounded border border-orange-200">
                   Active Dispatch Run
                 </span>
-                <span className="text-xs font-bold text-[#485563]">Vehicle: PEL-R04 · Plan v2</span>
+                <span className="text-xs font-bold text-[#485563]">Vehicle: {vehicleId} · {planVersion}</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-[#202D2D] mt-1 m-0">
                 Today&apos;s Run
@@ -461,9 +510,9 @@ export function TodayRunWorkflow() {
         {/* Stat chips */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: "Total Stops", value: STOPS.length, color: "text-[#202D2D]" },
+            { label: "Total Stops", value: totalStops, color: "text-[#202D2D]" },
             { label: "Completed", value: completedCount, color: "text-[#15803D]" },
-            { label: "Remaining", value: STOPS.length - completedCount, color: "text-[#F97316]" },
+            { label: "Remaining", value: totalStops - completedCount, color: "text-[#F97316]" },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -480,16 +529,16 @@ export function TodayRunWorkflow() {
             <div className="flex justify-between">
               <p className="text-[#485563] text-[11px] font-semibold uppercase tracking-wider">Progress</p>
               <p className="text-[#202D2D] font-bold text-[13px]">
-                {Math.round((completedCount / STOPS.length) * 100)}%
+                {totalStops > 0 ? Math.round((completedCount / totalStops) * 100) : 0}%
               </p>
             </div>
             <div className="w-full h-2 bg-[#F1F5F9] rounded-full overflow-hidden">
               <div
                 className="h-full bg-[#F97316] rounded-full transition-all duration-700"
-                style={{ width: `${Math.round((completedCount / STOPS.length) * 100)}%` }}
+                style={{ width: `${totalStops > 0 ? Math.round((completedCount / totalStops) * 100) : 0}%` }}
               />
             </div>
-            <p className="text-[#94A3B8] text-xs">{completedCount} of {STOPS.length} stops done</p>
+            <p className="text-[#94A3B8] text-xs">{completedCount} of {totalStops} stops done</p>
           </div>
         </div>
 
@@ -507,7 +556,7 @@ export function TodayRunWorkflow() {
               <div className="flex items-center gap-2">
                 <h2 className="text-[#202D2D] font-bold text-[16px] m-0">Stops Directory</h2>
                 <span className="text-[#94A3B8] text-[13px] font-semibold">
-                  ({completedCount}/{STOPS.length} completed)
+                  ({completedCount}/{totalStops} completed)
                 </span>
               </div>
               <Link

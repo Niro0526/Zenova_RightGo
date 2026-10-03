@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { DriverSidebar, DriverMobileBottomNav } from "@/components/driver/driver-nav";
 import { DriverConnectivityProvider } from "@/context/DriverConnectivityContext";
+import { DriverRunProvider } from "@/context/DriverRunContext";
 import { OfflineBanner } from "@/components/driver/today-run/OfflineBanner";
 import RoleTopBar from "@/components/common/RoleTopBar";
 
@@ -13,6 +14,7 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
 
   return (
     <DriverConnectivityProvider>
+      <DriverRunProvider>
       <div
         className="flex flex-col md:flex-row h-screen w-full overflow-hidden bg-[#F1F5F9]"
         style={{ fontFamily: "'Poppins', sans-serif" }}
@@ -48,6 +50,7 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
         {/* Mobile bottom nav — visible < md */}
         <DriverMobileBottomNav pathname={pathname} />
       </div>
+      </DriverRunProvider>
     </DriverConnectivityProvider>
   );
 }

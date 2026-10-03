@@ -50,13 +50,17 @@ def process_offline_sync(
         # Parse recorded_at
         try:
             rec_dt = datetime.fromisoformat(item.recorded_at.replace("Z", "+00:00"))
-        except Exception:
+            if rec_dt.tzinfo is None:
+                rec_dt = rec_dt.replace(tzinfo=timezone.utc)
+            else:
+                rec_dt = rec_dt.astimezone(timezone.utc)
+        except (TypeError, ValueError):
             rec_dt = now_utc
 
         event_record = OfflineProcessedEvent(
             event_id=item.event_id,
             event_type=item.event_type,
-            device_id=request.device_id,
+            device_id=item.device_id or request.device_id,
             recorded_at=rec_dt,
             synced_at=now_utc,
             payload_json=item.payload,

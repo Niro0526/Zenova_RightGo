@@ -8,6 +8,7 @@ class Order(Base):
     __tablename__ = "orders"
 
     order_ref = Column(String(64), primary_key=True) # e.g. S1-000 or ORD-2026-001
+    delivery_id = Column(String(64), unique=True, nullable=True, index=True)
     scenario = Column(String(32), nullable=False, default="S1", index=True)
     outlet_id = Column(String(32), ForeignKey("outlets.outlet_id"), nullable=False, index=True)
     brand = Column(String(32), nullable=False, index=True) # Fresh, Style, Tech

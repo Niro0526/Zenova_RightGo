@@ -119,6 +119,7 @@ def api_publish_plan(req: PublishPlanRequest, scenario: str = "S1", db: Session 
     trip_rows = db.query(ReleasedTrip).filter(ReleasedTrip.manifest_id == manifest.id).all()
     trip_snapshots = [
         ManifestTripSnapshotSchema(
+            releasedTripId=t.id,
             vehicleId=t.vehicle_id,
             tripNo=t.trip_no,
             tripId=t.trip_id_str,
