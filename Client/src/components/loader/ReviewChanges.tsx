@@ -11,15 +11,11 @@ import {
   ArrowUpDown,
   ShieldCheck,
   Truck,
-  MapPin,
-  Check,
   Info,
-  Calendar,
-  Layers,
   Sparkles,
   FileCheck2,
 } from "lucide-react";
-import { ChevronLeftIcon, AlertTriangleIcon, CheckCircleIcon } from "./icons";
+import { ChevronLeftIcon } from "./icons";
 
 interface ReviewChangesProps {
   onNavigate?: (
@@ -53,9 +49,9 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
   };
 
   return (
-    <main className="flex-1 md:ml-[220px] lg:ml-[240px] bg-[#F9FAFB] min-h-screen flex flex-col w-full overflow-x-hidden pb-[95px] md:pb-12 font-poppins text-[#202D2D]">
+    <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
       {/* Mobile Top Navigation Bar */}
-      <div className="flex md:hidden items-center justify-between px-5 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
+      <div className="flex md:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -69,7 +65,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
             Review Changes
           </h1>
         </div>
-        <span className="bg-[#FEF3C7] text-[#D97706] text-[11px] font-bold px-2 py-1 rounded-md border border-[#FDE68A]">
+        <span className="bg-[#FEF3C7] text-[#D97706] font-inter text-[11px] font-bold px-2 py-1 rounded-md border border-[#FDE68A]">
           Plan v2
         </span>
       </div>
@@ -82,8 +78,8 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
         </div>
       )}
 
-      {/* Main Content Area */}
-      <div className="w-full p-4 md:p-6 lg:p-8 flex flex-col gap-6 box-border">
+      {/* Content Container */}
+      <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 box-border">
         {/* Desktop Header */}
         <div className="hidden md:flex flex-col gap-3 pb-4 border-b border-[#CBD5E1]">
           <div className="flex items-center justify-between">

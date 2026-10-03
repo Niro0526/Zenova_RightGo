@@ -4,9 +4,14 @@ import RoleTopBar from '@/components/common/RoleTopBar';
 
 export default function LoaderLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen w-full bg-[#F9FAFB] font-poppins text-[#202D2D]">
+    <div className="flex h-screen w-full overflow-hidden bg-[#F9FAFB] font-poppins text-[#202D2D]">
+      {/* 1. Left Sidebar */}
       <Sidebar />
-      <div className="flex-1 flex flex-col min-h-screen md:pl-[220px] lg:pl-[240px] overflow-y-auto">
+
+      {/* 2. Main Content Area */}
+      <div className="flex-1 flex flex-col h-full md:pl-[220px] lg:pl-[240px] overflow-hidden">
+        
+        {/* Fixed TopBar (Never Scrolls Away) */}
         <RoleTopBar
           name="Rohan Kulatunga"
           role="Dock Loading Lead"
@@ -15,10 +20,13 @@ export default function LoaderLayout({ children }: { children: React.ReactNode }
           stationName="Bay 4 Loading Dock"
           avatarColor="#059669"
         />
-        <main className="flex-1 pb-16 md:pb-6">
+
+        {/* Scrollable Page Body (Vertical Only, No Horizontal Scroll) */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 pb-20 md:pb-8">
           {children}
         </main>
       </div>
+
       <BottomNavBar />
     </div>
   );
