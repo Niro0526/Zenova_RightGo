@@ -56,25 +56,48 @@ export default function LoaderDashboard() {
       return;
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('trips')
-      .select('trip_code, vehicle_id, status, departure_time, bay, route_summary, outlets_count, payload_kg')
+      .select('*')
       .order('departure_time', { ascending: true });
 
+    // Keep the dashboard usable when an older schema is missing one of the
+    // optional display columns.
     if (error) {
-      setLoadError(error.message);
+      const fallback = await supabase.from('trips').select('*');
+      data = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      setLoadError('Trips are temporarily unavailable.');
+      setTrips([]);
       return;
     }
 
     setLoadError(null);
+    const shortfalls = await supabase.from('shortfalls').select('*');
+    const activeIssues = shortfalls.error
+      ? []
+      : (shortfalls.data ?? []).filter((issue) => {
+          const status = String(issue.status ?? 'open').toLowerCase();
+          return !['resolved', 'closed', 'cleared', 'completed', 'cancelled'].includes(status);
+        });
     setTrips((data ?? []).map((row) => {
       const rawStatus = String(row.status ?? '').toLowerCase();
-      const status: Status = rawStatus.includes('load') && !rawStatus.includes('ready')
+      const hasActiveIssue = activeIssues.some(
+        (issue) => String(issue.trip_id) === String(row.id) || String(issue.trip_id) === String(row.trip_code),
+      );
+      const status: Status = hasActiveIssue
+        ? 'Attention'
+        : rawStatus.includes('load') && !rawStatus.includes('ready')
         ? 'Loading'
         : rawStatus.includes('hold') || rawStatus.includes('attention') || rawStatus.includes('issue')
           ? 'Attention'
           : 'Ready to Load';
-      const count = Number(row.outlets_count ?? 0);
+      const countValue = Number(row.outlets_count ?? 0);
+      const count = Number.isFinite(countValue) ? countValue : 0;
+      const payloadValue = Number(row.payload_kg ?? 0);
 
       return {
         vehicle: String(row.vehicle_id ?? 'Unknown Vehicle'),
@@ -87,7 +110,7 @@ export default function LoaderDashboard() {
           : '—',
         outlets: count,
         orders: count,
-        payloadKg: Number(row.payload_kg ?? 0),
+        payloadKg: Number.isFinite(payloadValue) ? payloadValue : 0,
         vehicleType: 'Vehicle',
         plan: 1,
         status,
@@ -170,7 +193,7 @@ export default function LoaderDashboard() {
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 relative">
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 relative pb-24 sm:pb-8">
       
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -197,7 +220,7 @@ export default function LoaderDashboard() {
           </button>
           
           <Link 
-            href={trips[0] ? `/loader/load-sequence?tripId=${encodeURIComponent(trips[0].id)}` : "/loader/load-sequence"} 
+            href={trips[0] ? `/loader/load-sequence?trip_id=${encodeURIComponent(trips[0].id)}` : "/loader/load-sequence"}
             className="min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-medium rounded-xl shadow-sm transition"
           >
             Current Trip <ChevronRight className="w-4 h-4" />
@@ -223,50 +246,50 @@ export default function LoaderDashboard() {
       </div>
 
       {/* KPI Metrics Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="p-3 sm:p-5 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
           <div>
-            <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">ALL TRIPS</span>
-            <p className="text-3xl font-extrabold text-slate-900 mt-1">{trips.length}</p>
+            <span className="text-[10px] sm:text-xs font-bold tracking-wider text-slate-400 uppercase">ALL TRIPS</span>
+            <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">{trips.length}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
               <Truck className="w-4 h-4" />
             </div>
-            <span className="text-[11px] font-medium text-slate-500">Planned</span>
+            <span className="text-[10px] sm:text-[11px] font-medium text-slate-500">Planned</span>
           </div>
         </div>
 
-        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+        <div className="p-3 sm:p-5 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
           <div>
-            <span className="text-xs font-bold tracking-wider text-emerald-600 uppercase">LOADING</span>
-            <p className="text-3xl font-extrabold text-slate-900 mt-1">{loadingCount}</p>
+            <span className="text-[10px] sm:text-xs font-bold tracking-wider text-emerald-600 uppercase">LOADING</span>
+            <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">{loadingCount}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <span className="text-[11px] font-medium text-slate-500">Active loading</span>
+            <span className="text-[10px] sm:text-[11px] font-medium text-slate-500">Active loading</span>
           </div>
         </div>
 
-        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+        <div className="p-3 sm:p-5 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
           <div>
-            <span className="text-xs font-bold tracking-wider text-amber-600 uppercase">READY</span>
-            <p className="text-3xl font-extrabold text-slate-900 mt-1">{readyCount}</p>
+            <span className="text-[10px] sm:text-xs font-bold tracking-wider text-amber-600 uppercase">READY</span>
+            <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">{readyCount}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
-            <span className="text-[11px] font-medium text-slate-500">Staged at Docks</span>
+            <span className="text-[10px] sm:text-[11px] font-medium text-slate-500">Staged at Docks</span>
           </div>
         </div>
 
-        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+        <div className="p-3 sm:p-5 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
           <div>
-            <span className="text-xs font-bold tracking-wider text-rose-600 uppercase">ATTENTION</span>
-            <p className="text-3xl font-extrabold text-slate-900 mt-1">{attentionCount}</p>
+            <span className="text-[10px] sm:text-xs font-bold tracking-wider text-rose-600 uppercase">ATTENTION</span>
+            <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-1">{attentionCount}</p>
           </div>
           <div className="flex flex-col items-end gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
-            <span className="text-[11px] font-bold text-rose-600">{attentionCount} {attentionCount === 1 ? 'Trip' : 'Trips'}</span>
+            <span className="text-[10px] sm:text-[11px] font-bold text-rose-600">{attentionCount} {attentionCount === 1 ? 'Trip' : 'Trips'}</span>
           </div>
         </div>
       </div>
@@ -291,32 +314,32 @@ export default function LoaderDashboard() {
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="px-2.5 py-1 bg-slate-900 text-white font-bold text-xs rounded-md">{trip.vehicle}</span>
-                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">{trip.id}</span>
-                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">{trip.bay}</span>
+                  <span className="px-2.5 py-1 bg-slate-900 text-white font-bold text-xs sm:text-sm rounded-md">{trip.vehicle}</span>
+                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs sm:text-sm font-semibold rounded-md border border-slate-200">{trip.id}</span>
+                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs sm:text-sm font-semibold rounded-md border border-slate-200">{trip.bay}</span>
                 </div>
 
                 {isLoading ? (
-                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-full flex items-center gap-1.5">
+                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs sm:text-sm font-semibold rounded-full flex items-center gap-1.5">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Loading in Progress
                   </span>
                 ) : isAttention ? (
-                  <span className="px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded-full flex items-center gap-1">
+                  <span className="px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-xs sm:text-sm font-semibold rounded-full flex items-center gap-1">
                     <AlertTriangle className="w-3 h-3" /> Attention Required
                   </span>
                 ) : (
-                  <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold rounded-full flex items-center gap-1">
+                  <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs sm:text-sm font-semibold rounded-full flex items-center gap-1">
                     <Clock className="w-3 h-3" /> Ready to Load
                   </span>
                 )}
               </div>
 
               <div>
-                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                <h2 className="text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${isLoading ? 'bg-emerald-500' : isAttention ? 'bg-rose-500' : 'bg-orange-500'}`}></span>
                   {trip.area} <span className="text-slate-400 font-normal text-xs">(Plan v{trip.plan})</span>
                 </h2>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs sm:text-sm text-slate-500 mt-1">
                   <span className="font-semibold text-slate-600">Route:</span> {trip.routeStr}
                 </p>
               </div>
@@ -375,8 +398,8 @@ export default function LoaderDashboard() {
 
               {canOpen ? (
                 <Link
-                  href={`/loader/load-sequence?tripId=${encodeURIComponent(trip.id)}`}
-                  className={`w-full py-2.5 font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition shadow-sm ${
+                  href={`/loader/load-sequence?trip_id=${encodeURIComponent(trip.id)}`}
+                  className={`w-full py-2.5 font-bold text-xs sm:text-sm rounded-xl flex items-center justify-center gap-2 transition shadow-sm ${
                     isLoading 
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
                       : 'bg-[#F97316] hover:bg-[#EA580C] text-white'
@@ -388,7 +411,7 @@ export default function LoaderDashboard() {
                 <button
                   type="button"
                   disabled
-                  className="w-full py-2.5 bg-slate-100 text-slate-400 font-bold text-sm rounded-xl cursor-not-allowed text-center"
+                  className="w-full py-2.5 bg-slate-100 text-slate-400 font-bold text-xs sm:text-sm rounded-xl cursor-not-allowed text-center"
                 >
                   Open Trip (Locked)
                 </button>

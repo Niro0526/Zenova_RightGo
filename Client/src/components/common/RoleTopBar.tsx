@@ -27,9 +27,18 @@ export default function RoleTopBar({
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
-  const displayName = user?.display_name || name;
-  const displayInitials = user?.display_name 
-    ? user.display_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2)
+  const displayName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    user?.display_name ||
+    user?.email?.split('@')[0] ||
+    name ||
+    'Loader Lead';
+  const displayRole = user?.role
+    ? user.role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+    : role;
+  const displayInitials = displayName
+    ? displayName.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase()
     : initials;
 
   const notifications = [
@@ -106,7 +115,7 @@ export default function RoleTopBar({
             </div>
             <div className="profile-info-text hidden sm:flex">
               <span className="profile-name-label">{displayName}</span>
-              <span className="profile-role-sub">{role}</span>
+              <span className="profile-role-sub">{displayRole}</span>
             </div>
             <ChevronDown size={14} color="#94A3B8" />
           </button>

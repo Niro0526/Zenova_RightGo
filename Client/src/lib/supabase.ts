@@ -38,12 +38,21 @@ export type LoadSequenceRow = Record<string, unknown> & {
   weight_kg?: number | string | null;
   status?: string | null;
   is_loaded?: boolean | null;
+  lifo_sequence?: number | string | null;
+  parcel_count?: number | string | null;
+  compartment?: string | null;
+  compartment_location?: string | null;
+  item_code?: string | null;
+  weight?: number | string | null;
 };
 
 export function activeTripId(): string {
   if (typeof window === "undefined") return "S1-T001";
+  const params = new URLSearchParams(window.location.search);
   return (
-    new URLSearchParams(window.location.search).get("tripId") ||
+    params.get("trip_id") ||
+    params.get("trip_code") ||
+    params.get("tripId") ||
     window.localStorage.getItem("activeTripId") ||
     "S1-T001"
   );

@@ -13,9 +13,9 @@ export default function LoaderLayout({ children }: { children: React.ReactNode }
         
         {/* Fixed TopBar (Never Scrolls Away) */}
         <RoleTopBar
-          name="Rohan Kulatunga"
+          name="Loader Lead"
           role="Dock Loading Lead"
-          initials="RK"
+          initials="LL"
           stationId="BAY-04"
           stationName="Bay 4 Loading Dock"
           avatarColor="#059669"
