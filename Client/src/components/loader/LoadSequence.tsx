@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangleIcon,
@@ -8,6 +8,18 @@ import {
   ChevronLeftIcon,
 } from "./icons";
 import { LoadSequenceRow, supabase } from "@/lib/supabase";
+
+type TripHeader = {
+  id?: string | number;
+  trip_code?: string | null;
+  vehicle_id?: string | null;
+  route_plan?: string | null;
+  route_summary?: string | null;
+  plan_version?: string | number | null;
+  departure_time?: string | null;
+  bay?: string | null;
+  payload_kg?: number | string | null;
+};
 
 interface LoadSequenceProps {
   onNavigate?: (
@@ -19,42 +31,67 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
   const router = useRouter();
   const [tripId, setTripId] = useState("S1-T001");
   const [sequenceItems, setSequenceItems] = useState<LoadSequenceRow[]>([]);
-  const [sequenceError, setSequenceError] = useState<string | null>(null);
   const [stop2Loaded, setStop2Loaded] = useState<boolean>(false);
   const [stop1Loaded, setStop1Loaded] = useState<boolean>(false);
+  const [payloadLimit, setPayloadLimit] = useState(3500);
+  const [trip, setTrip] = useState<TripHeader | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
 
-  const loadSequence = useCallback(async (selectedTripId: string) => {
+  const loadSequence = useCallback(async (selectedTripCode: string) => {
     if (!supabase) {
-      setSequenceError("Supabase is not configured.");
+      setNotification("Supabase is not configured.");
       return;
     }
 
-    let { data, error } = await supabase
+    let tripResult = await supabase
+      .from("trips")
+      .select("*")
+      .eq("trip_code", selectedTripCode)
+      .maybeSingle();
+    if (tripResult.error) {
+      tripResult = await supabase
+        .from("trips")
+        .select("*")
+        .eq("trip_code", selectedTripCode)
+        .maybeSingle();
+    }
+    const tripRow = (tripResult.data ?? null) as TripHeader | null;
+    setTrip(tripRow);
+    const tripReference = tripRow?.id ?? selectedTripCode;
+    const tripPayload = Number(tripRow?.payload_kg ?? 3500);
+    if (Number.isFinite(tripPayload) && tripPayload > 0) setPayloadLimit(tripPayload);
+
+    let sequenceResult = await supabase
       .from("load_sequences")
       .select("*")
-      .eq("trip_id", selectedTripId);
+      .eq("trip_id", tripReference)
+      .order("lifo_sequence", { ascending: false });
 
-    if (!error && (!data || data.length === 0)) {
-      const fallback = await supabase
+    if (sequenceResult.error || !sequenceResult.data?.length) {
+      sequenceResult = await supabase
         .from("load_sequences")
         .select("*")
-        .eq("trip_code", selectedTripId);
-      data = fallback.data;
-      error = fallback.error;
+        .eq("trip_code", selectedTripCode)
+        .order("lifo_sequence", { ascending: false });
+    }
+    if (sequenceResult.error) {
+      sequenceResult = await supabase
+        .from("load_sequences")
+        .select("*")
+        .eq("trip_id", tripReference);
     }
 
-    if (error) {
-      setSequenceError(error.message);
+    if (sequenceResult.error) {
+      setNotification("Loading sequence is temporarily unavailable.");
+      setSequenceItems([]);
       return;
     }
 
-    const items = ((data ?? []) as LoadSequenceRow[]).sort(
+    const items = ((sequenceResult.data ?? []) as LoadSequenceRow[]).sort(
       (a, b) =>
-        Number(a.sequence ?? a.sequence_no ?? a.order_index ?? a.stop_number ?? 0) -
-        Number(b.sequence ?? b.sequence_no ?? b.order_index ?? b.stop_number ?? 0),
+        Number(b.lifo_sequence ?? b.sequence ?? b.sequence_no ?? b.order_index ?? b.stop_number ?? 0) -
+        Number(a.lifo_sequence ?? a.sequence ?? a.sequence_no ?? a.order_index ?? a.stop_number ?? 0),
     );
-    setSequenceError(null);
     setSequenceItems(items);
     setStop2Loaded(Boolean(items[1]?.is_loaded ?? items[1]?.status === "LOADED"));
     setStop1Loaded(Boolean(items[2]?.is_loaded ?? items[2]?.status === "LOADED"));
@@ -65,7 +102,6 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     const selectedTripId =
       params.get("trip_id") ||
       params.get("trip_code") ||
-      window.localStorage.getItem("activeTripId") ||
       "S1-T001";
     setTripId(selectedTripId);
     void loadSequence(selectedTripId);
@@ -92,27 +128,36 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
       const value = row[key];
       if (value !== null && value !== undefined && value !== "") return String(value);
     }
-    return "—";
+    return "Not available";
+  };
+  const tripText = (...keys: (keyof TripHeader)[]) => {
+    for (const key of keys) {
+      const value = trip?.[key];
+      if (value !== null && value !== undefined && String(value).trim() !== "") return String(value);
+    }
+    if (keys.includes("route_plan") || keys.includes("route_summary")) return "Peliyagoda → Pettah";
+    if (keys.includes("plan_version")) return "v2";
+    return "Not available";
+  };
+  const planVersion = tripText("plan_version");
+  const routePlan = tripText("route_plan", "route_summary");
+  const formatDeparture = (value: string) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime())
+      ? value
+      : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
   const loadedValue = (row: LoadSequenceRow, fallback: boolean) =>
     typeof row.is_loaded === "boolean" ? row.is_loaded : fallback;
 
   const updateLoaded = async (index: number, loaded: boolean, message: string) => {
     const row = sequenceItem(index);
-    if (!row.id || !supabase) {
+    if (row.id === null || row.id === undefined || !supabase) {
       showToast("This sequence item cannot be updated.");
       return;
     }
 
-    const { error } = await supabase
-      .from("load_sequences")
-      .update({ is_loaded: loaded, status: loaded ? "LOADED" : "PENDING" })
-      .eq("id", row.id);
-    if (error) {
-      showToast(error.message);
-      return;
-    }
-
+    const previousItems = sequenceItems;
     setSequenceItems((items) =>
       items.map((item, itemIndex) =>
         itemIndex === index ? { ...item, is_loaded: loaded, status: loaded ? "LOADED" : "PENDING" } : item,
@@ -120,6 +165,18 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     );
     if (index === 1) setStop2Loaded(loaded);
     if (index === 2) setStop1Loaded(loaded);
+
+    const { error } = await supabase
+      .from("load_sequences")
+      .update({ is_loaded: loaded })
+      .eq("id", row.id);
+    if (error) {
+      setSequenceItems(previousItems);
+      if (index === 1) setStop2Loaded(loadedValue(previousItems[1] ?? {}, false));
+      if (index === 2) setStop1Loaded(loadedValue(previousItems[2] ?? {}, false));
+      showToast(error.message);
+      return;
+    }
     showToast(message);
   };
 
@@ -139,7 +196,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     if (onNavigate) {
       onNavigate("report-issue");
     } else {
-      router.push(`/loader/report-issue?tripId=${encodeURIComponent(tripId)}`);
+      router.push(`/loader/report-issue?trip_id=${encodeURIComponent(tripId)}`);
     }
   };
 
@@ -158,14 +215,29 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
 
   const stop2 = sequenceItem(1);
   const stop1 = sequenceItem(2);
-  const stop2IsLoaded = loadedValue(stop2, stop2Loaded);
-  const stop1IsLoaded = loadedValue(stop1, stop1Loaded);
+  const stop3 = sequenceItem(0);
+  const stop3Loaded = loadedValue(stop3, false);
+  const weightOf = (row: LoadSequenceRow) => {
+    const weight = Number(row.weight_kg ?? row.weight ?? row.payload_kg ?? 0);
+    return Number.isFinite(weight) ? weight : 0;
+  };
+  const loadedWeight = sequenceItems.reduce(
+    (sum, item) => sum + (loadedValue(item, false) ? weightOf(item) : 0),
+    0,
+  );
+  const payloadPercent = payloadLimit > 0
+    ? Math.min(100, Math.max(0, (loadedWeight / payloadLimit) * 100))
+    : 0;
   const loadedStops = sequenceItems.filter((item, index) =>
-    loadedValue(item, index === 0 ? true : index === 1 ? stop2Loaded : stop1Loaded),
+    loadedValue(item, index === 0 ? stop3Loaded : index === 1 ? stop2Loaded : stop1Loaded),
   ).length;
+  const allSequenceItemsLoaded = sequenceItems.length > 0 && loadedStops === sequenceItems.length;
+  const stopWeight = (row: LoadSequenceRow) => `${weightOf(row).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg`;
+  const stopDescription = (row: LoadSequenceRow) =>
+    `${text(row, "parcel_count", "quantity")} parcels • ${stopWeight(row)} • ${text(row, "compartment", "compartment_location", "zone")}`;
 
   return (
-    <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
+    <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border pb-28 sm:pb-12">
       {/* Mobile Top Navigation Bar */}
       <div className="flex lg:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
         <div className="flex items-center gap-3">
@@ -219,7 +291,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
               Load Sequence - Trip {tripId}
             </h1>
             <p className="text-sm text-slate-500 mt-1 m-0 font-normal">
-              Vehicle {text(sequenceItem(0), "vehicle_id", "vehicle", "vehicle_type")} • Plan v{text(sequenceItem(0), "plan_version", "plan")} • Departure {text(sequenceItem(0), "departure_time", "departure")} • Dock Bay {text(sequenceItem(0), "bay")}
+              Vehicle {tripText("vehicle_id")} • {planVersion.startsWith("v") ? `Plan ${planVersion}` : `Plan v${planVersion}`} • {routePlan} • Departure {trip?.departure_time ? formatDeparture(trip.departure_time) : "Not available"} • Dock Bay {tripText("bay")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -227,7 +299,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
               LIFO Mode Active
             </span>
             <span className="bg-[#202D2D] text-white text-xs font-bold px-3 py-1.5 rounded-lg">
-              Bay 04
+              {tripText("bay")}
             </span>
           </div>
         </div>
@@ -289,29 +361,31 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="font-jetbrains font-bold text-sm text-[#202D2D] bg-[#F1F5F9] px-2 py-0.5 rounded">
-                        OUT003
+                        {text(stop3, "item_code", "outlet", "outlet_name", "order_ref")}
                       </span>
                       <span className="font-semibold text-xs text-[#059669] bg-[#ECFDF5] px-2 py-0.5 rounded">
                         Stop 3 (Load First • Cab Front)
                       </span>
                     </div>
                     <h3 className="text-[15px] font-bold text-[#202D2D] leading-[22px] m-0">
-                      Mount Lavinia Super
+                      {text(stop3, "outlet_name", "outlet", "order_ref")}
                     </h3>
                     <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                      1 order • 520 kg • Chilled zone (+2°C to +4°C) • 4 cases
+                      {stopDescription(stop3)}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold bg-[#ECFDF5] text-[#22C55E] border border-[#A7F3D0]/60 shrink-0">
                     <CheckCircleIcon className="w-4 h-4" />
-                    <span>Loaded</span>
+                    <span>{stop3Loaded ? "Loaded" : "Pending"}</span>
                   </div>
                 </div>
 
                 <div className="pt-2 border-t border-[#F1F5F9] flex justify-between items-center text-[11px] text-[#64748B]">
-                  <span>Compartment: Deep Front Section (Bay #01)</span>
-                  <span className="text-[#059669] font-semibold">Barcode Verified ✓</span>
+                  <span>Compartment: {text(stop3, "compartment", "compartment_location", "location")}</span>
+                  <span className={stop3Loaded ? "text-[#059669] font-semibold" : "text-[#64748B]"}>
+                    {stop3Loaded ? "Barcode Verified ✓" : "Awaiting load"}
+                  </span>
                 </div>
               </div>
 
@@ -327,17 +401,17 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="font-jetbrains font-bold text-sm text-[#202D2D] bg-[#F1F5F9] px-2 py-0.5 rounded">
-                        {text(stop2, "outlet", "outlet_name", "order_ref")}
+                        {text(stop2, "item_code", "outlet", "outlet_name", "order_ref")}
                       </span>
                       <span className={`font-semibold text-xs px-2 py-0.5 rounded ${!stop2Loaded ? "bg-[#FFF4ED] text-[#C2410C]" : "bg-[#ECFDF5] text-[#059669]"}`}>
                         Stop 2 ({!stop2Loaded ? "Currently Loading • Mid Bay" : "Loaded"})
                       </span>
                     </div>
                     <h3 className="text-[15px] font-bold text-[#202D2D] leading-[22px] m-0">
-                    {text(stop2, "outlet_name", "outlet", "order_ref")}
+                    {text(stop2, "outlet_name", "outlet", "item_code", "order_ref")}
                     </h3>
                     <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                      {text(stop2, "description", "details", "quantity")} 
+                      {stopDescription(stop2)}
                     </p>
                   </div>
 
@@ -369,7 +443,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                 </div>
 
                 <div className="pt-2 border-t border-[#F1F5F9] flex justify-between items-center text-[11px] text-[#64748B]">
-                  <span>Compartment: Center Bay Partition (Bay #02)</span>
+                  <span>Compartment: {text(stop2, "compartment", "compartment_location", "location")}</span>
                   <span className={!stop2Loaded ? "text-[#D97706] font-semibold animate-pulse" : "text-[#059669] font-semibold"}>
                     {!stop2Loaded ? "⚡ Staging in progress" : "Verified ✓"}
                   </span>
@@ -390,7 +464,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="font-jetbrains font-bold text-sm text-[#202D2D] bg-[#F1F5F9] px-2 py-0.5 rounded">
-                        {text(stop1, "outlet", "outlet_name", "order_ref")}
+                        {text(stop1, "item_code", "outlet", "outlet_name", "order_ref")}
                       </span>
                       <span
                         className={`font-semibold text-xs px-2 py-0.5 rounded ${
@@ -405,10 +479,10 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       </span>
                     </div>
                     <h3 className="text-[15px] font-bold text-[#202D2D] leading-[22px] m-0">
-                      {text(stop1, "outlet_name", "outlet", "order_ref")}
+                      {text(stop1, "outlet_name", "outlet", "item_code", "order_ref")}
                     </h3>
                     <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                      {text(stop1, "description", "details", "quantity")}
+                      {stopDescription(stop1)}
                     </p>
                   </div>
 
@@ -475,7 +549,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                 </div>
 
                 <div className="pt-2 border-t border-[#F1F5F9] flex justify-between items-center text-[11px] text-[#64748B]">
-                  <span>Compartment: Rear Doors & Tailgate Section (Bay #03)</span>
+                  <span>Compartment: {text(stop1, "compartment", "compartment_location", "location")}</span>
                   <span
                     className={
                       stop1Loaded
@@ -493,6 +567,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   </span>
                 </div>
               </div>
+
             </div>
           </div>
 
@@ -505,7 +580,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                     Payload & Weight Distribution
                   </h3>
                   <p className="text-xs text-[#485563] m-0">
-                    Refrigerated Truck PEL-R04 (Gross Vehicle Limits)
+                    Refrigerated Truck {tripText("vehicle_id")} (Gross Vehicle Limits)
                   </p>
                 </div>
                 <span className="text-[11px] font-bold text-[#059669] bg-[#ECFDF5] px-2 py-0.5 rounded">
@@ -518,21 +593,17 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   <div className="flex justify-between text-xs">
                     <span className="font-semibold text-[#485563]">Current Loaded Weight:</span>
                     <span className="font-bold text-[#202D2D] font-jetbrains">
-                      {stop1Loaded ? "1,216.4 kg" : stop2Loaded ? "670.0 kg" : "520.0 kg"} / 3,500 kg Max
+                      {loadedWeight.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg / {payloadLimit.toLocaleString()} kg Max
                     </span>
                   </div>
                   <div className="w-full bg-[#E2E8F0] h-3 rounded-full overflow-hidden">
                     <div
                       className="bg-[#22C55E] h-full transition-all duration-500 rounded-full"
-                      style={{ width: stop1Loaded ? "34.8%" : stop2Loaded ? "19.1%" : "14.8%" }}
+                      style={{ width: `${payloadPercent}%` }}
                     ></div>
                   </div>
                   <span className="text-[11px] text-[#64748B]">
-                    {stop1Loaded
-                      ? "2,283.6 kg remaining payload margin"
-                      : stop2Loaded
-                      ? "2,830.0 kg remaining payload margin"
-                      : "2,980.0 kg remaining payload margin"}
+                    {(payloadLimit - loadedWeight).toLocaleString(undefined, { maximumFractionDigits: 1 })} kg remaining payload margin
                   </span>
                 </div>
 
@@ -565,16 +636,16 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                 </span>
                 <div className="flex flex-col gap-1.5 text-xs">
                   <div className="flex justify-between items-center p-2 rounded-lg bg-[#ECFDF5] border border-[#A7F3D0]/60">
-                    <span className="text-[#065F46] font-medium">Stop 3 · Mount Lavinia Super (Chilled)</span>
-                    <span className="font-jetbrains font-bold text-[#065F46]">520.0 kg ✓</span>
+                    <span className="text-[#065F46] font-medium">Stop 3 · {text(stop3, "outlet_name", "outlet", "order_ref")}</span>
+                    <span className="font-jetbrains font-bold text-[#065F46]">{weightOf(stop3).toLocaleString()} kg {stop3Loaded ? "✓" : "(Pending)"}</span>
                   </div>
                   <div className={`flex justify-between items-center p-2 rounded-lg border transition-all ${
                     stop2Loaded
                       ? "bg-[#ECFDF5] border-[#A7F3D0]/60 text-[#065F46]"
                       : "bg-[#FFF4ED] border-[#FED7AA] text-[#9A3412]"
                   }`}>
-                    <span className="font-medium">Stop 2 · Nugegoda Corner Store (Ambient)</span>
-                    <span className="font-jetbrains font-bold">150.0 kg {stop2Loaded ? "✓" : "⚡"}</span>
+                    <span className="font-medium">Stop 2 · {text(stop2, "outlet_name", "outlet", "order_ref")}</span>
+                    <span className="font-jetbrains font-bold">{weightOf(stop2).toLocaleString()} kg {stop2Loaded ? "✓" : "⚡"}</span>
                   </div>
                   <div className={`flex justify-between items-center p-2 rounded-lg border transition-all ${
                     stop1Loaded
@@ -583,9 +654,9 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       ? "bg-[#FFF4ED] border-[#FED7AA] text-[#9A3412]"
                       : "bg-[#F8FAFC] border-[#E2E8F0] text-[#64748B]"
                   }`}>
-                    <span className="font-medium">Stop 1 · Colpetty Retailer (2 Orders)</span>
+                    <span className="font-medium">Stop 1 · {text(stop1, "outlet_name", "outlet", "order_ref")}</span>
                     <span className="font-jetbrains font-bold">
-                      546.4 kg {stop1Loaded ? "✓" : stop2Loaded ? "⚡" : "(Pending)"}
+                      {weightOf(stop1).toLocaleString()} kg {stop1Loaded ? "✓" : stop2Loaded ? "⚡" : "(Pending)"}
                     </span>
                   </div>
                 </div>
@@ -598,7 +669,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   Next Workflow Step
                 </span>
                 <span className="text-xs text-[#F97316] font-bold">
-                  Bay 04 · Docked
+                  {tripText("bay")} · Docked
                 </span>
               </div>
 
@@ -647,7 +718,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 w-full">
+          <div className="flex flex-col gap-3 w-full mt-3 pb-4">
             {/* STOP 3 */}
             <div className="bg-white border border-[#CBD5E1] rounded-[10px] p-4 flex flex-col gap-3 shadow-xs">
               <div className="flex justify-between items-start">
@@ -657,20 +728,20 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       3
                     </span>
                     <span className="font-jetbrains font-bold text-sm text-[#202D2D] leading-[18px]">
-                      OUT003
+                      {text(stop3, "item_code", "outlet", "outlet_name", "order_ref")}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[#202D2D] leading-[21px] m-0">
-                    Mount Lavinia Super
+                    {text(stop3, "outlet_name", "outlet", "item_code", "order_ref")}
                   </h3>
                   <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                    1 order • 520 kg • Chilled zone • 4 cases
+                    {stopDescription(stop3)}
                   </p>
                 </div>
 
                 <div className="flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-bold bg-[#ECFDF5] text-[#22C55E]">
                   <CheckCircleIcon className="w-3.5 h-3.5" />
-                  <span>Loaded</span>
+                  <span>{stop3Loaded ? "Loaded" : "Pending"}</span>
                 </div>
               </div>
             </div>
@@ -688,14 +759,14 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       2
                     </span>
                     <span className="font-jetbrains font-bold text-sm text-[#202D2D] leading-[18px]">
-                      {text(stop2, "outlet", "outlet_name", "order_ref")}
+                      {text(stop2, "item_code", "outlet", "outlet_name", "order_ref")}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[#202D2D] leading-[21px] m-0">
-                    {text(stop2, "outlet_name", "outlet", "order_ref")}
+                    {text(stop2, "outlet_name", "outlet", "item_code", "order_ref")}
                   </h3>
                   <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                    {text(stop2, "description", "details", "quantity")}
+                    {stopDescription(stop2)}
                   </p>
                 </div>
 
@@ -750,14 +821,14 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       1
                     </span>
                     <span className="font-jetbrains font-bold text-sm text-[#202D2D] leading-[18px]">
-                      {text(stop1, "outlet", "outlet_name", "order_ref")}
+                      {text(stop1, "item_code", "outlet", "outlet_name", "order_ref")}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[#202D2D] leading-[21px] m-0">
-                    {text(stop1, "outlet_name", "outlet", "order_ref")}
+                    {text(stop1, "outlet_name", "outlet", "item_code", "order_ref")}
                   </h3>
                   <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                    {text(stop1, "description", "details", "quantity")}
+                    {stopDescription(stop1)}
                   </p>
                 </div>
 
@@ -797,6 +868,55 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => router.push(`/loader/trip-readiness?trip_id=${encodeURIComponent(tripId)}`)}
+            className="w-full py-3.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all bg-[#22C55E] hover:bg-[#16A34A] text-white shadow-sm"
+          >
+            <span>Proceed to Trip Readiness →</span>
+          </button>
+
+          <div className="flex flex-col gap-3">
+            <div className="bg-white border border-[#CBD5E1] rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+              <div className="flex justify-between items-center pb-2 border-b border-[#F1F5F9]">
+                <span className="text-xs font-bold text-[#485563] uppercase tracking-wide">
+                  Payload &amp; Weight
+                </span>
+                <span className="text-[11px] font-bold text-[#059669] bg-[#ECFDF5] px-2 py-0.5 rounded">
+                  {loadedWeight <= payloadLimit ? "WITHIN LIMITS" : "OVER LIMIT"}
+                </span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="font-semibold text-[#485563]">Current Loaded Weight:</span>
+                <span className="font-bold text-[#202D2D] font-jetbrains">
+                  {loadedWeight.toLocaleString(undefined, { maximumFractionDigits: 1 })} kg / {payloadLimit.toLocaleString()} kg
+                </span>
+              </div>
+              <div className="w-full bg-[#E2E8F0] h-2.5 rounded-full overflow-hidden">
+                <div
+                  className="bg-[#22C55E] h-full transition-all duration-500 rounded-full"
+                  style={{ width: `${payloadPercent}%` }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#CBD5E1] rounded-xl p-4 flex flex-col gap-3 shadow-sm">
+              <div className="flex justify-between items-center pb-2 border-b border-[#F1F5F9]">
+                <span className="text-xs font-bold text-[#485563] uppercase tracking-wide">
+                  Next Workflow Step
+                </span>
+                <span className="text-[11px] text-[#F97316] font-bold">
+                  {tripText("bay")} · Docked
+                </span>
+              </div>
+              <p className="text-xs text-[#485563] leading-relaxed m-0">
+                {allSequenceItemsLoaded
+                  ? "All sequence items are loaded and verified. Continue to Trip Readiness for departure checks."
+                  : "Load all sequence items to continue to Trip Readiness."}
+              </p>
             </div>
           </div>
         </div>

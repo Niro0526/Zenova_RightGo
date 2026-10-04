@@ -10,6 +10,10 @@ export interface UserProfile {
   email: string;
   role: 'dispatcher' | 'loader' | 'driver' | 'store_manager';
   display_name: string;
+  user_metadata?: {
+    full_name?: string | null;
+    name?: string | null;
+  } | null;
   outlet_id?: string | null;
   vehicle_id?: string | null;
   phone?: string | null;
@@ -53,9 +57,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         const storedToken = sessionStorage.getItem('rightgo_token');
         if (storedUser && storedToken) {
           setAuthToken(storedToken);
-          const profile = await apiGet<UserProfile>('/auth/me');
-          setUser(profile);
-          sessionStorage.setItem('rightgo_user', JSON.stringify(profile));
+          const profile = await apiGet<UserProfile | null>('/auth/me');
+          if (profile) {
+            setUser(profile);
+            sessionStorage.setItem('rightgo_user', JSON.stringify(profile));
+          } else {
+            setUser(null);
+          }
         }
       } catch {
         // Expired/invalid session - clear it rather than leaving a stale, unverified profile in place.
@@ -80,17 +88,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setAuthToken(data.access_token);
       sessionStorage.setItem('rightgo_user', JSON.stringify(data.profile));
       sessionStorage.setItem('rightgo_token', data.access_token);
-      const homeRoute = getRoleHomeRoute(data.profile?.role);
+
+      const homeRoute = getRoleHomeRoute(data.profile?.role) || data.home_route;
       if (!homeRoute) {
         setUser(null);
-        setToken(null);
+        setAuthToken(null);
         sessionStorage.removeItem('rightgo_user');
         sessionStorage.removeItem('rightgo_token');
         return { success: false, error: 'Your account has no valid workspace role.' };
       }
       return { success: true, homeRoute };
-    } catch {
-      return { success: true, homeRoute: data.home_route };
     } catch (err) {
       if (err instanceof ApiError) return { success: false, error: err.message };
       return { success: false, error: 'Cannot reach server. Make sure the backend is running on port 8000.' };

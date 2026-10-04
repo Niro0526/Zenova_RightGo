@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { activeTripId, LoaderTrip, rememberTrip, supabase } from "@/lib/supabase";
+import { CameraModal } from "@/components/driver/today-run/CameraModal";
 import {
   ChevronLeftIcon,
   HelpCircleIcon,
@@ -41,6 +42,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
   // Image Upload State
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [showCameraModal, setShowCameraModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,14 +53,20 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
         return;
       }
 
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from("trips")
-        .select("id, trip_code, vehicle_id, status, bay, route_summary")
+        .select("*")
         .order("departure_time", { ascending: true });
 
       if (cancelled) return;
       if (error) {
-        setNotification(`Unable to load trips: ${error.message}`);
+        const fallback = await supabase.from("trips").select("*");
+        data = fallback.data;
+        error = fallback.error;
+      }
+      if (error) {
+        setNotification("Unable to load trips right now.");
+        setTrips([]);
         return;
       }
 
@@ -110,6 +118,20 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
     }
   };
 
+  const handleCameraCapture = async (captured: { name: string; url: string }) => {
+    setSelectedImage(captured.url);
+    try {
+      const response = await fetch(captured.url);
+      if (!response.ok) throw new Error("Captured photo could not be read.");
+      const blob = await response.blob();
+      setSelectedFile(new File([blob], captured.name, { type: blob.type || "image/jpeg" }));
+    } catch (error) {
+      setSelectedFile(null);
+      console.warn("Camera evidence attachment skipped:", error);
+      setNotification("Photo preview attached, but upload will be skipped if unavailable.");
+    }
+  };
+
   const handleTripChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const nextTrip = trips.find((trip) => String(trip.id) === e.target.value) ?? null;
     setSelectedTrip(nextTrip);
@@ -130,17 +152,30 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
 
     setIsSubmitting(true);
     let evidenceUrl: string | null = null;
+    let evidenceUploadSkipped = false;
     try {
       if (selectedFile) {
         const extension = selectedFile.name.split(".").pop() || "jpg";
         const evidencePath = `${selectedTripId}/${Date.now()}.${extension}`;
-        const upload = await supabase.storage
-          .from("issue-evidence")
-          .upload(evidencePath, selectedFile, { upsert: false });
-        if (upload.error) throw upload.error;
-        evidenceUrl = supabase.storage
-          .from("issue-evidence")
-          .getPublicUrl(evidencePath).data.publicUrl;
+        try {
+          const upload = await supabase.storage
+            .from("issue-evidence")
+            .upload(evidencePath, selectedFile, { upsert: false });
+          if (!upload.error) {
+            evidenceUrl = supabase.storage
+              .from("issue-evidence")
+              .getPublicUrl(evidencePath).data.publicUrl || null;
+          } else {
+            evidenceUploadSkipped = true;
+            console.warn("Issue evidence upload skipped:", upload.error.message);
+          }
+        } catch (uploadError) {
+          evidenceUploadSkipped = true;
+          console.warn(
+            "Issue evidence upload skipped:",
+            uploadError instanceof Error ? uploadError.message : uploadError,
+          );
+        }
       }
 
       const severity =
@@ -149,29 +184,31 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
           : issueType === "damaged"
             ? "high"
             : "medium";
+      const affectedQuantity = Number(affectedQty);
       const shortfall = await supabase.from("shortfalls").insert({
         trip_id: selectedTripId,
         issue_type: issueType,
         category: issueType === "vehicle" ? vehicleCategory : issueType,
         severity,
-        expected_qty: issueType === "vehicle" ? null : expectedQty,
-        affected_qty: issueType === "vehicle" ? null : affectedQty,
+        quantity_affected: issueType === "vehicle" || !Number.isFinite(affectedQuantity) ? null : affectedQuantity,
         notes,
-        reporter,
-        resolution,
-        evidence_url: evidenceUrl,
-        created_at: eventTime ? new Date(eventTime).toISOString() : new Date().toISOString(),
+        evidence_url: evidenceUrl || null,
         status: "open",
+        location: selectedTrip?.bay ?? null,
+        reported_by: reporter || null,
       });
       if (shortfall.error) throw shortfall.error;
 
-      const tripUpdate = await supabase
-        .from("trips")
-        .update({ status: "HOLD" })
-        .or(`id.eq.${selectedTripId},trip_code.eq.${selectedTripId}`);
+      const tripUpdate = selectedTrip?.id
+        ? await supabase.from("trips").update({ status: "hold" }).eq("id", selectedTrip.id)
+        : await supabase.from("trips").update({ status: "hold" }).eq("trip_code", selectedTripId);
       if (tripUpdate.error) throw tripUpdate.error;
 
-      setNotification("Issue reported successfully to dispatch! Trip status updated.");
+      setNotification(
+        evidenceUploadSkipped
+          ? "Issue reported successfully. Evidence upload was unavailable, but the report was saved."
+          : "Issue reported successfully to dispatch! Trip status updated.",
+      );
     } catch (error) {
       setNotification(
         `Unable to report issue: ${error instanceof Error ? error.message : "Unknown error"}`,
@@ -180,8 +217,10 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
       return;
     }
 
+    setIsSubmitting(false);
+    const tripReference = String(selectedTrip?.trip_code || selectedTripId);
     setTimeout(() => {
-      handleBack();
+      router.push(`/loader/trip-readiness?trip_id=${encodeURIComponent(tripReference)}`);
     }, 1500);
   };
 
@@ -553,7 +592,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
 
               <div
                 className="w-full bg-[#FAFAFA] border-2 border-dashed border-[#CBD5E1] rounded-xl flex flex-col items-center justify-center p-4 gap-2 cursor-pointer hover:border-[#F97316] hover:bg-orange-50/20 transition-all min-h-[140px] overflow-hidden"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => setShowCameraModal(true)}
               >
                 {selectedImage ? (
                   <div className="relative w-full h-32 flex items-center justify-center">
@@ -808,7 +847,7 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
             </label>
             <div
               className="w-full bg-white border border-dashed border-[#CBD5E1] rounded-lg p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer hover:border-[#F97316] min-h-[90px] overflow-hidden"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setShowCameraModal(true)}
             >
               {selectedImage ? (
                 <img
@@ -846,6 +885,15 @@ export default function ReportIssue({ onNavigate }: ReportIssueProps) {
           </div>
         </div>
       </div>
+      <CameraModal
+        isOpen={showCameraModal}
+        onClose={() => setShowCameraModal(false)}
+        onCapture={(captured) => {
+          void handleCameraCapture(captured);
+        }}
+        title="Capture Issue Evidence"
+        subtitle="Take a photo of the shortfall, damage, or vehicle issue"
+      />
     </main>
   );
 }

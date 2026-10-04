@@ -3,6 +3,7 @@
 // previously AuthContext and PlaceOrderView each hardcoded their own
 // 'http://localhost:8000/api' and nothing else in the app called the
 // backend at all.
+import { supabase } from '@/lib/supabase';
 
 export const API_BASE = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api`;
 
@@ -108,8 +109,52 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
   return data as T;
 }
 
-export const apiGet = <T>(path: string, query?: ApiFetchOptions['query'], signal?: AbortSignal) =>
-  apiFetch<T>(path, { method: 'GET', query, signal });
+async function getSupabaseAuthFallback<T>(): Promise<T | null> {
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    if (error || !data.session?.user) return null;
+
+    const user = data.session.user;
+    const metadata = user.user_metadata ?? {};
+    const role = metadata.role;
+    if (!['dispatcher', 'loader', 'driver', 'store_manager'].includes(String(role))) {
+      return null;
+    }
+    return {
+      id: user.id,
+      username: String(metadata.username ?? metadata.user_name ?? user.email ?? ''),
+      email: user.email ?? '',
+      role,
+      display_name: String(metadata.display_name ?? metadata.full_name ?? metadata.username ?? ''),
+      outlet_id: metadata.outlet_id ?? null,
+      vehicle_id: metadata.vehicle_id ?? null,
+      phone: user.phone ?? metadata.phone ?? null,
+    } as T;
+  } catch {
+    return null;
+  }
+}
+
+export async function apiGet<T>(
+  path: string,
+  query?: ApiFetchOptions['query'],
+  signal?: AbortSignal,
+): Promise<T> {
+  try {
+    return await apiFetch<T>(path, { method: 'GET', query, signal });
+  } catch (error) {
+    const isAuthMeRequest = path === '/auth/me' || path === 'auth/me';
+    const isNotFoundOrUnavailable =
+      error instanceof ApiError && (error.status === 404 || error.status === 0);
+    if (!isAuthMeRequest || !isNotFoundOrUnavailable) throw error;
+
+    const fallback = await getSupabaseAuthFallback<T>();
+    if (fallback !== null) return fallback;
+    return null as T;
+  }
+}
 
 export const apiPost = <T>(path: string, body?: unknown, query?: ApiFetchOptions['query']) =>
   apiFetch<T>(path, { method: 'POST', body, query });

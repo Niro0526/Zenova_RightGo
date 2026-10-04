@@ -17,8 +17,6 @@ interface TripReadinessProps {
 }
 
 const DEFAULT_TRIP_ID = "S1-T001";
-const RESOLVED_STATUSES = ["resolved", "closed", "cleared", "completed", "cancelled"];
-
 function selectedTripFromUrl() {
   if (typeof window === "undefined") return DEFAULT_TRIP_ID;
   const params = new URLSearchParams(window.location.search);
@@ -53,21 +51,31 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
   const [issues, setIssues] = useState<Record<string, unknown>[]>([]);
   const [sequence, setSequence] = useState<LoadSequenceRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [notification, setNotification] = useState<string | null>(null);
 
   const unresolvedIssues = useMemo(
-    () => issues.filter((issue) => !RESOLVED_STATUSES.includes(String(issue.status ?? "").toLowerCase())),
+    () => issues.filter((issue) => String(issue.status ?? "open").toLowerCase() === "open"),
     [issues],
   );
   const isLoaded = (item: LoadSequenceRow) =>
     item.is_loaded === true || String(item.status ?? "").toLowerCase() === "loaded";
+  const itemWeight = (item: LoadSequenceRow) => {
+    const value = safeNumber(item.weight_kg ?? item.weight ?? item.payload_kg);
+    return value >= 0 ? value : 0;
+  };
+  const itemVolume = (item: LoadSequenceRow) => {
+    const value = safeNumber(item.volume_m3 ?? item.volume);
+    return value >= 0 ? value : 0;
+  };
   const loadedCount = sequence.filter(isLoaded).length;
-  const expectedCount = sequence.length;
+  const totalStops = sequence.length;
+  const expectedCount = totalStops;
   const loadedWeight = sequence.reduce(
-    (sum, item) => sum + (isLoaded(item) ? safeNumber(item.weight_kg) : 0),
+    (sum, item) => sum + (isLoaded(item) ? itemWeight(item) : 0),
     0,
   );
   const maxWeight = safeNumber(trip?.max_weight_kg, 3500) || 3500;
-  const expectedVolume = sequence.reduce((sum, item) => sum + safeNumber(item.volume_m3), 0);
+  const expectedVolume = sequence.reduce((sum, item) => sum + (isLoaded(item) ? itemVolume(item) : 0), 0);
   const maxVolume = safeNumber(trip?.max_volume_m3, 18.2) || 18.2;
   const isHeld = unresolvedIssues.length > 0;
   const activeIssue = unresolvedIssues[0] ?? {};
@@ -76,19 +84,22 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
   const ordersVerified = expectedCount > 0;
   const loadingVerified = expectedCount > 0 && loadedCount === expectedCount;
   const weightVerified = loadingVerified && loadedWeight <= maxWeight;
-  const volumeVerified = expectedVolume <= maxVolume;
+  const volumeVerified = loadingVerified && expectedVolume <= maxVolume;
   const driverName = displayValue(trip?.driver_name ?? trip?.driver);
   const departureTime = displayValue(trip?.departure_time);
-  const manifestItems = sequence.length
-    ? sequence
-    : [{ id: "empty", outlet_name: "No sequence items assigned", sequence: 0 }] as LoadSequenceRow[];
-  const checklistPassed = Math.min(
-    8,
-    (loadedCount >= expectedCount ? 5 : 2) +
-      (loadedWeight <= maxWeight ? 1 : 0) +
-      (volumeVerified ? 1 : 0) +
-      (!isHeld ? 1 : 0),
-  );
+  const checklistChecks = [
+    ordersVerified,
+    loadingVerified,
+    !isHeld,
+    !isHeld,
+    Boolean(trip?.plan_version ?? true),
+    weightVerified,
+    volumeVerified,
+    !isHeld && loadingVerified,
+  ];
+  const totalChecklists = checklistChecks.length;
+  const checklistPassed = checklistChecks.filter(Boolean).length;
+  const canRelease = checklistPassed === totalChecklists;
 
   const fetchReadiness = useCallback(async (selectedTripId: string) => {
     if (!supabase) {
@@ -108,24 +119,23 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
         .eq("id", selectedTripId)
         .maybeSingle();
     }
-    const tripReference = tripResult.data?.id ?? selectedTripId;
     let issueResult = await supabase
       .from("shortfalls")
       .select("*")
-      .eq("trip_id", tripReference)
+      .eq("trip_id", selectedTripId)
       .order("created_at", { ascending: false });
     let sequenceResult = await supabase
       .from("load_sequences")
       .select("*")
-      .eq("trip_id", tripReference);
-    if (!issueResult.error && (issueResult.data ?? []).length === 0 && tripReference !== selectedTripId) {
+      .eq("trip_id", selectedTripId)
+      .order("lifo_sequence", { ascending: false });
+    if (issueResult.error) {
       issueResult = await supabase
         .from("shortfalls")
         .select("*")
-        .eq("trip_id", selectedTripId)
-        .order("created_at", { ascending: false });
+        .eq("trip_id", selectedTripId);
     }
-    if (!sequenceResult.error && (sequenceResult.data ?? []).length === 0 && tripReference !== selectedTripId) {
+    if (sequenceResult.error) {
       sequenceResult = await supabase
         .from("load_sequences")
         .select("*")
@@ -133,8 +143,23 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
     }
 
     if (!tripResult.error) setTrip(tripResult.data as LoaderTrip | null);
-    if (!issueResult.error) setIssues((issueResult.data ?? []) as Record<string, unknown>[]);
-    if (!sequenceResult.error) setSequence((sequenceResult.data ?? []) as LoadSequenceRow[]);
+    if (!issueResult.error) {
+      setIssues(
+        (issueResult.data ?? []).map((issue) => ({
+          ...(issue as Record<string, unknown>),
+          status: issue.status ?? "open",
+        })) as Record<string, unknown>[],
+      );
+    }
+    if (!sequenceResult.error) {
+      setSequence(
+        ([...(sequenceResult.data ?? [])] as LoadSequenceRow[]).sort(
+          (a, b) =>
+            safeNumber(b.lifo_sequence ?? b.sequence ?? b.sequence_no ?? b.order_index ?? b.stop_number) -
+            safeNumber(a.lifo_sequence ?? a.sequence ?? a.sequence_no ?? a.order_index ?? a.stop_number),
+        ),
+      );
+    }
     setLoading(false);
   }, []);
 
@@ -149,7 +174,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
       .channel(`trip-readiness-${selectedTripId}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, () => void fetchReadiness(selectedTripId))
       .on("postgres_changes", { event: "*", schema: "public", table: "shortfalls", filter: `trip_id=eq.${selectedTripId}` }, () => void fetchReadiness(selectedTripId))
-      .on("postgres_changes", { event: "*", schema: "public", table: "load_sequences", filter: `trip_id=eq.${selectedTripId}` }, () => void fetchReadiness(selectedTripId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "load_sequences" }, () => void fetchReadiness(selectedTripId))
       .subscribe();
 
     return () => {
@@ -157,8 +182,24 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
     };
   }, [fetchReadiness]);
 
+  const handleReadyForDeparture = async () => {
+    if (!supabase || !canRelease || !tripId) return;
+    const query = trip?.trip_code
+      ? supabase.from("trips").update({ status: "ready_for_departure" }).eq("trip_code", String(trip.trip_code))
+      : supabase.from("trips").update({ status: "ready_for_departure" }).eq("id", tripId);
+    const { error } = await query;
+    if (error) {
+      setNotification("Unable to release trip for departure.");
+      return;
+    }
+    setTrip((current) => current ? { ...current, status: "ready_for_departure" } : current);
+    setNotification("Trip is ready for departure.");
+    setTimeout(() => setNotification(null), 3000);
+  };
+
   useEffect(() => {
     if (!supabase || loading || !tripId) return;
+    if (String(trip?.status ?? "").toLowerCase() === "ready_for_departure") return;
     const nextStatus = isHeld || (expectedCount > 0 && loadedCount < expectedCount) ? "HOLD" : "READY";
     if (String(trip?.status ?? "").toUpperCase() !== nextStatus) {
       const statusQuery = trip?.trip_code
@@ -166,7 +207,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
         : supabase.from("trips").update({ status: nextStatus }).eq("id", tripId);
       void statusQuery.then(() => undefined);
     }
-  }, [expectedCount, isHeld, loadedCount, loading, trip?.status, tripId]);
+  }, [expectedCount, isHeld, loadedCount, loading, trip?.status, trip?.trip_code, tripId]);
 
   const handleBack = () => {
     if (onNavigate) {
@@ -180,8 +221,22 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
     }
   };
 
+  const handleReportIssue = () => {
+    const reportUrl = `/loader/report-issue?trip_id=${encodeURIComponent(tripId)}`;
+    if (onNavigate) {
+      onNavigate("report-issue");
+    } else {
+      router.push(reportUrl);
+    }
+  };
+
   return (
     <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
+      {notification && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 bg-[#202D2D] text-white px-4 py-2 rounded-md text-xs font-semibold z-50 shadow-lg">
+          {notification}
+        </div>
+      )}
       {/* Mobile Top Navigation Bar */}
       <div className="flex lg:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
         <div className="flex items-center gap-3">
@@ -236,12 +291,12 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   </p>
                 </div>
                 <span className="bg-[#FFF4ED] text-[#F97316] text-xs font-bold px-2.5 py-1 rounded-full">
-                  {checklistPassed} of 8 Passed
+                  {checklistPassed} of {totalChecklists} Passed
                 </span>
               </div>
 
               <div className="flex flex-col gap-3 w-full">
-                {/* Items 1 to 8 */}
+                {/* Checklist conditions */}
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#ECFDF5] border border-[#A7F3D0]/50 transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#065F46]">
@@ -271,7 +326,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className="bg-[#FEE2E2] text-[#B91C1C] text-[11px] font-bold px-2 py-0.5 rounded">
+                    <span className={`${loadingVerified ? "bg-[#D1FAE5] text-[#047857]" : "bg-[#FEE2E2] text-[#B91C1C]"} text-[11px] font-bold px-2 py-0.5 rounded`}>
                       {loadingVerified ? "VERIFIED" : expectedCount === 0 ? "PENDING" : "INCOMPLETE"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#EF4444] text-white flex items-center justify-center font-bold text-xs">
@@ -413,12 +468,12 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
-                {manifestItems.map((item, index) => {
+                {sequence.map((item, index) => {
                   const loaded = item.is_loaded === true || String(item.status ?? "").toLowerCase() === "loaded";
                   const itemIssue = unresolvedIssues.find((issue) =>
                     String(issue.order_ref ?? issue.sequence_id ?? "") === String(item.order_ref ?? item.id ?? ""),
                   );
-                  const quantity = Number(item.quantity ?? 0);
+                  const quantity = safeNumber(item.parcel_count ?? item.quantity ?? item.units);
                   const itemStatus = itemIssue ? "SHORTFALL" : loaded ? "LOADED" : "PENDING";
                   return (
                     <div key={String(item.id ?? index)} className={`p-3 rounded-lg ${itemIssue ? "bg-[#FFF4ED] border-[#FED7AA]" : "bg-[#F8FAFC] border-[#E2E8F0]"} border flex flex-col gap-1`}>
@@ -485,13 +540,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
 
               <button
                 type="button"
-                onClick={() => {
-                  if (onNavigate) {
-                    onNavigate("report-issue");
-                  } else {
-                    router.push("/loader/report-issue");
-                  }
-                }}
+                onClick={handleReportIssue}
                 className="mt-1 w-full py-2.5 bg-white hover:bg-orange-50 text-[#C2410C] border border-[#FDBA74] rounded-lg font-bold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-xs"
               >
                 <span>Review / Edit Shortfall Report</span>
@@ -593,7 +642,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Gate Departure Release
                 </span>
                 <span className="text-[11px] font-bold text-[#EF4444] bg-[#FEF2F2] px-2 py-0.5 rounded">
-                  {isHeld || loadedCount < expectedCount ? "GATE LOCKED" : "GATE OPEN"}
+                  {!canRelease ? "GATE LOCKED" : "GATE OPEN"}
                 </span>
               </div>
 
@@ -619,13 +668,18 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
               <div className="flex flex-col gap-2 mt-2">
                 <button
                   type="button"
-                  disabled
-                  className="w-full py-3.5 bg-[#E5E7EB] text-[#9CA3AF] rounded-xl font-bold text-sm cursor-not-allowed select-none text-center flex items-center justify-center gap-2"
+                  disabled={!canRelease}
+                  onClick={handleReadyForDeparture}
+                  className={`w-full py-3.5 rounded-xl font-bold text-sm select-none text-center flex items-center justify-center gap-2 ${
+                    canRelease
+                      ? "bg-[#22C55E] hover:bg-[#16A34A] text-white"
+                      : "bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed"
+                  }`}
                 >
-                  <span>{isHeld || loadedCount < expectedCount ? "🔒 Ready for Departure" : "Ready for Departure"}</span>
+                  <span>{canRelease ? "Ready for Departure" : "🔒 Ready for Departure"}</span>
                 </button>
                 <p className="text-[11px] text-[#EF4444] font-medium leading-4 text-center m-0">
-                  {isHeld || loadedCount < expectedCount ? "Cannot depart until readiness checks are complete." : "All readiness checks passed. Trip may depart."}
+                  {!canRelease ? "Cannot depart until readiness checks are complete." : "All readiness checks passed. Trip may depart."}
                 </p>
               </div>
 
@@ -639,7 +693,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
         </div>
 
         {/* MOBILE LAYOUT */}
-        <div className="flex lg:hidden flex-col gap-4 w-full">
+        <div className="flex lg:hidden flex-col gap-6 w-full">
           <div className="flex flex-col gap-2">
             <h2 className="text-sm font-bold text-[#202D2D] leading-[21px] m-0">
               Readiness Checklist
@@ -707,6 +761,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={handleReportIssue}
+            className="w-full h-11 bg-[#FFF4ED] hover:bg-orange-50 text-[#C2410C] border border-[#FDBA74] rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-1.5 shadow-sm"
+          >
+            <span>Report Issue</span>
+            <span>→</span>
+          </button>
+
           <div className="flex flex-col gap-2">
             <h2 className="text-sm font-bold text-[#202D2D] leading-[21px] m-0">
               Resolution Summary
@@ -742,13 +805,16 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
           <div className="flex flex-col gap-2 pt-2">
             <button
               type="button"
-              disabled={isHeld || loadedCount < expectedCount}
-              className="w-full h-12 bg-[#E5E7EB] text-[#9CA3AF] rounded-full font-bold text-[15px] cursor-not-allowed flex items-center justify-center shadow-sm select-none"
+              disabled={!canRelease}
+              onClick={handleReadyForDeparture}
+              className={`w-full h-12 rounded-full font-bold text-[15px] flex items-center justify-center shadow-sm select-none ${
+                canRelease ? "bg-[#22C55E] hover:bg-[#16A34A] text-white" : "bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed"
+              }`}
             >
               Ready for Departure
             </button>
             <p className="text-[13px] font-medium text-[#485563] text-center leading-5 m-0">
-              {isHeld || loadedCount < expectedCount ? "Cannot depart until readiness checks are complete." : "All readiness checks passed."}
+              {!canRelease ? "Cannot depart until readiness checks are complete." : "All readiness checks passed."}
             </p>
           </div>
         </div>

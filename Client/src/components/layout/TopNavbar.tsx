@@ -23,6 +23,13 @@ export default function TopNavbar({
   const { logout, user } = useAuth();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const displayName = user?.display_name || user?.email || selectedOutlet.manager_name || 'Loader Lead';
+  const displayInitials = displayName
+    .split(' ')
+    .map((part: string) => part[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase();
 
   const notifications = [
     {
@@ -103,10 +110,10 @@ export default function TopNavbar({
             title="View Store Dock & Manager Profile"
           >
             <div className="profile-avatar-circle">
-              {user?.display_name ? user.display_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2) : (selectedOutlet.manager_name ? selectedOutlet.manager_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2) : 'KJ')}
+              {displayInitials}
             </div>
             <div className="profile-info-text">
-              <span className="profile-name-label">{user?.display_name || selectedOutlet.manager_name || 'Kavitha Jayasinghe'}</span>
+              <span className="profile-name-label">{displayName}</span>
               <span className="profile-role-sub">Store Manager</span>
             </div>
             <ChevronDown size={14} color="#94A3B8" />
@@ -135,7 +142,7 @@ export default function TopNavbar({
                 </div>
                 <div>
                   <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#202D2D', margin: 0 }}>
-                    {selectedOutlet.manager_name || 'Kasun Perera'}
+                    {displayName}
                   </h3>
                   <div style={{ fontSize: '12px', color: '#64748B', marginTop: '2px' }}>
                     Store Manager • {selectedOutlet.outlet_id || 'OUT001'}
