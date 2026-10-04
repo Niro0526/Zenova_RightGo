@@ -10,6 +10,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.2",
+    "@zxing/library": "^0.21.3",
     "@types/mapbox-gl": "^3.4.1",
     "lucide-react": "^0.468.0",
     "mapbox-gl": "^3.32.0",

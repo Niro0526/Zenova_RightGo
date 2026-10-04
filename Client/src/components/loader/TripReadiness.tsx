@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ChevronLeftIcon,
@@ -10,13 +10,163 @@ import {
   CircleOutlineIcon,
   InfoIcon,
 } from "./icons";
+import { LoadSequenceRow, LoaderTrip, supabase } from "@/lib/supabase";
 
 interface TripReadinessProps {
   onNavigate?: (tab: "assigned-trips" | "load-sequence" | "trip-readiness" | "report-issue" | "back") => void;
 }
 
+const DEFAULT_TRIP_ID = "S1-T001";
+const RESOLVED_STATUSES = ["resolved", "closed", "cleared", "completed", "cancelled"];
+
+function selectedTripFromUrl() {
+  if (typeof window === "undefined") return DEFAULT_TRIP_ID;
+  const params = new URLSearchParams(window.location.search);
+  return (
+    params.get("trip_id") ||
+    params.get("trip_code") ||
+    params.get("tripId") ||
+    DEFAULT_TRIP_ID
+  );
+}
+
+function safeNumber(value: unknown, fallback = 0) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function displayValue(value: unknown, fallback = "Not available") {
+  if (value === null || value === undefined || String(value).trim() === "") return fallback;
+  return String(value);
+}
+
+function formatReportTime(value: unknown) {
+  if (!value) return "Not available";
+  const date = new Date(String(value));
+  return Number.isNaN(date.getTime()) ? displayValue(value) : date.toLocaleString();
+}
+
 export default function TripReadiness({ onNavigate }: TripReadinessProps) {
   const router = useRouter();
+  const [tripId, setTripId] = useState(DEFAULT_TRIP_ID);
+  const [trip, setTrip] = useState<LoaderTrip | null>(null);
+  const [issues, setIssues] = useState<Record<string, unknown>[]>([]);
+  const [sequence, setSequence] = useState<LoadSequenceRow[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const unresolvedIssues = useMemo(
+    () => issues.filter((issue) => !RESOLVED_STATUSES.includes(String(issue.status ?? "").toLowerCase())),
+    [issues],
+  );
+  const isLoaded = (item: LoadSequenceRow) =>
+    item.is_loaded === true || String(item.status ?? "").toLowerCase() === "loaded";
+  const loadedCount = sequence.filter(isLoaded).length;
+  const expectedCount = sequence.length;
+  const loadedWeight = sequence.reduce(
+    (sum, item) => sum + (isLoaded(item) ? safeNumber(item.weight_kg) : 0),
+    0,
+  );
+  const maxWeight = safeNumber(trip?.max_weight_kg, 3500) || 3500;
+  const expectedVolume = sequence.reduce((sum, item) => sum + safeNumber(item.volume_m3), 0);
+  const maxVolume = safeNumber(trip?.max_volume_m3, 18.2) || 18.2;
+  const isHeld = unresolvedIssues.length > 0;
+  const activeIssue = unresolvedIssues[0] ?? {};
+  const latestIssue = issues[0] ?? {};
+  const hasIssues = issues.length > 0;
+  const ordersVerified = expectedCount > 0;
+  const loadingVerified = expectedCount > 0 && loadedCount === expectedCount;
+  const weightVerified = loadingVerified && loadedWeight <= maxWeight;
+  const volumeVerified = expectedVolume <= maxVolume;
+  const driverName = displayValue(trip?.driver_name ?? trip?.driver);
+  const departureTime = displayValue(trip?.departure_time);
+  const manifestItems = sequence.length
+    ? sequence
+    : [{ id: "empty", outlet_name: "No sequence items assigned", sequence: 0 }] as LoadSequenceRow[];
+  const checklistPassed = Math.min(
+    8,
+    (loadedCount >= expectedCount ? 5 : 2) +
+      (loadedWeight <= maxWeight ? 1 : 0) +
+      (volumeVerified ? 1 : 0) +
+      (!isHeld ? 1 : 0),
+  );
+
+  const fetchReadiness = useCallback(async (selectedTripId: string) => {
+    if (!supabase) {
+      setLoading(false);
+      return;
+    }
+
+    let tripResult = await supabase
+      .from("trips")
+      .select("*")
+      .eq("trip_code", selectedTripId)
+      .maybeSingle();
+    if (!tripResult.data && !tripResult.error) {
+      tripResult = await supabase
+        .from("trips")
+        .select("*")
+        .eq("id", selectedTripId)
+        .maybeSingle();
+    }
+    const tripReference = tripResult.data?.id ?? selectedTripId;
+    let issueResult = await supabase
+      .from("shortfalls")
+      .select("*")
+      .eq("trip_id", tripReference)
+      .order("created_at", { ascending: false });
+    let sequenceResult = await supabase
+      .from("load_sequences")
+      .select("*")
+      .eq("trip_id", tripReference);
+    if (!issueResult.error && (issueResult.data ?? []).length === 0 && tripReference !== selectedTripId) {
+      issueResult = await supabase
+        .from("shortfalls")
+        .select("*")
+        .eq("trip_id", selectedTripId)
+        .order("created_at", { ascending: false });
+    }
+    if (!sequenceResult.error && (sequenceResult.data ?? []).length === 0 && tripReference !== selectedTripId) {
+      sequenceResult = await supabase
+        .from("load_sequences")
+        .select("*")
+        .eq("trip_id", selectedTripId);
+    }
+
+    if (!tripResult.error) setTrip(tripResult.data as LoaderTrip | null);
+    if (!issueResult.error) setIssues((issueResult.data ?? []) as Record<string, unknown>[]);
+    if (!sequenceResult.error) setSequence((sequenceResult.data ?? []) as LoadSequenceRow[]);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const selectedTripId = selectedTripFromUrl();
+    setTripId(selectedTripId);
+    void fetchReadiness(selectedTripId);
+
+    if (!supabase) return;
+    const client = supabase;
+    const channel = client
+      .channel(`trip-readiness-${selectedTripId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, () => void fetchReadiness(selectedTripId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "shortfalls", filter: `trip_id=eq.${selectedTripId}` }, () => void fetchReadiness(selectedTripId))
+      .on("postgres_changes", { event: "*", schema: "public", table: "load_sequences", filter: `trip_id=eq.${selectedTripId}` }, () => void fetchReadiness(selectedTripId))
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [fetchReadiness]);
+
+  useEffect(() => {
+    if (!supabase || loading || !tripId) return;
+    const nextStatus = isHeld || (expectedCount > 0 && loadedCount < expectedCount) ? "HOLD" : "READY";
+    if (String(trip?.status ?? "").toUpperCase() !== nextStatus) {
+      const statusQuery = trip?.trip_code
+        ? supabase.from("trips").update({ status: nextStatus }).eq("trip_code", String(trip.trip_code))
+        : supabase.from("trips").update({ status: nextStatus }).eq("id", tripId);
+      void statusQuery.then(() => undefined);
+    }
+  }, [expectedCount, isHeld, loadedCount, loading, trip?.status, tripId]);
 
   const handleBack = () => {
     if (onNavigate) {
@@ -33,7 +183,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
   return (
     <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
       {/* Mobile Top Navigation Bar */}
-      <div className="flex md:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
+      <div className="flex lg:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -55,10 +205,10 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
       {/* Content Container */}
       <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 box-border">
         {/* Desktop Header */}
-        <div className="hidden md:flex justify-between items-center">
+        <div className="hidden lg:flex justify-between items-center">
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold text-slate-900 leading-tight m-0">
-              Trip Readiness - PEL-R04 / S1-T001
+              Trip Readiness - {String(trip?.vehicle_id ?? "Vehicle")} / {tripId}
             </h1>
             <p className="text-sm text-slate-500 mt-1 m-0 font-normal">
               Final departure verification checklist
@@ -72,7 +222,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
         </div>
 
         {/* DESKTOP TWO-COLUMN RESPONSIVE LAYOUT */}
-        <div className="hidden md:flex flex-col lg:flex-row gap-6 w-full items-start">
+        <div className="hidden lg:flex flex-col lg:flex-row gap-6 w-full items-start">
           {/* Left Column */}
           <div className="flex-1 min-w-0 w-full flex flex-col gap-6">
             <div className="bg-white border border-[#CBD5E1] rounded-xl p-5 lg:p-6 flex flex-col gap-4 shadow-sm">
@@ -86,7 +236,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   </p>
                 </div>
                 <span className="bg-[#FFF4ED] text-[#F97316] text-xs font-bold px-2.5 py-1 rounded-full">
-                  2 of 8 Passed
+                  {checklistPassed} of 8 Passed
                 </span>
               </div>
 
@@ -95,15 +245,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#ECFDF5] border border-[#A7F3D0]/50 transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#065F46]">
-                      Expected orders: 6
+                      Expected orders: {expectedCount}
                     </span>
                     <span className="text-[11px] text-[#047857]">
-                      All 6 delivery orders assigned and staged in loading sequence
+                      {ordersVerified ? `All ${expectedCount} delivery orders assigned and staged in loading sequence` : "No delivery orders assigned"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#D1FAE5] text-[#047857] text-[11px] font-bold px-2 py-0.5 rounded">
-                      VERIFIED
+                      {ordersVerified ? "VERIFIED" : "PENDING"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#10B981] text-white flex items-center justify-center font-bold text-xs">
                       ✓
@@ -114,15 +264,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#FEF2F2] border border-[#FECACA]/60 transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#991B1B]">
-                      Loaded: 5 of 6
+                      Loaded: {loadedCount} of {expectedCount}
                     </span>
                     <span className="text-[11px] text-[#B91C1C]">
-                      Order S1-001 stopped due to chilled stock damage
+                      {isHeld ? "Trip has unresolved reported discrepancies" : "All sequence items are loaded"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#FEE2E2] text-[#B91C1C] text-[11px] font-bold px-2 py-0.5 rounded">
-                      INCOMPLETE
+                      {loadingVerified ? "VERIFIED" : expectedCount === 0 ? "PENDING" : "INCOMPLETE"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#EF4444] text-white flex items-center justify-center font-bold text-xs">
                       ✗
@@ -133,15 +283,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#FFF4ED] border border-[#FED7AA]/60 transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#9A3412]">
-                      Short/Changed: 1 order (S1-001 - 8 units damaged)
+                      Short/Changed: {unresolvedIssues.length} issue{unresolvedIssues.length === 1 ? "" : "s"}
                     </span>
                     <span className="text-[11px] text-[#C2410C]">
-                      Damaged chilled stock reported by loader at 05:45
+                      {unresolvedIssues.length ? "Reported shortfall requires dispatcher review" : "No unresolved shortfall reported"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#FFEDD5] text-[#C2410C] text-[11px] font-bold px-2 py-0.5 rounded">
-                      SHORTFALL
+                      {unresolvedIssues.length ? "SHORTFALL" : "VERIFIED"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#F59E0B] text-white flex items-center justify-center font-bold text-xs">
                       ⚠
@@ -152,15 +302,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#FEF2F2] border border-[#FECACA]/60 transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#991B1B]">
-                      Open issues: 1
+                      Open issues: {unresolvedIssues.length}
                     </span>
                     <span className="text-[11px] text-[#B91C1C]">
-                      Report #SR-1049 awaiting Central Dispatch resolution
+                      {unresolvedIssues.length ? "Awaiting Central Dispatch resolution" : "No open issue reports"}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#FEE2E2] text-[#B91C1C] text-[11px] font-bold px-2 py-0.5 rounded">
-                      UNRESOLVED
+                      {unresolvedIssues.length ? "SHORTFALL" : "VERIFIED"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#EF4444] text-white flex items-center justify-center font-bold text-xs">
                       ✗
@@ -171,7 +321,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#ECFDF5] border border-[#A7F3D0]/50 transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#065F46]">
-                      Plan version: v2 acknowledged
+                      Plan version: {displayValue(trip?.plan_version, "Not available")} acknowledged
                     </span>
                     <span className="text-[11px] text-[#047857]">
                       Updated route plan v2 accepted and synced to vehicle
@@ -179,7 +329,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#D1FAE5] text-[#047857] text-[11px] font-bold px-2 py-0.5 rounded">
-                      VERIFIED
+                      {trip?.plan_version ? "VERIFIED" : "PENDING"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#10B981] text-white flex items-center justify-center font-bold text-xs">
                       ✓
@@ -190,15 +340,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#485563]">
-                      Weight validation: Pending recheck
+                      Weight validation: {weightVerified ? "Verified" : "Incomplete"}
                     </span>
                     <span className="text-[11px] text-[#64748B]">
-                      Current: 2,420 kg / Max limit: 3,500 kg (Re-weigh on stock update)
+                      Loaded: {loadedWeight.toLocaleString()} kg / Max limit: {maxWeight.toLocaleString()} kg
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#E2E8F0] text-[#475569] text-[11px] font-bold px-2 py-0.5 rounded">
-                      PENDING
+                      {weightVerified ? "VERIFIED" : loadedCount > 0 ? "INCOMPLETE" : "PENDING"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#CBD5E1] text-[#485563] flex items-center justify-center font-bold text-xs">
                       ○
@@ -209,15 +359,15 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex justify-between items-center p-3.5 rounded-xl bg-[#F8FAFC] border border-[#E2E8F0] transition-all hover:shadow-xs">
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold text-[#485563]">
-                      Volume validation: Pending recheck
+                      Volume validation: {volumeVerified ? "Verified" : "Incomplete"}
                     </span>
                     <span className="text-[11px] text-[#64748B]">
-                      Current: 14.8 m³ / Max limit: 18.2 m³ (Re-cube on stock update)
+                      Current: {expectedVolume.toFixed(1)} m³ / Max limit: {maxVolume.toFixed(1)} m³
                     </span>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <span className="bg-[#E2E8F0] text-[#475569] text-[11px] font-bold px-2 py-0.5 rounded">
-                      PENDING
+                      {volumeVerified ? "VERIFIED" : "INCOMPLETE"}
                     </span>
                     <span className="w-6 h-6 rounded-full bg-[#CBD5E1] text-[#485563] flex items-center justify-center font-bold text-xs">
                       ○
@@ -251,71 +401,46 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
               <div className="flex justify-between items-center pb-3 border-b border-[#F1F5F9]">
                 <div>
                   <h3 className="text-[16px] font-bold text-[#202D2D] leading-[22px] m-0">
-                    Trip Order Manifest Status (6 Stops)
+                    Trip Order Manifest Status ({expectedCount} Stops)
                   </h3>
                   <p className="text-xs text-[#485563] m-0">
-                    Sequential delivery verification for route PEL-R04
+                    Sequential delivery verification for route {String(trip?.route_summary ?? trip?.route ?? "active trip")}
                   </p>
                 </div>
                 <span className="text-xs font-semibold text-[#485563]">
-                  5 of 6 Complete
+                  {loadedCount} of {expectedCount} Complete
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
-                <div className="p-3 rounded-lg bg-[#FFF4ED] border border-[#FED7AA] flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-jetbrains font-bold text-xs text-[#202D2D]">Stop 1 · S1-001</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#FFEDD5] text-[#C2410C]">SHORTFALL</span>
-                  </div>
-                  <span className="text-xs text-[#485563] truncate">Colpetty Retailer</span>
-                  <span className="text-[11px] text-[#C2410C] font-medium">72/80 units (8 damaged)</span>
-                </div>
-
-                <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-jetbrains font-bold text-xs text-[#202D2D]">Stop 2 · S1-002</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#166534]">LOADED</span>
-                  </div>
-                  <span className="text-xs text-[#485563] truncate">Bambalapitiya Fresh</span>
-                  <span className="text-[11px] text-[#166534] font-medium">45/45 units verified</span>
-                </div>
-
-                <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-jetbrains font-bold text-xs text-[#202D2D]">Stop 3 · S1-003</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#166534]">LOADED</span>
-                  </div>
-                  <span className="text-xs text-[#485563] truncate">Havelock Mart</span>
-                  <span className="text-[11px] text-[#166534] font-medium">60/60 units verified</span>
-                </div>
-
-                <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-jetbrains font-bold text-xs text-[#202D2D]">Stop 4 · S1-004</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#166534]">LOADED</span>
-                  </div>
-                  <span className="text-xs text-[#485563] truncate">Wellawatte Grocers</span>
-                  <span className="text-[11px] text-[#166534] font-medium">55/55 units verified</span>
-                </div>
-
-                <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-jetbrains font-bold text-xs text-[#202D2D]">Stop 5 · S1-005</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#166534]">LOADED</span>
-                  </div>
-                  <span className="text-xs text-[#485563] truncate">Dehiwala Central</span>
-                  <span className="text-[11px] text-[#166534] font-medium">70/70 units verified</span>
-                </div>
-
-                <div className="p-3 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0] flex flex-col gap-1">
-                  <div className="flex justify-between items-center">
-                    <span className="font-jetbrains font-bold text-xs text-[#202D2D]">Stop 6 · S1-006</span>
-                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#DCFCE7] text-[#166534]">LOADED</span>
-                  </div>
-                  <span className="text-xs text-[#485563] truncate">Mount Lavinia Depot</span>
-                  <span className="text-[11px] text-[#166534] font-medium">80/80 units verified</span>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full">
+                {manifestItems.map((item, index) => {
+                  const loaded = item.is_loaded === true || String(item.status ?? "").toLowerCase() === "loaded";
+                  const itemIssue = unresolvedIssues.find((issue) =>
+                    String(issue.order_ref ?? issue.sequence_id ?? "") === String(item.order_ref ?? item.id ?? ""),
+                  );
+                  const quantity = Number(item.quantity ?? 0);
+                  const itemStatus = itemIssue ? "SHORTFALL" : loaded ? "LOADED" : "PENDING";
+                  return (
+                    <div key={String(item.id ?? index)} className={`p-3 rounded-lg ${itemIssue ? "bg-[#FFF4ED] border-[#FED7AA]" : "bg-[#F8FAFC] border-[#E2E8F0]"} border flex flex-col gap-1`}>
+                      <div className="flex justify-between items-center">
+                        <span className="font-jetbrains font-bold text-xs text-[#202D2D]">
+                                Stop {index + 1} · {displayValue(item.order_ref ?? item.id, `Stop ${index + 1}`)}
+                        </span>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${itemIssue ? "bg-[#FFEDD5] text-[#C2410C]" : loaded ? "bg-[#DCFCE7] text-[#166534]" : "bg-[#E2E8F0] text-[#475569]"}`}>
+                          {itemStatus}
+                        </span>
+                      </div>
+                      <span className="text-xs text-[#485563] truncate">{String(item.outlet_name ?? item.outlet ?? "Assigned outlet")}</span>
+                      <span className={`text-[11px] font-medium ${itemIssue ? "text-[#C2410C]" : loaded ? "text-[#166534]" : "text-[#64748B]"}`}>
+                        {itemIssue
+                          ? `${String(itemIssue.affected_qty ?? "Reported")} affected`
+                          : quantity > 0
+                            ? `${loaded ? quantity : 0}/${quantity} units ${loaded ? "verified" : "pending"}`
+                            : loaded ? "Loaded and verified" : "Awaiting load confirmation"}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -329,28 +454,32 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                     <AlertTriangleIcon className="w-5 h-5" />
                   </div>
                   <span className="text-base font-bold text-[#B45309] leading-tight">
-                    Loading Shortfall - Trip Held
+                    {isHeld ? "Loading Shortfall - Trip Held" : "All Clear - Ready to Depart"}
                   </span>
                 </div>
                 <span className="bg-[#F59E0B] text-white text-[11px] font-extrabold px-2.5 py-0.5 rounded-full">
-                  HIGH PRIORITY
+                  {isHeld ? displayValue(activeIssue.severity, "HIGH").toUpperCase() : "CLEAR"}
                 </span>
               </div>
               <p className="text-[13px] text-[#485563] leading-relaxed m-0 font-normal">
-                8 units of chilled stock damaged on order <strong className="text-[#202D2D]">S1-001</strong> (OUT001 / Colpetty Retailer). Dispatcher review required before departure gate release can proceed.
+                {hasIssues
+                  ? isHeld
+                    ? `${displayValue(latestIssue.affected_qty, "Reported")} affected on ${displayValue(latestIssue.order_ref ?? latestIssue.sku, tripId)}. Dispatcher review required before departure gate release can proceed.`
+                    : `Latest issue report is ${displayValue(latestIssue.status, "recorded")}. No unresolved issues remain for trip ${tripId}.`
+                  : "No Issues Reported"}
               </p>
               <div className="flex flex-col gap-1 pt-1 border-t border-[#FED7AA]/60 text-xs text-[#78350F]">
                 <div className="flex justify-between">
                   <span>Reported by:</span>
-                  <span className="font-semibold">Kasun Perera (Loader)</span>
+                  <span className="font-semibold">{hasIssues ? displayValue(latestIssue.reporter) : "No Issues Reported"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Report Time:</span>
-                  <span className="font-jetbrains font-semibold">2026-01-08 05:45</span>
+                  <span className="font-jetbrains font-semibold">{hasIssues ? formatReportTime(latestIssue.created_at) : "No Issues Reported"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span>Location:</span>
-                  <span className="font-semibold">Bay 04 · Cold Chain Dock</span>
+                  <span className="font-semibold">{hasIssues ? displayValue(latestIssue.location ?? latestIssue.bay ?? trip?.bay) : "No Issues Reported"}</span>
                 </div>
               </div>
 
@@ -464,26 +593,26 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Gate Departure Release
                 </span>
                 <span className="text-[11px] font-bold text-[#EF4444] bg-[#FEF2F2] px-2 py-0.5 rounded">
-                  GATE LOCKED
+                  {isHeld || loadedCount < expectedCount ? "GATE LOCKED" : "GATE OPEN"}
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div className="flex flex-col">
                   <span className="text-[#64748B]">Assigned Bay:</span>
-                  <span className="font-bold text-[#202D2D]">Bay 04 (Cold Chain)</span>
+                  <span className="font-bold text-[#202D2D]">{displayValue(trip?.bay)}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[#64748B]">Driver:</span>
-                  <span className="font-bold text-[#202D2D]">Nimal Jayawardena</span>
+                  <span className="font-bold text-[#202D2D]">{driverName}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[#64748B]">Target Departure:</span>
-                  <span className="font-bold text-[#202D2D]">06:15 AM (Delayed)</span>
+                  <span className="font-bold text-[#202D2D]">{departureTime}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[#64748B]">Security Seal:</span>
-                  <span className="font-bold text-[#D97706]">Pending Signoff</span>
+                  <span className="font-bold text-[#D97706]">{isHeld ? "Pending Signoff" : "Verified"}</span>
                 </div>
               </div>
 
@@ -493,10 +622,10 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   disabled
                   className="w-full py-3.5 bg-[#E5E7EB] text-[#9CA3AF] rounded-xl font-bold text-sm cursor-not-allowed select-none text-center flex items-center justify-center gap-2"
                 >
-                  <span>🔒 Ready for Departure</span>
+                  <span>{isHeld || loadedCount < expectedCount ? "🔒 Ready for Departure" : "Ready for Departure"}</span>
                 </button>
                 <p className="text-[11px] text-[#EF4444] font-medium leading-4 text-center m-0">
-                  Cannot depart with unresolved issues. Dispatcher action required.
+                  {isHeld || loadedCount < expectedCount ? "Cannot depart until readiness checks are complete." : "All readiness checks passed. Trip may depart."}
                 </p>
               </div>
 
@@ -510,7 +639,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
         </div>
 
         {/* MOBILE LAYOUT */}
-        <div className="flex md:hidden flex-col gap-4 w-full">
+        <div className="flex lg:hidden flex-col gap-4 w-full">
           <div className="flex flex-col gap-2">
             <h2 className="text-sm font-bold text-[#202D2D] leading-[21px] m-0">
               Readiness Checklist
@@ -521,7 +650,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Expected Stops
                 </span>
                 <div className="flex items-center gap-1.5 text-[#F59E0B]">
-                  <span className="text-sm font-semibold">5 Verified</span>
+                  <span className="text-sm font-semibold">{checklistPassed} Verified</span>
                   <AlertTriangleIcon className="w-4 h-4" />
                 </div>
               </div>
@@ -531,7 +660,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Loaded Count
                 </span>
                 <div className="flex items-center gap-1.5 text-[#EF4444]">
-                  <span className="text-sm font-semibold">5 / 6 loaded</span>
+                  <span className="text-sm font-semibold">{loadedCount} / {expectedCount} loaded</span>
                   <CircleXIcon className="w-4 h-4" />
                 </div>
               </div>
@@ -541,7 +670,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Shortfall Reported
                 </span>
                 <div className="flex items-center gap-1.5 text-[#F59E0B]">
-                  <span className="text-sm font-semibold">1 issue flagged</span>
+                  <span className="text-sm font-semibold">{unresolvedIssues.length} issue{unresolvedIssues.length === 1 ? "" : "s"} flagged</span>
                   <AlertTriangleIcon className="w-4 h-4" />
                 </div>
               </div>
@@ -551,7 +680,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Open Issues
                 </span>
                 <div className="flex items-center gap-1.5 text-[#EF4444]">
-                  <span className="text-sm font-semibold">1 outstanding</span>
+                  <span className="text-sm font-semibold">{unresolvedIssues.length} outstanding</span>
                   <CircleXIcon className="w-4 h-4" />
                 </div>
               </div>
@@ -561,7 +690,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Plan Acknowledgement
                 </span>
                 <div className="flex items-center gap-1.5 text-[#202D2D]">
-                  <span className="text-sm font-semibold">v2 Acknowledged</span>
+                  <span className="text-sm font-semibold">{displayValue(trip?.plan_version, "Plan unavailable")} Acknowledged</span>
                   <CheckCircleIcon className="w-4 h-4 text-[#22C55E]" />
                 </div>
               </div>
@@ -571,7 +700,7 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                   Vehicle & Weight Checks
                 </span>
                 <div className="flex items-center gap-1.5 text-[#485563]">
-                  <span className="text-sm font-semibold">Pending</span>
+                  <span className="text-sm font-semibold">{weightVerified && volumeVerified ? "Verified" : "Incomplete"}</span>
                   <CircleOutlineIcon className="w-4 h-4 text-[#485563]" />
                 </div>
               </div>
@@ -589,10 +718,12 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 </span>
                 <div className="flex flex-col">
                   <span className="text-[13px] font-semibold text-[#202D2D] leading-5">
-                    8 units damaged on order S1-001
+                    {isHeld
+                      ? `${displayValue(activeIssue.affected_qty, "Reported")} affected on ${displayValue(activeIssue.order_ref ?? activeIssue.sku, tripId)}`
+                      : "No unresolved shortfalls reported"}
                   </span>
                   <span className="text-xs text-[#485563] leading-[15px]">
-                    OUT001 / Colpetty Retailer
+                    {displayValue(activeIssue.order_ref ?? activeIssue.sku, tripId)}
                   </span>
                 </div>
               </div>
@@ -611,13 +742,13 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
           <div className="flex flex-col gap-2 pt-2">
             <button
               type="button"
-              disabled
+              disabled={isHeld || loadedCount < expectedCount}
               className="w-full h-12 bg-[#E5E7EB] text-[#9CA3AF] rounded-full font-bold text-[15px] cursor-not-allowed flex items-center justify-center shadow-sm select-none"
             >
               Ready for Departure
             </button>
             <p className="text-[13px] font-medium text-[#485563] text-center leading-5 m-0">
-              Cannot depart with unresolved issues.
+              {isHeld || loadedCount < expectedCount ? "Cannot depart until readiness checks are complete." : "All readiness checks passed."}
             </p>
           </div>
         </div>
