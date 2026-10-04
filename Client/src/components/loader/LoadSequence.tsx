@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
   ChevronLeftIcon,
 } from "./icons";
+import { LoadSequenceRow, supabase } from "@/lib/supabase";
 
 interface LoadSequenceProps {
   onNavigate?: (
@@ -16,9 +17,111 @@ interface LoadSequenceProps {
 
 export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
   const router = useRouter();
+  const [tripId, setTripId] = useState("S1-T001");
+  const [sequenceItems, setSequenceItems] = useState<LoadSequenceRow[]>([]);
+  const [sequenceError, setSequenceError] = useState<string | null>(null);
   const [stop2Loaded, setStop2Loaded] = useState<boolean>(false);
   const [stop1Loaded, setStop1Loaded] = useState<boolean>(false);
   const [notification, setNotification] = useState<string | null>(null);
+
+  const loadSequence = useCallback(async (selectedTripId: string) => {
+    if (!supabase) {
+      setSequenceError("Supabase is not configured.");
+      return;
+    }
+
+    let { data, error } = await supabase
+      .from("load_sequences")
+      .select("*")
+      .eq("trip_id", selectedTripId);
+
+    if (!error && (!data || data.length === 0)) {
+      const fallback = await supabase
+        .from("load_sequences")
+        .select("*")
+        .eq("trip_code", selectedTripId);
+      data = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      setSequenceError(error.message);
+      return;
+    }
+
+    const items = ((data ?? []) as LoadSequenceRow[]).sort(
+      (a, b) =>
+        Number(a.sequence ?? a.sequence_no ?? a.order_index ?? a.stop_number ?? 0) -
+        Number(b.sequence ?? b.sequence_no ?? b.order_index ?? b.stop_number ?? 0),
+    );
+    setSequenceError(null);
+    setSequenceItems(items);
+    setStop2Loaded(Boolean(items[1]?.is_loaded ?? items[1]?.status === "LOADED"));
+    setStop1Loaded(Boolean(items[2]?.is_loaded ?? items[2]?.status === "LOADED"));
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const selectedTripId =
+      params.get("trip_id") ||
+      params.get("trip_code") ||
+      window.localStorage.getItem("activeTripId") ||
+      "S1-T001";
+    setTripId(selectedTripId);
+    void loadSequence(selectedTripId);
+
+    if (!supabase) return;
+    const client = supabase;
+    const channel = client
+      .channel(`load-sequence-${selectedTripId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "load_sequences", filter: `trip_id=eq.${selectedTripId}` },
+        () => void loadSequence(selectedTripId),
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [loadSequence]);
+
+  const sequenceItem = (index: number): LoadSequenceRow => sequenceItems[index] ?? {};
+  const text = (row: LoadSequenceRow, ...keys: string[]) => {
+    for (const key of keys) {
+      const value = row[key];
+      if (value !== null && value !== undefined && value !== "") return String(value);
+    }
+    return "—";
+  };
+  const loadedValue = (row: LoadSequenceRow, fallback: boolean) =>
+    typeof row.is_loaded === "boolean" ? row.is_loaded : fallback;
+
+  const updateLoaded = async (index: number, loaded: boolean, message: string) => {
+    const row = sequenceItem(index);
+    if (!row.id || !supabase) {
+      showToast("This sequence item cannot be updated.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("load_sequences")
+      .update({ is_loaded: loaded, status: loaded ? "LOADED" : "PENDING" })
+      .eq("id", row.id);
+    if (error) {
+      showToast(error.message);
+      return;
+    }
+
+    setSequenceItems((items) =>
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, is_loaded: loaded, status: loaded ? "LOADED" : "PENDING" } : item,
+      ),
+    );
+    if (index === 1) setStop2Loaded(loaded);
+    if (index === 2) setStop1Loaded(loaded);
+    showToast(message);
+  };
 
   const handleBack = () => {
     if (onNavigate) {
@@ -36,7 +139,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     if (onNavigate) {
       onNavigate("report-issue");
     } else {
-      router.push("/loader/report-issue");
+      router.push(`/loader/report-issue?tripId=${encodeURIComponent(tripId)}`);
     }
   };
 
@@ -53,10 +156,18 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     setTimeout(() => setNotification(null), 2500);
   };
 
+  const stop2 = sequenceItem(1);
+  const stop1 = sequenceItem(2);
+  const stop2IsLoaded = loadedValue(stop2, stop2Loaded);
+  const stop1IsLoaded = loadedValue(stop1, stop1Loaded);
+  const loadedStops = sequenceItems.filter((item, index) =>
+    loadedValue(item, index === 0 ? true : index === 1 ? stop2Loaded : stop1Loaded),
+  ).length;
+
   return (
     <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
       {/* Mobile Top Navigation Bar */}
-      <div className="flex md:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
+      <div className="flex lg:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -71,12 +182,12 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
           </h1>
         </div>
         <span className="bg-[#202D2D] text-white font-inter text-[11px] font-bold px-2 py-1 rounded-md">
-          PEL-R04
+          {tripId}
         </span>
       </div>
 
       {/* Mobile Plan v2 Banner */}
-      <div className="flex md:hidden justify-between items-center px-4 py-3 bg-[#FFF4ED] border-y border-[#F59E0B]">
+      <div className="flex lg:hidden justify-between items-center px-4 py-3 bg-[#FFF4ED] border-y border-[#F59E0B]">
         <div className="flex items-center gap-2">
           <AlertTriangleIcon className="w-[18px] h-[18px] text-[#F59E0B]" />
           <span className="text-[13px] font-semibold text-[#F59E0B] m-0">
@@ -102,13 +213,13 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
       {/* Content Container */}
       <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 box-border">
         {/* Desktop Header */}
-        <div className="hidden md:flex justify-between items-center">
+        <div className="hidden lg:flex justify-between items-center">
           <div className="flex flex-col">
             <h1 className="text-2xl font-bold text-slate-900 leading-tight m-0">
-              Load Sequence - Trip PEL-R04 / S1-T001
+              Load Sequence - Trip {tripId}
             </h1>
             <p className="text-sm text-slate-500 mt-1 m-0 font-normal">
-              Vehicle PEL-R04 (Refrigerated Truck) • Plan v1 • Departure 05:30 • Dock Bay 04
+              Vehicle {text(sequenceItem(0), "vehicle_id", "vehicle", "vehicle_type")} • Plan v{text(sequenceItem(0), "plan_version", "plan")} • Departure {text(sequenceItem(0), "departure_time", "departure")} • Dock Bay {text(sequenceItem(0), "bay")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -122,7 +233,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
         </div>
 
         {/* Desktop Plan v2 Callout Banner */}
-        <div className="hidden md:flex justify-between items-center p-3.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl shadow-xs">
+        <div className="hidden lg:flex justify-between items-center p-3.5 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl shadow-xs">
           <div className="flex items-center gap-2.5">
             <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B] shrink-0" />
             <div className="flex flex-col">
@@ -146,7 +257,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
         </div>
 
         {/* DESKTOP TWO-COLUMN RESPONSIVE LAYOUT */}
-        <div className="hidden md:flex flex-col lg:flex-row gap-6 w-full items-start">
+        <div className="hidden lg:flex flex-col lg:flex-row gap-6 w-full items-start">
           {/* Left Column: LIFO Sequence Queue */}
           <div className="flex-1 min-w-0 w-full flex flex-col gap-4">
             <div className="flex justify-between items-center pb-1">
@@ -159,7 +270,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                 </p>
               </div>
               <div className="flex items-center gap-1.5 text-xs font-semibold text-[#485563] bg-[#F1F5F9] px-2.5 py-1 rounded-md">
-                <span>{stop1Loaded ? "3 of 3" : stop2Loaded ? "2 of 3" : "1 of 3"} Stops Loaded</span>
+                <span>{loadedStops} of {sequenceItems.length || 3} Stops Loaded</span>
               </div>
             </div>
 
@@ -216,17 +327,17 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="font-jetbrains font-bold text-sm text-[#202D2D] bg-[#F1F5F9] px-2 py-0.5 rounded">
-                        OUT002
+                        {text(stop2, "outlet", "outlet_name", "order_ref")}
                       </span>
                       <span className={`font-semibold text-xs px-2 py-0.5 rounded ${!stop2Loaded ? "bg-[#FFF4ED] text-[#C2410C]" : "bg-[#ECFDF5] text-[#059669]"}`}>
                         Stop 2 ({!stop2Loaded ? "Currently Loading • Mid Bay" : "Loaded"})
                       </span>
                     </div>
                     <h3 className="text-[15px] font-bold text-[#202D2D] leading-[22px] m-0">
-                      Nugegoda Corner Store
+                    {text(stop2, "outlet_name", "outlet", "order_ref")}
                     </h3>
                     <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                      1 order • 150 kg • Ambient zone • 2 cases
+                      {text(stop2, "description", "details", "quantity")} 
                     </p>
                   </div>
 
@@ -248,8 +359,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                         type="button"
                         className="bg-[#F97316] hover:bg-[#EA580C] text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shadow-xs"
                         onClick={() => {
-                          setStop2Loaded(true);
-                          showToast("Stop 2 marked as Loaded! Stop 1 is now loading.");
+                          void updateLoaded(1, true, "Stop 2 marked as Loaded! Stop 1 is now loading.");
                         }}
                       >
                         Mark Loaded
@@ -280,7 +390,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <span className="font-jetbrains font-bold text-sm text-[#202D2D] bg-[#F1F5F9] px-2 py-0.5 rounded">
-                        OUT001
+                        {text(stop1, "outlet", "outlet_name", "order_ref")}
                       </span>
                       <span
                         className={`font-semibold text-xs px-2 py-0.5 rounded ${
@@ -295,10 +405,10 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       </span>
                     </div>
                     <h3 className="text-[15px] font-bold text-[#202D2D] leading-[22px] m-0">
-                      Colpetty Retailer
+                      {text(stop1, "outlet_name", "outlet", "order_ref")}
                     </h3>
                     <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                      Two orders for one outlet — grouped shipment (546.4 kg)
+                      {text(stop1, "description", "details", "quantity")}
                     </p>
                   </div>
 
@@ -320,8 +430,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                         type="button"
                         className="bg-[#F97316] hover:bg-[#EA580C] text-white text-xs font-bold px-4 py-2 rounded-lg transition-colors shadow-xs"
                         onClick={() => {
-                          setStop1Loaded(true);
-                          showToast("Stop 1 marked as Loaded! All stops complete.");
+                          void updateLoaded(2, true, "Stop 1 marked as Loaded! All stops complete.");
                         }}
                       >
                         Mark Loaded
@@ -528,7 +637,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
         </div>
 
         {/* MOBILE SEQUENTIAL LAYOUT */}
-        <div className="flex md:hidden flex-col gap-3 w-full">
+        <div className="flex lg:hidden flex-col gap-3 w-full">
           <div className="flex flex-col p-3 gap-1 bg-white border border-[#CBD5E1] rounded-xl">
             <h2 className="text-sm font-bold text-[#202D2D] leading-[21px] m-0">
               Loading Sequence (LIFO Order)
@@ -579,14 +688,14 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       2
                     </span>
                     <span className="font-jetbrains font-bold text-sm text-[#202D2D] leading-[18px]">
-                      OUT002
+                      {text(stop2, "outlet", "outlet_name", "order_ref")}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[#202D2D] leading-[21px] m-0">
-                    Nugegoda Corner Store
+                    {text(stop2, "outlet_name", "outlet", "order_ref")}
                   </h3>
                   <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                    1 order • 150 kg • Ambient zone • 2 cases
+                    {text(stop2, "description", "details", "quantity")}
                   </p>
                 </div>
 
@@ -608,8 +717,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                     type="button"
                     className="flex-1 h-9 bg-[#F97316] hover:bg-[#EA580C] text-white text-[13px] font-bold rounded-lg flex items-center justify-center transition-colors"
                     onClick={() => {
-                      setStop2Loaded(true);
-                      showToast("Stop 2 marked as Loaded! Stop 1 is now loading.");
+                      void updateLoaded(1, true, "Stop 2 marked as Loaded! Stop 1 is now loading.");
                     }}
                   >
                     Mark Loaded
@@ -642,14 +750,14 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                       1
                     </span>
                     <span className="font-jetbrains font-bold text-sm text-[#202D2D] leading-[18px]">
-                      OUT001
+                      {text(stop1, "outlet", "outlet_name", "order_ref")}
                     </span>
                   </div>
                   <h3 className="text-sm font-semibold text-[#202D2D] leading-[21px] m-0">
-                    Colpetty Retailer
+                    {text(stop1, "outlet_name", "outlet", "order_ref")}
                   </h3>
                   <p className="text-xs text-[#485563] leading-[18px] m-0 font-normal">
-                    Two orders for one outlet — grouped
+                    {text(stop1, "description", "details", "quantity")}
                   </p>
                 </div>
 
@@ -675,8 +783,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
                     type="button"
                     className="flex-1 h-9 bg-[#F97316] hover:bg-[#EA580C] text-white text-[13px] font-bold rounded-lg flex items-center justify-center transition-colors"
                     onClick={() => {
-                      setStop1Loaded(true);
-                      showToast("Stop 1 marked as Loaded! All stops complete.");
+                      void updateLoaded(2, true, "Stop 1 marked as Loaded! All stops complete.");
                     }}
                   >
                     Mark Loaded
