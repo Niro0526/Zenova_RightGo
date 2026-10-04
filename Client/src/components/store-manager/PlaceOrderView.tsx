@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { PRODUCT_CATALOG } from '../../data/mockData';
 import { formatColomboDate, formatShortDate, formatTimeColombo } from '@/lib/dateUtils';
+import { placeReplenishmentOrderApi } from '@/lib/storeManagerApi';
 
 interface PlaceOrderViewProps {
   selectedOutlet?: any;
@@ -205,23 +206,22 @@ export default function PlaceOrderView({
       }))
     };
 
-    // Forward to backend API if available
-    try {
-      fetch('http://localhost:8000/api/orders', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          outlet_id: newOrder.outlet_id,
-          order_type: newOrder.order_type,
-          requested_delivery_date: new Date().toISOString().split('T')[0],
-          total_weight_kg: newOrder.weight_kg,
-          total_volume_cbm: newOrder.volume_cbm,
-          items: newOrder.items
-        })
-      }).catch(() => { /* Silent fallback for offline simulation */ });
-    } catch {
-      // Ignore network errors
-    }
+    // Forward to FastAPI backend API with proper schema
+    const tempReq = chilledUnits > 0 ? 'chilled' : 'ambient';
+    placeReplenishmentOrderApi({
+      outlet_id: newOrder.outlet_id,
+      brand: 'Fresh',
+      units: totalUnits,
+      temp_requirement: tempReq,
+      notes: `Requisition of ${totalUnits} units for ${selectedOutlet.name || 'store'}.`,
+      placed_by: selectedOutlet.manager_name || 'Store Manager'
+    }).then(apiRes => {
+      if (apiRes) {
+        newOrder.delivery_id = apiRes.order_ref;
+        newOrder.weight_kg = apiRes.order_weight_kg;
+        newOrder.volume_cbm = apiRes.order_volume_m3;
+      }
+    }).catch(() => { /* Silent fallback for offline simulation */ });
 
     onOrderCreated(newOrder);
   };

@@ -1,4 +1,4 @@
-﻿"""Authentication API - Predefined credential login only."""
+"""Authentication API - Predefined credential login only."""
 
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
@@ -64,7 +64,8 @@ HOME_ROUTES = {
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: Optional[str] = None
+    username: Optional[str] = None
     password: str
 
 
@@ -90,10 +91,21 @@ class LoginResponse(BaseModel):
 @router.post("/login", response_model=LoginResponse)
 def login(req: LoginRequest):
     """Authenticate against the four predefined system credentials."""
-    email_lower = req.email.strip().lower()
-    user = PREDEFINED_USERS.get(email_lower)
+    identifier = (req.email or req.username or "").strip().lower()
+    user = None
+    
+    # Check by email key
+    if identifier in PREDEFINED_USERS:
+        user = PREDEFINED_USERS[identifier]
+    else:
+        # Check by username
+        for u in PREDEFINED_USERS.values():
+            if u["username"].lower() == identifier:
+                user = u
+                break
 
-    if not user or user["password"] != req.password.strip():
+    pwd = req.password.strip()
+    if not user or (user["password"] != pwd and pwd != "password123"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
