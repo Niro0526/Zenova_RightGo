@@ -520,7 +520,7 @@ class ValidationEngine:
         all_budgets_ok = True
 
         for k, ords in trip_groups.items():
-            vid, tno_str = k.split("-")
+            vid, tno_str = k.rsplit("-", 1)
             veh = self.vehicles_map.get(vid)
             if not veh:
                 continue
@@ -561,7 +561,7 @@ class ValidationEngine:
 
         # Operational items
         for k, ords in trip_groups.items():
-            vid, tno_str = k.split("-")
+            vid, tno_str = k.rsplit("-", 1)
             tno = int(tno_str)
             dep_time = trip_meta.get(k)
             outlet_seq = stop_sequences.get(k, [])

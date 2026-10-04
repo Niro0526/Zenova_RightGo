@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { STOPS } from "@/components/driver/today-run/types";
 import {
@@ -13,6 +13,7 @@ import {
   HistoryIcon,
   ArrowRightIcon,
   CalendarIcon,
+  RefreshCwIcon,
 } from "@/components/driver/today-run/icons";
 import type { Stop, StopStatus } from "@/components/driver/today-run/types";
 import ScreenHeader from "@/components/driver/today-run/ScreenHeader";
@@ -27,6 +28,8 @@ import {
   type LocalDeliveryRecord,
 } from "@/lib/driver/driver-offline-db";
 import { CompletedDeliveryModal } from "@/components/driver/today-run/CompletedDeliveryModal";
+import { fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
+import { TodayRunMobileView } from "@/components/driver/today-run/TodayRunMobileView";
 
 /* ─── Reusable sub-pieces (fluid, no absolute positioning) ─── */
 
@@ -34,10 +37,14 @@ export function TripInfoBanner({
   vehicleId,
   tripPlanId,
   planVersion,
+  brand,
+  district,
 }: {
   vehicleId: string;
   tripPlanId: string;
   planVersion: string;
+  brand?: string;
+  district?: string;
 }) {
   return (
     <div className="flex flex-row justify-between items-center bg-white border border-[#CBD5E1] rounded-xl px-4 py-3">
@@ -45,9 +52,16 @@ export function TripInfoBanner({
         <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">
           Current Vehicle
         </span>
-        <span className="text-[#202D2D] font-bold text-[18px] leading-[27px]">
-          {vehicleId}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="text-[#202D2D] font-bold text-[18px] leading-[27px]">
+            {vehicleId}
+          </span>
+          {brand && (
+            <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-1.5 py-0.5 rounded">
+              {brand}
+            </span>
+          )}
+        </div>
       </div>
       <div className="flex flex-col items-end gap-0.5">
         <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">
@@ -98,7 +112,7 @@ export function ProgressBanner({
 
 export function NextStopBanner({ stop }: { stop: Stop }) {
   return (
-    <div className="flex flex-col gap-3 bg-white border-2 border-[#F97316] rounded-2xl p-5">
+    <div className="flex flex-col gap-3 bg-white border-2 border-[#F97316] rounded-2xl p-5 shadow-sm">
       {/* Badge row */}
       <div className="flex justify-between items-center">
         <span className="inline-flex items-center px-2 py-1 bg-[#22C55E] rounded-md text-white font-bold text-[11px]">
@@ -127,16 +141,18 @@ export function NextStopBanner({ stop }: { stop: Stop }) {
           <span className="text-[#202D2D] font-bold text-[15px]">{stop.orders.join(", ")}</span>
         </div>
         <div className="flex flex-col gap-0.5">
-          <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">Outlet</span>
-          <span className="text-[#202D2D] font-bold text-[15px]">{stop.outlets} outlet</span>
+          <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">Demand</span>
+          <span className="text-[#202D2D] font-bold text-[15px]">
+            {stop.units ? `${stop.units} units (${stop.weightKg} kg)` : `${stop.outlets} outlet`}
+          </span>
         </div>
       </div>
 
       {/* CTA */}
       <Link
         id="btn-open-next-stop"
-        href="/driver/current-stop"
-        className="flex items-center justify-center gap-2 w-full py-3 bg-[#F97316] hover:bg-[#ea6c0a] active:scale-[0.98] rounded-xl transition-all duration-200 border-none cursor-pointer no-underline"
+        href={`/driver/current-stop?stopId=${encodeURIComponent(stop.code)}`}
+        className="flex items-center justify-center gap-2 w-full py-3 bg-[#F97316] hover:bg-[#ea6c0a] active:scale-[0.98] rounded-xl transition-all duration-200 border-none cursor-pointer no-underline shadow-sm"
       >
         <ExternalLinkIcon className="w-[18px] h-[18px] text-white" />
         <span className="text-white font-bold text-[15px]">Open Stop</span>
@@ -212,8 +228,8 @@ export function StopRow({
             )}
           </div>
           <span className="text-[#485563] font-medium text-[12px]">
-            {stop.outlets} outlet · {stop.orders.length}{" "}
-            {stop.orders.length === 1 ? "order" : "orders"} • Window: {stop.timeWindow}
+            {stop.orders.length} {stop.orders.length === 1 ? "order" : "orders"}
+            {stop.units ? ` · ${stop.units} units` : ""} • Window: {stop.timeWindow}
           </span>
         </div>
       </div>
@@ -230,7 +246,7 @@ export function StopRow({
           </button>
         ) : isNext ? (
           <Link
-            href="/driver/current-stop"
+            href={`/driver/current-stop?stopId=${encodeURIComponent(stop.code)}`}
             className="px-3 py-1.5 rounded-lg bg-[#F97316] hover:bg-[#ea6c0a] text-white text-xs font-bold transition-all no-underline shadow-sm"
           >
             Go to Stop →
@@ -335,11 +351,17 @@ export function TodayRunMobileCanvas({
   completedCount,
   nextStop,
   stops,
+  vehicleId = "PEL-R04",
+  tripPlanId = "S1-T001",
+  planVersion = "Plan v2",
   dateStr = "Tuesday, September 29, 2026",
 }: {
   completedCount: number;
   nextStop: Stop;
   stops: Stop[];
+  vehicleId?: string;
+  tripPlanId?: string;
+  planVersion?: string;
   dateStr?: string;
 }) {
   return (
@@ -348,9 +370,9 @@ export function TodayRunMobileCanvas({
       style={{ width: 412, height: 917, fontFamily: "'Poppins', sans-serif", flexShrink: 0 }}
     >
       <ScreenHeader title="Today's Run" subtitle={dateStr} />
-      <TripInfoCard vehicleId="PEL-R04" tripPlanId="S1-T001" planVersion="Plan v2" />
+      <TripInfoCard vehicleId={vehicleId} tripPlanId={tripPlanId} planVersion={planVersion} />
       <ProgressBox completedCount={completedCount} totalCount={stops.length} />
-      <NextStopCard stop={nextStop} onOpenStop={(s) => console.log("Opening stop", s.id)} />
+      <NextStopCard stop={nextStop} onOpenStop={() => {}} />
       <StopsDirectory stops={stops} />
       <BottomNav activeTab="myRun" onTabChange={() => {}} />
     </div>
@@ -363,12 +385,68 @@ export function TodayRunWorkflow() {
   const [completedRecords, setCompletedRecords] = useState<LocalDeliveryRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<LocalDeliveryRecord | null>(null);
   const [dateStr, setDateStr] = useState<string>("Tuesday, September 29, 2026");
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Dynamic run state loaded from backend
+  const [tripInfo, setTripInfo] = useState({
+    vehicleId: "PEL-R04",
+    tripPlanId: "S1-T001",
+    planVersion: "Plan v2",
+    brand: "Fresh",
+    district: "Colombo",
+    stops: STOPS,
+  });
+
+  const loadRunData = useCallback(async () => {
+    try {
+      const run = await fetchDriverRun("PEL-R04");
+      if (run && run.stops && run.stops.length > 0) {
+        const formattedStops: Stop[] = run.stops.map((s) => ({
+          id: s.id,
+          stopId: s.stopId,
+          code: s.code,
+          name: s.name,
+          address: s.address,
+          district: s.district,
+          depot: s.depot,
+          dockType: s.dockType,
+          parkingConstraint: s.parkingConstraint,
+          managerName: s.managerName,
+          managerPhone: s.managerPhone,
+          outlets: s.outlets || 1,
+          orders: s.orders || [],
+          units: s.units,
+          weightKg: s.weightKg,
+          volumeM3: s.volumeM3,
+          tempRequirement: s.tempRequirement,
+          status: "upcoming" as StopStatus,
+          timeWindow: s.timeWindow,
+          windowOpen: s.windowOpen,
+          windowClose: s.windowClose,
+        }));
+
+        setTripInfo({
+          vehicleId: run.vehicleId || "PEL-R04",
+          tripPlanId: run.tripId || "S1-T001",
+          planVersion: run.manifestVersion || "Plan v2",
+          brand: run.brand || "Fresh",
+          district: run.district || "Colombo",
+          stops: formattedStops,
+        });
+      }
+    } catch (err) {
+      console.warn("Using baseline stops for driver run:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
+    loadRunData();
     getAllLocalDeliveryRecords()
       .then((records: LocalDeliveryRecord[]) => setCompletedRecords(records))
       .catch((err: unknown) => console.error("Error loading delivery records:", err));
-  }, [connectionState]);
+  }, [connectionState, loadRunData]);
 
   useEffect(() => {
     try {
@@ -386,20 +464,26 @@ export function TodayRunWorkflow() {
     }
   }, []);
 
-  // Compute status for stops: if completed in local IndexedDB, mark as completed
-  const stopsWithStatus: Stop[] = STOPS.map((stop) => {
+  // Compute status for stops: if completed in local IndexedDB or backend, mark as completed
+  let foundNext = false;
+  const stopsWithStatus: Stop[] = tripInfo.stops.map((stop) => {
     const isDone = completedRecords.some(
       (r) => r.stopId === stop.code || r.stopName.includes(stop.code)
     );
     if (isDone) {
       return { ...stop, status: "completed" as StopStatus };
     }
-    return stop;
+    if (!foundNext) {
+      foundNext = true;
+      return { ...stop, status: "next" as StopStatus };
+    }
+    return { ...stop, status: "upcoming" as StopStatus };
   });
 
   const completedCount = stopsWithStatus.filter((s) => s.status === "completed").length;
   const nextStop =
-    stopsWithStatus.find((s) => s.status === "next" || s.status === "upcoming") ??
+    stopsWithStatus.find((s) => s.status === "next") ??
+    stopsWithStatus.find((s) => s.status === "upcoming") ??
     stopsWithStatus[0];
 
   return (
@@ -425,7 +509,9 @@ export function TodayRunWorkflow() {
                 <span className="text-xs font-bold uppercase tracking-wider text-[#F97316] bg-orange-50 px-2.5 py-0.5 rounded border border-orange-200">
                   Active Dispatch Run
                 </span>
-                <span className="text-xs font-bold text-[#485563]">Vehicle: PEL-R04 · Plan v2</span>
+                <span className="text-xs font-bold text-[#485563]">
+                  Vehicle: {tripInfo.vehicleId} · {tripInfo.planVersion} · {tripInfo.brand}
+                </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-[#202D2D] mt-1 m-0">
                 Today&apos;s Run
@@ -438,8 +524,17 @@ export function TodayRunWorkflow() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => loadRunData()}
+              className="flex items-center gap-1.5 px-3 py-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold text-[#485563] cursor-pointer transition-colors"
+              title="Refresh Run from Server"
+            >
+              <RefreshCwIcon className="w-3.5 h-3.5" />
+              <span>Refresh</span>
+            </button>
             <Link
-              href="/driver/current-stop"
+              href={`/driver/current-stop?stopId=${encodeURIComponent(nextStop.code)}`}
               className="flex items-center gap-2 px-4 py-2.5 bg-[#F97316] hover:bg-[#ea6c0a] text-white font-bold text-xs rounded-xl shadow-sm no-underline active:scale-95 transition-all"
             >
               <NavigationIcon className="w-4 h-4 text-white" />
@@ -461,9 +556,9 @@ export function TodayRunWorkflow() {
         {/* Stat chips */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: "Total Stops", value: STOPS.length, color: "text-[#202D2D]" },
+            { label: "Total Stops", value: stopsWithStatus.length, color: "text-[#202D2D]" },
             { label: "Completed", value: completedCount, color: "text-[#15803D]" },
-            { label: "Remaining", value: STOPS.length - completedCount, color: "text-[#F97316]" },
+            { label: "Remaining", value: stopsWithStatus.length - completedCount, color: "text-[#F97316]" },
           ].map((stat) => (
             <div
               key={stat.label}
@@ -480,16 +575,16 @@ export function TodayRunWorkflow() {
             <div className="flex justify-between">
               <p className="text-[#485563] text-[11px] font-semibold uppercase tracking-wider">Progress</p>
               <p className="text-[#202D2D] font-bold text-[13px]">
-                {Math.round((completedCount / STOPS.length) * 100)}%
+                {stopsWithStatus.length > 0 ? Math.round((completedCount / stopsWithStatus.length) * 100) : 0}%
               </p>
             </div>
             <div className="w-full h-2 bg-[#F1F5F9] rounded-full overflow-hidden">
               <div
                 className="h-full bg-[#F97316] rounded-full transition-all duration-700"
-                style={{ width: `${Math.round((completedCount / STOPS.length) * 100)}%` }}
+                style={{ width: `${stopsWithStatus.length > 0 ? Math.round((completedCount / stopsWithStatus.length) * 100) : 0}%` }}
               />
             </div>
-            <p className="text-[#94A3B8] text-xs">{completedCount} of {STOPS.length} stops done</p>
+            <p className="text-[#94A3B8] text-xs">{completedCount} of {stopsWithStatus.length} stops done</p>
           </div>
         </div>
 
@@ -497,7 +592,13 @@ export function TodayRunWorkflow() {
         <div className="grid grid-cols-5 gap-6 flex-1 min-h-0">
           {/* Next stop card (2 cols) */}
           <div className="col-span-2 flex flex-col gap-4">
-            <TripInfoBanner vehicleId="PEL-R04" tripPlanId="S1-T001" planVersion="Plan v2" />
+            <TripInfoBanner
+              vehicleId={tripInfo.vehicleId}
+              tripPlanId={tripInfo.tripPlanId}
+              planVersion={tripInfo.planVersion}
+              brand={tripInfo.brand}
+              district={tripInfo.district}
+            />
             <NextStopBanner stop={nextStop} />
           </div>
 
@@ -507,7 +608,7 @@ export function TodayRunWorkflow() {
               <div className="flex items-center gap-2">
                 <h2 className="text-[#202D2D] font-bold text-[16px] m-0">Stops Directory</h2>
                 <span className="text-[#94A3B8] text-[13px] font-semibold">
-                  ({completedCount}/{STOPS.length} completed)
+                  ({completedCount}/{stopsWithStatus.length} completed)
                 </span>
               </div>
               <Link
@@ -541,11 +642,17 @@ export function TodayRunWorkflow() {
           MOBILE layout  (< md) — Seamless mobile view
           ══════════════════════════════════════════ */}
       <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F8FAFC]">
-        <TodayRunMobileCanvas
+        <TodayRunMobileView
           completedCount={completedCount}
-          nextStop={nextStop}
+          totalCount={stopsWithStatus.length}
+          currentStop={nextStop}
+          nextStop={stopsWithStatus.find((s) => s.id !== nextStop.id && s.status !== "completed") || null}
           stops={stopsWithStatus}
-          dateStr={dateStr}
+          vehicleId={tripInfo.vehicleId}
+          tripPlanId={tripInfo.tripPlanId}
+          planVersion={tripInfo.planVersion}
+          completedRecords={completedRecords}
+          onViewRecord={(r) => setSelectedRecord(r)}
         />
       </div>
     </>

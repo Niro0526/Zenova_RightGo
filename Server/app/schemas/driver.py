@@ -15,11 +15,13 @@ class DiscrepancyDetails(BaseModel):
     deliveredQty: int
     notes: str
     photoName: Optional[str] = None
+    photoUrl: Optional[str] = None
 
 class NotDeliveredDetails(BaseModel):
     reason: str
     notes: str
     photoName: Optional[str] = None
+    photoUrl: Optional[str] = None
 
 class PodDetails(BaseModel):
     photoName: Optional[str] = None

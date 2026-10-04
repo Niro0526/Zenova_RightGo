@@ -20,6 +20,8 @@ class Outlet(Base):
     manager_name = Column(String(128), nullable=True)
     phone = Column(String(32), nullable=True)
     operating_days = Column(String(128), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
 class Vehicle(Base):
     __tablename__ = "vehicles"

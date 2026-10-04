@@ -417,7 +417,7 @@ def suggest_plan_greedy(
 
     db.query(DraftStopSequence).filter(DraftStopSequence.scenario == scenario).delete()
     for key, seq in stop_seqs.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         db.add(DraftStopSequence(
             scenario=scenario,
             vehicle_id=vid,
@@ -427,7 +427,7 @@ def suggest_plan_greedy(
 
     db.query(DraftTripMeta).filter(DraftTripMeta.scenario == scenario).delete()
     for key, dep_time in trip_meta.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         db.add(DraftTripMeta(
             scenario=scenario,
             vehicle_id=vid,
@@ -541,7 +541,7 @@ def release_plan(
 
     trip_counter = 1
     for key, trip_orders in trip_map.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         tno = int(tno_str)
         outlet_seq = draft_state["stopSequences"].get(key, list(dict.fromkeys(o.outlet_id for o in trip_orders)))
         dep_time = draft_state["tripMeta"].get(key, {}).get("plannedDepartureTime")
@@ -591,12 +591,14 @@ def release_plan(
             ))
 
     # Update Deferral Memory & Orders
+    existing_mems = {m.outlet_id: m for m in db.query(DeferralMemory).all()}
     for o in engine.orders:
         a = draft_state["assignments"].get(o.order_ref, {})
-        mem = db.query(DeferralMemory).filter(DeferralMemory.outlet_id == o.outlet_id).first()
+        mem = existing_mems.get(o.outlet_id)
         if not mem:
             mem = DeferralMemory(outlet_id=o.outlet_id, consecutive_skips=0, updated_at=now_utc)
             db.add(mem)
+            existing_mems[o.outlet_id] = mem
 
         if a.get("decision") == "served":
             mem.consecutive_skips = 0

@@ -29,17 +29,20 @@ import {
   type IssueReportRecord,
   type IssueCategoryItem,
 } from "@/components/driver/today-run/ReportDetailsModal";
+import { DriverHistoryMobileView } from "@/components/driver/history/DriverHistoryMobileView";
+
+import { fetchDriverHistory, fetchDriverIssuesHistory } from "@/lib/driver/driver-api";
 
 // Initial baseline completed record for today's run so history is immediately rich
 const BASELINE_HISTORY_RECORDS: LocalDeliveryRecord[] = [
   {
     id: "DEL-S1-T001-DEP",
     stopId: "DEP001",
-    stopName: "Peliyagoda Central Depot — Departure Check",
+    stopName: "Peliyagoda Central Depot — Departure Gate Check",
     vehicleId: "PEL-R04",
     outcome: "full",
     podDetails: {
-      signerName: "M. Bandara (Depot Dispatch Lead)",
+      signerName: "Rizwan (Head Loader)",
       hasSignature: true,
       hasPhoto: true,
       photoName: "depot_seal_pel_r04.jpg",
@@ -63,12 +66,12 @@ const BASELINE_REPORT_RECORDS: IssueReportRecord[] = [
     categories: [
       { id: "shortfall", label: "Shortfall / Stock Discrepancy", icon: "📦" },
     ],
-    relatedScope: "Order S1-001 (Stop 1 – OUT001 / Colpetty Retailer)",
+    relatedScope: "Order S1-001 (Stop 1 – OUT001 / Colombo Fresh Outlet)",
     orderId: "S1-001",
     stopCode: "OUT001",
-    outletName: "OUT001 / Colpetty Retailer",
+    outletName: "OUT001 / Colombo Fresh Outlet",
     description:
-      "8 damaged ambient units identified during morning vehicle load. Replaced before depot departure with verified replacement stock (Plan v2).",
+      "8 damaged chilled units identified during morning vehicle load. Replaced before depot departure with verified replacement stock (Plan v2).",
     photo: null,
     status: "Synced",
     offlineCreated: false,
@@ -84,9 +87,9 @@ const BASELINE_REPORT_RECORDS: IssueReportRecord[] = [
     categories: [
       { id: "access", label: "Outlet Closed / Access Restricted", icon: "🚪" },
     ],
-    relatedScope: "Entire Stop 1 (OUT001 / Colpetty Retailer)",
+    relatedScope: "Entire Stop 1 (OUT001 / Colombo Fresh Outlet)",
     stopCode: "OUT001",
-    outletName: "OUT001 / Colpetty Retailer",
+    outletName: "OUT001 / Colombo Fresh Outlet",
     description:
       "Delivery street dock entrance was blocked by market utility van. Driver contacted store lead and dock access cleared by 05:20 AM.",
     photo: null,
@@ -119,18 +122,23 @@ export function DriverHistoryWorkflow() {
 
   const [isLoading, setIsLoading] = useState(true);
 
-  // Load delivery records from IndexedDB and combine with baseline
+  // Load delivery records from backend API + IndexedDB and combine with baseline
   const loadDeliveryRecords = async () => {
     try {
-      const localRecords = await getAllLocalDeliveryRecords();
+      const [localRecords, remoteRecords] = await Promise.all([
+        getAllLocalDeliveryRecords(),
+        fetchDriverHistory("PEL-R04").catch(() => []),
+      ]);
       const mergedMap = new Map<string, LocalDeliveryRecord>();
 
-      localRecords.forEach((r: LocalDeliveryRecord) => mergedMap.set(r.id, r));
+      // Put baseline first
       BASELINE_HISTORY_RECORDS.forEach((r: LocalDeliveryRecord) => {
-        if (!mergedMap.has(r.id)) {
-          mergedMap.set(r.id, r);
-        }
+        mergedMap.set(r.id, r);
       });
+      // Put remote records
+      remoteRecords.forEach((r: LocalDeliveryRecord) => mergedMap.set(r.id, r));
+      // Put local records (most recent)
+      localRecords.forEach((r: LocalDeliveryRecord) => mergedMap.set(r.id, r));
 
       const sorted = Array.from(mergedMap.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -144,18 +152,21 @@ export function DriverHistoryWorkflow() {
     }
   };
 
-  // Load issue reports from IndexedDB / localStorage and combine with baseline
+  // Load issue reports from backend API + IndexedDB / localStorage and combine with baseline
   const loadReportRecords = async () => {
     try {
-      const localReports = await getAllLocalIssueReports();
+      const [localReports, remoteReports] = await Promise.all([
+        getAllLocalIssueReports(),
+        fetchDriverIssuesHistory("PEL-R04").catch(() => []),
+      ]);
       const mergedMap = new Map<string, IssueReportRecord>();
 
-      localReports.forEach((r: IssueReportRecord) => mergedMap.set(r.id, r));
       BASELINE_REPORT_RECORDS.forEach((r: IssueReportRecord) => {
-        if (!mergedMap.has(r.id)) {
-          mergedMap.set(r.id, r);
-        }
+        mergedMap.set(r.id, r);
       });
+      remoteReports.forEach((r: IssueReportRecord) => mergedMap.set(r.id, r));
+      localReports.forEach((r: IssueReportRecord) => mergedMap.set(r.id, r));
+
       const sorted = Array.from(mergedMap.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -228,8 +239,8 @@ export function DriverHistoryWorkflow() {
         report={selectedReportRecord}
       />
 
-      {/* Main Container */}
-      <div className="flex flex-col gap-6 p-4 sm:p-6 lg:p-8 min-h-full max-w-6xl mx-auto w-full">
+      {/* Desktop Main Container */}
+      <div className="hidden md:flex flex-col gap-6 p-4 sm:p-6 lg:p-8 min-h-full max-w-6xl mx-auto w-full">
         {/* Header Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-5 sm:p-6 rounded-2xl shadow-sm border border-[#CBD5E1]">
           <div className="flex items-center gap-4">
@@ -862,6 +873,22 @@ export function DriverHistoryWorkflow() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* ══════════════════════════════════════════
+          MOBILE layout  (< md) — Full Responsive Figma Spec
+          ══════════════════════════════════════════ */}
+      <div className="md:hidden flex items-start justify-center min-h-full bg-[#F6F8FB] py-0">
+        <DriverHistoryMobileView
+          deliveryRecords={deliveryRecords}
+          reportRecords={reportRecords}
+          activeTab={historySection}
+          onTabChange={(tab) => setHistorySection(tab)}
+          selectedDeliveryRecord={selectedDeliveryRecord}
+          onSelectDeliveryRecord={(rec) => setSelectedDeliveryRecord(rec)}
+          selectedReportRecord={selectedReportRecord}
+          onSelectReportRecord={(rep) => setSelectedReportRecord(rep)}
+        />
       </div>
     </>
   );

@@ -2,7 +2,7 @@
 
 import os
 from pathlib import Path
-from typing import List, Union
+from typing import List, Union, Optional
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -19,6 +19,20 @@ class Settings(BaseSettings):
     
     # Database - Supabase PostgreSQL as primary database
     DATABASE_URL: str = "postgresql://postgres.your-project:your-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
+    
+    # Supabase Storage & Object Storage Architecture
+    SUPABASE_URL: str = "https://vjmzuaheovmdfmaruphq.supabase.co"
+    SUPABASE_SERVICE_ROLE_KEY: Optional[str] = None
+    SUPABASE_KEY: Optional[str] = None
+    STORAGE_SIGNED_URL_EXPIRES_IN: int = 3600 # 1 hour
+    STORAGE_LOCAL_DIR: str = str(BASE_DIR / "storage_files")
+    
+    # Private Evidence Buckets
+    BUCKET_POD_SIGNATURES: str = "pod-signatures"
+    BUCKET_POD_PHOTOS: str = "pod-photos"
+    BUCKET_DRIVER_ISSUE_EVIDENCE: str = "driver-issue-evidence"
+    BUCKET_LOADING_ISSUE_EVIDENCE: str = "loading-issue-evidence"
+    BUCKET_RECEIPT_EVIDENCE: str = "receipt-evidence"
     
     # Dataset directory
     RIGHTGO_DATA_DIR: str = str(DATA_DIR_DEFAULT)

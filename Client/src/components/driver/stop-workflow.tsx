@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeftIcon,
   PlayIcon,
@@ -27,6 +27,10 @@ import { Toast, type ToastMessage } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { saveLocalDeliveryRecord, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
 import { getOutletContact } from "@/lib/driver/outlet-service";
+import { postDriverDelivery } from "@/lib/driver/driver-api";
+import { NavigationPanel } from "@/components/driver/NavigationPanel";
+import { DriverCurrentStopMobileView } from "@/components/driver/current-stop/DriverCurrentStopMobileView";
+import type { Stop } from "@/components/driver/today-run/types";
 
 export type DiscrepancyType = "Quantity Short" | "Damaged" | "Wrong Item" | "Other";
 export type NotDeliveredReason =
@@ -53,6 +57,9 @@ const NOT_DELIVERED_REASONS: NotDeliveredReason[] = [
 
 export function DriverStopWorkflow({ initialStopRecorded = false }: { initialStopRecorded?: boolean }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const targetStopId = searchParams?.get("stopId") || "OUT001";
+
   const {
     isOnline,
     connectionState,
@@ -62,7 +69,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
     refreshPendingCount,
   } = useConnectivity();
 
-  const storeContact = getOutletContact("OUT001");
+  const storeContact = getOutletContact(targetStopId);
 
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const discrepancyFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -76,11 +83,14 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const [signerName, setSignerName] = useState("Store Manager");
 
   // Delivery workflow states:
-  // 1. deliveryStarted === false -> Details & Start Delivery CTA
+  // 1. deliveryStarted === false -> Details, Live Map & Start Delivery CTA
   // 2. deliveryStarted === true && completingDelivery === false -> Live Navigation Route & Complete Delivery CTA
   // 3. completingDelivery === true && stopRecorded === false -> Proof of Delivery / Outcome & Complete Stop CTA
   // 4. stopRecorded === true -> Stop Recorded / Delivery Recorded success screen & Proceed to Next Stop CTA
   const [deliveryStarted, setDeliveryStarted] = useState(false);
+  const [stopStatus, setStopStatus] = useState<"EN_ROUTE" | "ARRIVED" | "DELIVERED">("EN_ROUTE");
+  const [arrivalTimestamp, setArrivalTimestamp] = useState<string | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
   const [completingDelivery, setCompletingDelivery] = useState(false);
   const [stopRecorded, setStopRecorded] = useState(initialStopRecorded);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
@@ -135,15 +145,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setPhotoFile({ name: file.name, url });
-      setToast({
-        id: Date.now().toString(),
-        type: "success",
-        title: "Photo Attached",
-        message: "Delivery photo uploaded successfully.",
-        duration: 3000,
-      });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = reader.result as string;
+        setPhotoFile({ name: file.name, url });
+        setToast({
+          id: Date.now().toString(),
+          type: "success",
+          title: "Photo Attached",
+          message: "Delivery photo uploaded successfully.",
+          duration: 3000,
+        });
+      };
+      reader.readAsDataURL(file);
     }
     e.target.value = "";
   };
@@ -151,15 +165,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const handleDiscrepancyPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setDiscrepancyPhoto({ name: file.name, url });
-      setToast({
-        id: Date.now().toString(),
-        type: "success",
-        title: "Evidence Attached",
-        message: "Discrepancy photo file uploaded successfully.",
-        duration: 3000,
-      });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = reader.result as string;
+        setDiscrepancyPhoto({ name: file.name, url });
+        setToast({
+          id: Date.now().toString(),
+          type: "success",
+          title: "Evidence Attached",
+          message: "Discrepancy photo file uploaded successfully.",
+          duration: 3000,
+        });
+      };
+      reader.readAsDataURL(file);
     }
     e.target.value = "";
   };
@@ -167,15 +185,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const handleNotDeliveredPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setNotDeliveredPhoto({ name: file.name, url });
-      setToast({
-        id: Date.now().toString(),
-        type: "success",
-        title: "Evidence Attached",
-        message: "Non-delivery photo file uploaded successfully.",
-        duration: 3000,
-      });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = reader.result as string;
+        setNotDeliveredPhoto({ name: file.name, url });
+        setToast({
+          id: Date.now().toString(),
+          type: "success",
+          title: "Evidence Attached",
+          message: "Non-delivery photo file uploaded successfully.",
+          duration: 3000,
+        });
+      };
+      reader.readAsDataURL(file);
     }
     e.target.value = "";
   };
@@ -183,15 +205,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      setSignatureFile({ name: file.name, url });
-      setToast({
-        id: Date.now().toString(),
-        type: "success",
-        title: "Signature Attached",
-        message: "Recipient signature file uploaded.",
-        duration: 3000,
-      });
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = reader.result as string;
+        setSignatureFile({ name: file.name, url });
+        setToast({
+          id: Date.now().toString(),
+          type: "success",
+          title: "Signature Attached",
+          message: "Recipient signature file uploaded.",
+          duration: 3000,
+        });
+      };
+      reader.readAsDataURL(file);
     }
     e.target.value = "";
   };
@@ -365,12 +391,12 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       }
 
       // Prepare local delivery record for offline/sync flow
-      const recordId = "DEL-S1-T001-001";
+      const recordId = `DEL-S1-T001-${targetStopId}-${Date.now()}`;
       const recordStatus = isOnline ? "Synced" : "Pending Sync";
       const localRecord: LocalDeliveryRecord = {
         id: recordId,
-        stopId: "OUT001",
-        stopName: "OUT001 / Colpetty Retailer",
+        stopId: targetStopId,
+        stopName: storeContact.name || `${targetStopId} Outlet`,
         vehicleId: "PEL-R04",
         outcome: deliveryOutcome,
         discrepancyDetails: deliveryOutcome === "discrepancy" ? {
@@ -379,15 +405,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           deliveredQty: Number(deliveredQty) || 0,
           notes: discrepancyNotes,
           photoName: discrepancyPhoto?.name,
+          photoUrl: discrepancyPhoto?.url,
         } : undefined,
         notDeliveredDetails: deliveryOutcome === "none" ? {
           reason: notDeliveredReason,
           notes: notDeliveredNotes,
           photoName: notDeliveredPhoto?.name,
+          photoUrl: notDeliveredPhoto?.url,
         } : undefined,
         podDetails: {
           photoName: photoFile?.name,
+          photoUrl: photoFile?.url,
           signerName: signatureFile ? signerName : undefined,
+          signatureUrl: signatureFile?.url,
           hasSignature: !!signatureFile,
           hasPhoto: !!photoFile,
         },
@@ -397,9 +427,18 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         syncedAt: isOnline ? new Date().toISOString() : null,
       };
 
-      // Store in local IndexedDB
+      // Store in local IndexedDB and transmit immediately if online
       saveLocalDeliveryRecord(localRecord)
-        .then(() => refreshPendingCount())
+        .then(async () => {
+          if (isOnline) {
+            try {
+              await postDriverDelivery(localRecord);
+            } catch (postErr) {
+              console.warn("Direct postDriverDelivery notice:", postErr);
+            }
+          }
+          await refreshPendingCount();
+        })
         .catch((err: unknown) => console.error("Failed to save delivery record to IndexedDB:", err));
 
       if (isOnline) {
@@ -1511,112 +1550,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         ) : deliveryStarted ? (
           /* ── DESKTOP ACTIVE ROUTE VIEW ── */
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1">
-            {/* Left: Route Map */}
+            {/* Left: Real Leaflet Route Map & Navigation */}
             <div className="lg:col-span-7 flex flex-col gap-6">
-              <div className="bg-white rounded-2xl shadow-sm border border-[#CBD5E1] flex flex-col overflow-hidden">
-                <div className="flex items-center justify-between px-6 pt-5 pb-3">
-                  <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
-                    MAP — ROUTE
-                  </span>
-                  <span className="text-[#485563] font-semibold text-xs">
-                    Live tracking
-                  </span>
-                </div>
-                {/* Route Map Visual */}
-                <div className="relative w-full bg-slate-900 overflow-hidden" style={{ height: 380 }}>
-                  {/* Grid pattern background */}
-                  <div
-                    className="absolute inset-0 opacity-30"
-                    style={{
-                      backgroundImage:
-                        "radial-gradient(#38bdf8 1px, transparent 1px), radial-gradient(#38bdf8 1px, #0f172a 1px)",
-                      backgroundSize: "20px 20px",
-                      backgroundPosition: "0 0, 10px 10px",
-                    }}
-                  />
-                  {/* Animated route path */}
-                  <svg className="absolute inset-0 w-full h-full" viewBox="0 0 600 380" fill="none">
-                    <path
-                      d="M 80 320 Q 120 280 160 260 Q 200 240 260 200 Q 320 160 380 140 Q 440 120 500 80"
-                      stroke="#22C55E"
-                      strokeWidth="4"
-                      strokeLinecap="round"
-                      strokeDasharray="12 6"
-                      opacity="0.8"
-                    >
-                      <animate attributeName="stroke-dashoffset" from="0" to="-18" dur="1s" repeatCount="indefinite" />
-                    </path>
-                    {/* Start marker */}
-                    <circle cx="80" cy="320" r="10" fill="#1D4ED8" stroke="white" strokeWidth="3" />
-                    <text x="80" y="350" textAnchor="middle" fill="#94a3b8" fontSize="11" fontWeight="600">Depot</text>
-                    {/* Waypoint markers */}
-                    <circle cx="260" cy="200" r="6" fill="#F59E0B" stroke="white" strokeWidth="2" />
-                    <circle cx="380" cy="140" r="6" fill="#F59E0B" stroke="white" strokeWidth="2" />
-                    {/* End marker - destination */}
-                    <circle cx="500" cy="80" r="14" fill="#F97316" stroke="white" strokeWidth="3" />
-                    <text x="500" y="60" textAnchor="middle" fill="white" fontSize="11" fontWeight="700">Colpetty</text>
-                    {/* Driver position (animated) */}
-                    <circle cx="260" cy="200" r="8" fill="#22C55E" opacity="0.3">
-                      <animate attributeName="r" values="8;16;8" dur="2s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" values="0.4;0.1;0.4" dur="2s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx="260" cy="200" r="6" fill="#22C55E" stroke="white" strokeWidth="2" />
-                  </svg>
-                  {/* Driver info overlay */}
-                  <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
-                    <div className="flex items-center gap-3 bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2.5">
-                      <div className="w-8 h-8 rounded-full bg-[#22C55E] flex items-center justify-center">
-                        <NavigationIcon className="w-4 h-4 text-white" />
-                      </div>
-                      <div className="flex flex-col">
-                        <span className="text-white font-bold text-sm">En Route</span>
-                        <span className="text-slate-300 text-xs">PEL-R04 • Van</span>
-                      </div>
-                    </div>
-                    <div className="bg-black/60 backdrop-blur-sm rounded-xl px-4 py-2.5 text-right">
-                      <span className="text-[#22C55E] font-bold text-lg block leading-tight">13 min</span>
-                      <span className="text-slate-300 text-xs">7.2 km remaining</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Turn-by-turn directions */}
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#CBD5E1] flex flex-col gap-4">
-                <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
-                  TURN-BY-TURN DIRECTIONS
-                </span>
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center gap-3 bg-[#ECFDF5] p-3 rounded-xl border border-green-200">
-                    <div className="w-8 h-8 rounded-full bg-[#22C55E] text-white flex items-center justify-center shrink-0">
-                      <NavigationIcon className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col flex-1">
-                      <span className="text-[#202D2D] font-bold text-sm">Head southwest on Baseline Rd</span>
-                      <span className="text-[#485563] text-xs">2.1 km • 4 min</span>
-                    </div>
-                    <span className="text-[#22C55E] font-bold text-xs bg-green-50 px-2 py-1 rounded-md border border-green-200">NOW</span>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 rounded-xl bg-[#F9FAFB] border border-[#F1F5F9]">
-                    <div className="w-8 h-8 rounded-full bg-[#F1F5F9] text-[#485563] flex items-center justify-center shrink-0">
-                      <ArrowLeftIcon className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col flex-1">
-                      <span className="text-[#202D2D] font-semibold text-sm">Turn left onto Galle Rd</span>
-                      <span className="text-[#485563] text-xs">3.8 km • 6 min</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 p-3 rounded-xl bg-[#F9FAFB] border border-[#F1F5F9]">
-                    <div className="w-8 h-8 rounded-full bg-[#F97316] text-white flex items-center justify-center shrink-0">
-                      <CheckIcon className="w-4 h-4" />
-                    </div>
-                    <div className="flex flex-col flex-1">
-                      <span className="text-[#202D2D] font-semibold text-sm">Arrive at Colpetty Retailer Dock</span>
-                      <span className="text-[#485563] text-xs">Galle Road, Colombo 03</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
+              <NavigationPanel
+                outletId={targetStopId}
+                outletName={storeContact?.name || `${targetStopId} / Outlet`}
+                outletAddress={storeContact?.address || "Galle Road, Colombo"}
+                destinationLat={storeContact?.latitude ?? 6.9034}
+                destinationLng={storeContact?.longitude ?? 79.8512}
+                isNavigating={true}
+                onToggleNavigation={(active) => setIsNavigating(active)}
+                onArrived={() => setCompletingDelivery(true)}
+                managerPhone={storeContact?.phone}
+              />
             </div>
 
             {/* Right: Route info & Confirm */}
@@ -1625,27 +1571,26 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                 <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
                   LIVE NAVIGATION ROUTE
                 </span>
-                <div className="flex items-baseline justify-between">
-                  <span className="text-[#000000] font-bold text-lg">Drive</span>
-                  <span className="text-[#22C55E] font-bold text-lg">13 min (7.2 km)</span>
-                </div>
-                <p className="text-[#000000] font-semibold text-sm">
-                  Fastest route, the usual traffic
-                </p>
-                <div className="flex flex-col gap-2 mt-2 bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
+                <div className="flex flex-col gap-2 bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
                   <div className="flex justify-between">
-                    <span className="text-[#485563] font-semibold text-xs">FROM</span>
-                    <span className="text-[#202D2D] font-bold text-sm">Depot — PEL-R04</span>
+                    <span className="text-[#485563] font-semibold text-xs">DESTINATION</span>
+                    <span className="text-[#202D2D] font-bold text-sm">
+                      {storeContact?.name || `${targetStopId} / Outlet`}
+                    </span>
                   </div>
                   <div className="w-full h-px bg-[#E2E8F0]" />
                   <div className="flex justify-between">
-                    <span className="text-[#485563] font-semibold text-xs">TO</span>
-                    <span className="text-[#202D2D] font-bold text-sm">Colpetty Retailer Dock</span>
+                    <span className="text-[#485563] font-semibold text-xs">ADDRESS</span>
+                    <span className="text-[#202D2D] font-bold text-sm truncate max-w-[220px]">
+                      {storeContact?.address || "Colombo District"}
+                    </span>
                   </div>
                   <div className="w-full h-px bg-[#E2E8F0]" />
                   <div className="flex justify-between">
-                    <span className="text-[#485563] font-semibold text-xs">ETA</span>
-                    <span className="text-[#22C55E] font-bold text-sm">05:13 AM</span>
+                    <span className="text-[#485563] font-semibold text-xs">DELIVERY WINDOW</span>
+                    <span className="text-[#22C55E] font-bold text-sm">
+                      {storeContact?.windowTime || "05:00 – 07:30"}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1845,29 +1790,35 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                 </div>
               </div>
 
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#CBD5E1] flex flex-col gap-3">
-                <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
-                  MAP - DESTINATION
-                </span>
-                <div className="relative w-full h-48 bg-slate-800 rounded-xl overflow-hidden flex flex-col items-center justify-center p-4 text-center">
-                  <div
-                    className="absolute inset-0 opacity-30 bg-cover bg-center"
-                    style={{
-                      backgroundImage:
-                        "radial-gradient(#38bdf8 1px, transparent 1px), radial-gradient(#38bdf8 1px, #0f172a 1px)",
-                      backgroundSize: "20px 20px",
-                      backgroundPosition: "0 0, 10px 10px",
-                    }}
-                  />
-                  <div className="relative z-10 flex flex-col items-center gap-2">
-                    <div className="w-10 h-10 rounded-full bg-[#F97316] text-white flex items-center justify-center shadow-lg animate-bounce">
-                      <NavigationIcon className="w-5 h-5" />
-                    </div>
-                    <span className="text-white font-bold text-sm">Colpetty Retailer Dock</span>
-                    <span className="text-slate-300 text-xs">Galle Road, Colombo 03</span>
-                  </div>
-                </div>
-              </div>
+              <NavigationPanel
+                outletId={targetStopId}
+                outletName={storeContact?.name || `${targetStopId} / Outlet`}
+                outletAddress={storeContact?.address || "Galle Road, Colombo"}
+                destinationLat={storeContact?.latitude ?? 6.9034}
+                destinationLng={storeContact?.longitude ?? 79.8512}
+                isNavigating={isNavigating}
+                onToggleNavigation={(active) => setIsNavigating(active)}
+                initialArrivalConfirmed={stopStatus === "ARRIVED"}
+                initialArrivalTimestamp={arrivalTimestamp}
+                onConfirmArrival={(time) => {
+                  setStopStatus("ARRIVED");
+                  setArrivalTimestamp(time);
+                  setToast({
+                    id: Date.now().toString(),
+                    type: "success",
+                    title: "Arrival Confirmed",
+                    message: `Stop marked as ARRIVED at ${time}`,
+                    duration: 3000,
+                  });
+                }}
+                onStartDelivery={() => {
+                  setDeliveryStarted(true);
+                }}
+                onArrived={() => {
+                  setDeliveryStarted(true);
+                }}
+                managerPhone={storeContact?.phone}
+              />
             </div>
           </div>
         )}
@@ -1876,59 +1827,90 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       {/* ══════════════════════════════════════════
           MOBILE layout  (< md) — Seamless mobile view
           ══════════════════════════════════════════ */}
-      <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F8FAFC]">
-        <MobileCurrentStopCanvas
+      <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F6F8FB]">
+        <DriverCurrentStopMobileView
+          stop={{
+            id: 1,
+            stopId: targetStopId,
+            code: targetStopId,
+            name: storeContact?.name || `${targetStopId} / Colpetty Retailer`,
+            address: storeContact?.address || "Galle Road, Colombo 03",
+            district: "Colombo",
+            depot: "Peliyagoda",
+            dockType: "Rear Dock",
+            parkingConstraint: "Standard",
+            managerName: storeContact?.managerName || "Store Manager",
+            managerPhone: storeContact?.phone || "+94 11 257 3489",
+            outlets: 1,
+            orders: ["S1-000", "S1-001"],
+            status: stopStatus === "ARRIVED" ? "next" : "upcoming",
+            timeWindow: "06:00 – 08:00",
+            windowOpen: "06:00",
+            windowClose: "08:00",
+          }}
+          totalStopsCount={4}
+          currentStopIndex={1}
           deliveryStarted={deliveryStarted}
           completingDelivery={completingDelivery}
           stopRecorded={stopRecorded}
-          deliveryOutcome={deliveryOutcome}
-          onSelectOutcome={(o) => {
-            setDeliveryOutcome(o);
-            setOrderConfirmed(false);
-          }}
-          photoFile={photoFile}
-          onSelectPhoto={() => {
-            setCameraPurpose("pod");
-            setShowCameraModal(true);
-          }}
-          onRemovePhoto={() => setPhotoFile(null)}
-          signatureFile={signatureFile}
-          onSelectSignature={() => setShowSignatureModal(true)}
-          onRemoveSignature={() => setSignatureFile(null)}
           orderConfirmed={orderConfirmed}
           onToggleOrderConfirmed={() => setOrderConfirmed(!orderConfirmed)}
+          onStartDelivery={() => setDeliveryStarted(true)}
+          onProceedToComplete={() => setCompletingDelivery(true)}
+          onBackToOverview={() => setCompletingDelivery(false)}
+          onSubmitStopRecord={handlePrimaryAction}
+          onProceedToNextStop={() => router.push("/driver/today-run")}
+          deliveryOutcome={deliveryOutcome}
+          onChangeDeliveryOutcome={(outcome) => {
+            setDeliveryOutcome(outcome);
+            setOrderConfirmed(false);
+          }}
           discrepancyType={discrepancyType}
-          onSelectDiscrepancyType={setDiscrepancyType}
+          onChangeDiscrepancyType={setDiscrepancyType}
           expectedQty={expectedQty}
           deliveredQty={deliveredQty}
           onChangeDeliveredQty={setDeliveredQty}
           discrepancyNotes={discrepancyNotes}
           onChangeDiscrepancyNotes={setDiscrepancyNotes}
           discrepancyPhoto={discrepancyPhoto}
-          onCaptureDiscrepancyPhoto={() => {
+          onTriggerDiscrepancyPhoto={() => {
             setCameraPurpose("discrepancy");
             setShowCameraModal(true);
           }}
-          onRemoveDiscrepancyPhoto={() => setDiscrepancyPhoto(null)}
-          onUploadDiscrepancyPhoto={() => discrepancyFileInputRef.current?.click()}
           notDeliveredReason={notDeliveredReason}
-          onSelectNotDeliveredReason={setNotDeliveredReason}
+          onChangeNotDeliveredReason={setNotDeliveredReason}
           notDeliveredNotes={notDeliveredNotes}
           onChangeNotDeliveredNotes={setNotDeliveredNotes}
           notDeliveredPhoto={notDeliveredPhoto}
-          onCaptureNotDeliveredPhoto={() => {
+          onTriggerNotDeliveredPhoto={() => {
             setCameraPurpose("notDelivered");
             setShowCameraModal(true);
           }}
-          onRemoveNotDeliveredPhoto={() => setNotDeliveredPhoto(null)}
-          onUploadNotDeliveredPhoto={() => notDeliveredFileInputRef.current?.click()}
-          isSyncing={isEffectiveSyncing}
-          isSynced={isEffectiveSynced}
-          confirmedTimeStr={effectiveTimeStr}
+          photoFile={photoFile}
+          signatureFile={signatureFile}
           signerName={signerName}
-          onRetrySync={handleRetrySync}
-          onReviewChanges={() => setShowReviewModal(true)}
-          onPrimaryAction={handlePrimaryAction}
+          onChangeSignerName={setSignerName}
+          onTriggerPhotoCapture={() => {
+            setCameraPurpose("pod");
+            setShowCameraModal(true);
+          }}
+          onTriggerSignatureCapture={() => setShowSignatureModal(true)}
+          isNavigating={isNavigating}
+          onToggleNavigation={(active) => setIsNavigating(active)}
+          stopStatus={stopStatus}
+          arrivalTimestamp={arrivalTimestamp}
+          onConfirmArrival={(ts) => {
+            setStopStatus("ARRIVED");
+            setArrivalTimestamp(ts);
+            setToast({
+              id: Date.now().toString(),
+              type: "success",
+              title: "Arrival Confirmed",
+              message: `Stop marked as ARRIVED at ${ts}`,
+              duration: 3000,
+            });
+          }}
+          storeContact={storeContact}
         />
       </div>
 
@@ -2039,6 +2021,11 @@ function MobileCurrentStopCanvas({
   onRetrySync,
   onReviewChanges,
   onPrimaryAction,
+  targetStopId = "OUT001",
+  storeContact: initialStoreContact,
+  isNavigating = false,
+  onToggleNavigation,
+  onArrived,
 }: {
   deliveryStarted: boolean;
   completingDelivery: boolean;
@@ -2082,10 +2069,15 @@ function MobileCurrentStopCanvas({
   onRetrySync: () => void;
   onReviewChanges: () => void;
   onPrimaryAction: () => void;
+  targetStopId?: string;
+  storeContact?: any;
+  isNavigating?: boolean;
+  onToggleNavigation?: (active: boolean) => void;
+  onArrived?: () => void;
 }) {
   const { connectionState } = useConnectivity();
-  const storeContact = getOutletContact("OUT001");
-  const canvasHeight = stopRecorded || completingDelivery ? "auto" : deliveryStarted ? 917 : 1395;
+  const storeContact = initialStoreContact || getOutletContact(targetStopId || "OUT001");
+  const canvasHeight = stopRecorded || completingDelivery ? "auto" : deliveryStarted ? 1150 : 1650;
 
   return (
     <div
@@ -3221,129 +3213,21 @@ function MobileCurrentStopCanvas({
           </div>
 
           <div
-            className="absolute rounded-xl overflow-hidden bg-[#0f172a] border border-slate-700 flex flex-col"
-            style={{ top: 155, left: 16, width: 380, height: 415 }}
+            id="mobile-active-navigation-card"
+            className="absolute flex flex-col items-start"
+            style={{ top: 140, left: 16, width: 358 }}
           >
-            {/* Grid pattern background */}
-            <div
-              className="absolute inset-0 opacity-30"
-              style={{
-                backgroundImage:
-                  "radial-gradient(#38bdf8 1px, transparent 1px), radial-gradient(#38bdf8 1px, #0f172a 1px)",
-                backgroundSize: "20px 20px",
-                backgroundPosition: "0 0, 10px 10px",
-              }}
+            <NavigationPanel
+              outletId={targetStopId}
+              outletName={storeContact?.name || `${targetStopId} / Outlet`}
+              outletAddress={storeContact?.address || "Galle Road, Colombo"}
+              destinationLat={storeContact?.latitude ?? 6.9034}
+              destinationLng={storeContact?.longitude ?? 79.8512}
+              isNavigating={true}
+              onToggleNavigation={onToggleNavigation || (() => {})}
+              onArrived={onPrimaryAction}
+              managerPhone={storeContact?.phone}
             />
-
-            {/* Simulated Road Network & Route Map SVG */}
-            <svg className="absolute inset-0 w-full h-full" viewBox="0 0 380 415" fill="none">
-              {/* Background Road Network */}
-              <line x1="0" y1="120" x2="380" y2="120" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
-              <line x1="0" y1="260" x2="380" y2="260" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
-              <line x1="110" y1="0" x2="110" y2="415" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
-              <line x1="270" y1="0" x2="270" y2="415" stroke="#1e293b" strokeWidth="8" strokeLinecap="round" />
-              <path d="M 0 350 L 380 350" stroke="#1e293b" strokeWidth="6" strokeDasharray="6 6" />
-
-              {/* Road labels */}
-              <text x="18" y="114" fill="#475569" fontSize="9" fontWeight="600">Dharmapala Mawatha</text>
-              <text x="18" y="254" fill="#475569" fontSize="9" fontWeight="600">Galle Road</text>
-              <text x="116" y="25" fill="#475569" fontSize="9" fontWeight="600">Duplication Rd</text>
-
-              {/* Route Path Glow */}
-              <path
-                d="M 60 350 C 60 300, 110 260, 160 230 C 210 200, 240 160, 270 120 C 290 95, 305 85, 320 75"
-                stroke="#22C55E"
-                strokeWidth="10"
-                strokeLinecap="round"
-                opacity="0.2"
-              />
-
-              {/* Animated Route Path */}
-              <path
-                d="M 60 350 C 60 300, 110 260, 160 230 C 210 200, 240 160, 270 120 C 290 95, 305 85, 320 75"
-                stroke="#22C55E"
-                strokeWidth="4"
-                strokeLinecap="round"
-                strokeDasharray="10 6"
-              >
-                <animate attributeName="stroke-dashoffset" from="0" to="-16" dur="1.2s" repeatCount="indefinite" />
-              </path>
-
-              {/* Depot Marker */}
-              <circle cx="60" cy="350" r="10" fill="#1D4ED8" stroke="#ffffff" strokeWidth="2.5" />
-              <text x="60" y="375" textAnchor="middle" fill="#94a3b8" fontSize="10" fontWeight="700">Depot</text>
-
-              {/* Waypoint */}
-              <circle cx="160" cy="230" r="5" fill="#F59E0B" stroke="#ffffff" strokeWidth="2" />
-
-              {/* Driver Live Marker with Pulsing Radar */}
-              <circle cx="215" cy="195" r="14" fill="#22C55E" opacity="0.25">
-                <animate attributeName="r" values="8;22;8" dur="2s" repeatCount="indefinite" />
-                <animate attributeName="opacity" values="0.4;0.05;0.4" dur="2s" repeatCount="indefinite" />
-              </circle>
-              <circle cx="215" cy="195" r="8" fill="#22C55E" stroke="#ffffff" strokeWidth="2.5" />
-              {/* Van icon / pointer */}
-              <polygon points="215,190 219,198 215,196 211,198" fill="#ffffff" />
-
-              {/* Destination Marker - Colpetty Retailer */}
-              <circle cx="320" cy="75" r="12" fill="#F97316" stroke="#ffffff" strokeWidth="3" />
-              <text x="320" y="55" textAnchor="middle" fill="#ffffff" fontSize="11" fontWeight="700">Colpetty</text>
-            </svg>
-
-            {/* Top HUD Badge */}
-            <div className="relative z-10 flex items-center justify-between p-3">
-              <span className="bg-[#22C55E]/20 text-[#22C55E] border border-[#22C55E]/40 px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wider uppercase flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-ping" />
-                LIVE GPS ROUTE
-              </span>
-              <span className="text-slate-400 text-xs font-semibold bg-slate-800/80 px-2.5 py-1 rounded-full border border-slate-700">
-                Stop 1 of 4
-              </span>
-            </div>
-
-            {/* Bottom HUD Banner */}
-            <div className="mt-auto relative z-10 p-3">
-              <div className="bg-black/75 backdrop-blur-md rounded-xl p-3 border border-slate-700/80 flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-full bg-[#22C55E] flex items-center justify-center shrink-0">
-                    <NavigationIcon className="w-4 h-4 text-white" />
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-white font-bold text-xs">PEL-R04 • En Route</span>
-                    <span className="text-slate-400 text-[11px]">OUT001 / Colpetty Retailer</span>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <span className="text-[#22C55E] font-bold text-sm block">13 min</span>
-                  <span className="text-slate-400 text-[10px]">7.2 km left</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div
-            id="rectangle-2-route-details"
-            className="absolute bg-white border border-[#CBD5E1] rounded-[12px]"
-            style={{ top: 588, left: 16, width: 380, height: 83, boxSizing: "border-box" }}
-          >
-            <span
-              className="absolute text-[#000000] font-bold"
-              style={{ top: 6, left: 15, fontSize: 13, lineHeight: "20px" }}
-            >
-              Drive
-            </span>
-            <span
-              className="absolute text-[#22C55E] font-bold"
-              style={{ top: 31, left: 15, fontSize: 13, lineHeight: "20px" }}
-            >
-              13 min (7.2 km)
-            </span>
-            <span
-              className="absolute text-[#000000] font-bold truncate"
-              style={{ top: 51, left: 15, width: 330, fontSize: 13, lineHeight: "20px" }}
-            >
-              Fastest route, the usual traffic
-            </span>
           </div>
 
           <button
@@ -3680,33 +3564,20 @@ function MobileCurrentStopCanvas({
 
           <div
             id="destination-map-card"
-            className="absolute flex flex-col items-start bg-white border border-[#CBD5E1] rounded-[12px]"
-            style={{ top: 900, left: 16, width: 380, height: 218, padding: 14, gap: 10, boxSizing: "border-box" }}
+            className="absolute flex flex-col items-start"
+            style={{ top: 900, left: 16, width: 358 }}
           >
-            <span className="text-[#22C55E] font-bold" style={{ fontSize: 12, lineHeight: "18px" }}>
-              MAP - DESTINATION
-            </span>
-            <div
-              className="relative rounded-[10px] overflow-hidden bg-slate-900 flex flex-col items-center justify-center text-center"
-              style={{ width: 352, height: 160 }}
-            >
-              <div
-                className="absolute inset-0 opacity-40"
-                style={{
-                  backgroundImage:
-                    "radial-gradient(#38bdf8 1px, transparent 1px), radial-gradient(#38bdf8 1px, #0f172a 1px)",
-                  backgroundSize: "20px 20px",
-                  backgroundPosition: "0 0, 10px 10px",
-                }}
-              />
-              <div className="relative z-10 flex flex-col items-center gap-1.5 p-2">
-                <div className="w-9 h-9 rounded-full bg-[#F97316] text-white flex items-center justify-center shadow animate-bounce">
-                  <NavigationIcon className="w-4 h-4" />
-                </div>
-                <span className="text-white font-bold text-xs">Colpetty Retailer Dock</span>
-                <span className="text-slate-300 text-[11px]">Galle Road, Colombo 03</span>
-              </div>
-            </div>
+            <NavigationPanel
+              outletId={targetStopId}
+              outletName={storeContact?.name || `${targetStopId} / Outlet`}
+              outletAddress={storeContact?.address || "Galle Road, Colombo"}
+              destinationLat={storeContact?.latitude ?? 6.9034}
+              destinationLng={storeContact?.longitude ?? 79.8512}
+              isNavigating={isNavigating}
+              onToggleNavigation={onToggleNavigation || (() => {})}
+              onArrived={onArrived || onPrimaryAction}
+              managerPhone={storeContact?.phone}
+            />
           </div>
 
           <div

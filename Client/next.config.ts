@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   output: "standalone",
   outputFileTracingRoot: path.join(__dirname),
+  devIndicators: false,
   eslint: {
     ignoreDuringBuilds: true,
   },
