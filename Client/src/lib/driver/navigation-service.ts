@@ -269,7 +269,91 @@ export function watchDriverPosition(
 }
 
 /**
- * Calculate driving route using Mapbox Directions API with mapbox/driving-traffic profile
+ * Calculate actual road-following driving route using Open Source Routing Machine (OSRM)
+ * Returns real street-by-street polyline coordinates, driving distance, duration, and turn instructions for free without token auth.
+ */
+export async function fetchOSRMRoute(
+  origin: LatLng,
+  destination: LatLng
+): Promise<RouteResult> {
+  const url = `https://router.project-osrm.org/route/v1/driving/${origin.lng},${origin.lat};${destination.lng},${destination.lat}?overview=full&geometries=geojson&steps=true`;
+
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+    });
+
+    if (!res.ok) {
+      throw new Error(`OSRM route calculation returned status ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!data.routes || data.routes.length === 0) {
+      throw new Error("No driving route found");
+    }
+
+    const primaryRoute = data.routes[0];
+    const geojsonCoords: [number, number][] = primaryRoute.geometry.coordinates; // [lng, lat]
+    const latLngCoords: [number, number][] = geojsonCoords.map(([lng, lat]) => [lat, lng]);
+
+    const distanceMeters = Math.round(primaryRoute.distance);
+    const distanceKm = Math.round((distanceMeters / 1000) * 10) / 10;
+    const durationSeconds = Math.round(primaryRoute.duration);
+    const durationMinutes = Math.max(1, Math.round(durationSeconds / 60));
+
+    const steps: RouteStep[] = [];
+    if (primaryRoute.legs && primaryRoute.legs.length > 0) {
+      for (const step of primaryRoute.legs[0].steps || []) {
+        const icon = getManeuverIcon(step.maneuver?.type, step.maneuver?.modifier);
+        const instruction =
+          step.maneuver?.instruction ||
+          (step.name ? `Drive on ${step.name}` : "Continue along route");
+        steps.push({
+          instruction,
+          distanceMeters: Math.round(step.distance),
+          formattedDistance: formatDistance(Math.round(step.distance)),
+          durationSeconds: Math.round(step.duration),
+          name: step.name,
+          icon,
+          maneuver: step.maneuver,
+        });
+      }
+    }
+
+    const nextStep = steps.length > 0 ? steps[0] : null;
+    const nextInstruction =
+      nextStep ? nextStep.instruction : "Head towards destination outlet";
+
+    return {
+      coordinates: geojsonCoords,
+      latLngCoordinates: latLngCoords,
+      distanceMeters,
+      distanceKm,
+      durationSeconds,
+      durationMinutes,
+      formattedDistance: formatDistance(distanceMeters),
+      formattedDuration: formatDuration(durationSeconds),
+      estimatedArrivalTime: formatArrivalTime(durationSeconds),
+      hasTrafficData: false,
+      trafficCondition: null,
+      trafficDelayMinutes: null,
+      formattedTrafficDelay: null,
+      typicalDurationMinutes: null,
+      formattedTypicalDuration: null,
+      steps,
+      nextInstruction,
+      nextStep,
+      summary: primaryRoute.legs?.[0]?.summary || "Driving route via main roads",
+    };
+  } catch (e) {
+    console.warn("OSRM routing fallback to direct road estimation:", e);
+    return estimateStraightLineRoute(origin, destination);
+  }
+}
+
+/**
+ * Calculate driving route using Mapbox Directions API or OSRM road network
  */
 export async function calculateRoute(
   origin: LatLng,
@@ -277,9 +361,9 @@ export async function calculateRoute(
 ): Promise<RouteResult> {
   const token = getMapboxToken();
 
-  // If token is missing or a placeholder, fallback cleanly to straight-line estimation without remote 401 calls
+  // If token is missing or placeholder, use fast OSRM road-following routing engine
   if (!isRealMapboxToken(token)) {
-    return estimateStraightLineRoute(origin, destination);
+    return fetchOSRMRoute(origin, destination);
   }
 
   // Mapbox Directions v5 using driving-traffic profile with congestion annotations
@@ -385,8 +469,8 @@ export async function calculateRoute(
       distanceKm,
       durationSeconds,
       durationMinutes,
-      formattedDistance: `${distanceKm.toFixed(1)} km`,
-      formattedDuration: `${durationMinutes} min`,
+      formattedDistance: formatDistance(distanceMeters),
+      formattedDuration: formatDuration(durationSeconds),
       estimatedArrivalTime: formatArrivalTime(durationSeconds),
       hasTrafficData,
       trafficCondition,
@@ -397,11 +481,11 @@ export async function calculateRoute(
       steps,
       nextInstruction,
       nextStep,
-      summary: leg?.summary || "",
+      summary: primaryRoute.legs?.[0]?.summary || "Driving route via Mapbox Traffic",
     };
-  } catch (err: unknown) {
-    console.warn("Mapbox Directions API unavailable, using fallback estimation:", err);
-    return estimateStraightLineRoute(origin, destination);
+  } catch (err) {
+    console.warn("Mapbox directions notice, falling back to OSRM road routing:", err);
+    return fetchOSRMRoute(origin, destination);
   }
 }
 

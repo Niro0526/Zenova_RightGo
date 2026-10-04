@@ -12,6 +12,7 @@ export interface LocalDeliveryRecord {
   stopName: string; // "OUT001 / Colpetty Retailer"
   vehicleId: string; // "PEL-R04"
   outcome: "full" | "discrepancy" | "none";
+  orders?: string[];
   discrepancyDetails?: {
     type: string;
     expectedQty: number;

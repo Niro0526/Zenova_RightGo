@@ -337,12 +337,12 @@ export function DriverReportWorkflow() {
       return;
     }
 
-    // Validation 1: Description required if "other" is one of the selected categories
-    if (selectedIssues.includes("other") && !description.trim()) {
+    // Description is required for all report submissions
+    if (!description.trim()) {
       setToast({
         type: "warning",
-        title: "Issue Details Required",
-        message: "You selected 'Other Issue'. Please describe and mention the specific issue details before submitting.",
+        title: "Description Required",
+        message: "Please describe what happened and any details before submitting the report.",
         duration: 4500,
       });
       return;

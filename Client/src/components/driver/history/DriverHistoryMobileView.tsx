@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import type { LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
 import type { IssueReportRecord } from "@/components/driver/today-run/ReportDetailsModal";
 
+import { STOPS } from "@/components/driver/today-run/types";
+
 export interface DriverHistoryMobileViewProps {
   deliveryRecords: LocalDeliveryRecord[];
   reportRecords: IssueReportRecord[];
@@ -58,14 +60,18 @@ export function DriverHistoryMobileView({
     const isDiscrepancy = rec.outcome === "discrepancy";
     const isNotDelivered = rec.outcome === "none";
 
+    const recStop = STOPS.find((s) => s.code === rec.stopId || s.stopId === rec.stopId);
+    const recOrders: string[] = (rec.orders && rec.orders.length > 0 ? rec.orders : recStop?.orders) || ["S1-000", "S1-001"];
+    const perOrderUnits = Math.max(1, Math.round((recStop?.units || 80) / Math.max(1, recOrders.length)));
+
     return (
       <div
         id="driver-delivery-details-figma-canvas"
-        className="relative flex flex-col bg-[#F6F8FB] w-[390px] min-h-[1220px] rounded-[24px] overflow-hidden shadow-2xl pb-28 mx-auto"
+        className="relative flex flex-col bg-[#F6F8FB] w-full max-w-[390px] min-h-[1220px] rounded-[24px] overflow-hidden shadow-2xl pb-28 mx-auto"
         style={{ fontFamily: "'Inter', sans-serif" }}
       >
-        {/* Header (390 x 70, bg #FFFFFF) */}
-        <header className="relative w-[390px] h-[70px] bg-white flex items-center justify-between px-5 border-b border-[#E2E8F0] shrink-0 z-10">
+        {/* Header (bg #FFFFFF) */}
+        <header className="relative w-full h-[70px] bg-white flex items-center justify-between px-5 border-b border-[#E2E8F0] shrink-0 z-10">
           <button
             type="button"
             onClick={() => onSelectDeliveryRecord(null)}
@@ -86,8 +92,8 @@ export function DriverHistoryMobileView({
         </header>
 
         <div className="flex flex-col px-5 pt-4 pb-6">
-          {/* ── CARD 1: DELIVERY RECORD (350 x 126, bg #FFFFFF, r: 12px) ── */}
-          <div className="w-[350px] min-h-[126px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+          {/* ── CARD 1: DELIVERY RECORD (bg #FFFFFF, r: 12px) ── */}
+          <div className="w-full min-h-[126px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
             <div>
               <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-2">
                 DELIVERY RECORD
@@ -118,8 +124,8 @@ export function DriverHistoryMobileView({
             </div>
           </div>
 
-          {/* ── CARD 2: TRIP & STOP (350 x 150, bg #FFFFFF, r: 12px) ── */}
-          <div className="w-[350px] min-h-[150px] bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+          {/* ── CARD 2: TRIP & STOP (bg #FFFFFF, r: 12px) ── */}
+          <div className="w-full min-h-[150px] bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
             <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-3">
               TRIP &amp; STOP
             </span>
@@ -134,7 +140,7 @@ export function DriverHistoryMobileView({
               <div className="flex items-center">
                 <span className="w-[104px] text-[#6B788C] font-normal">Stop</span>
                 <span className="text-[#1F293B] font-bold text-[11px] leading-[13px]">
-                  {rec.stopId === "DEP001" ? "Depot Check" : "1 of 4"}
+                  {rec.stopId === "DEP001" ? "Depot Check" : `${recStop?.id || 1} of 4`}
                 </span>
               </div>
               <div className="flex items-center">
@@ -152,45 +158,42 @@ export function DriverHistoryMobileView({
             </div>
           </div>
 
-          {/* ── CARD 3: ORDERS & QUANTITIES (350 x 208, bg #FFFFFF, r: 12px) ── */}
-          <div className="w-[350px] min-h-[208px] bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+          {/* ── CARD 3: ORDERS & QUANTITIES (bg #FFFFFF, r: 12px) ── */}
+          <div className="w-full min-h-[208px] bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
             <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-3">
               ORDERS &amp; QUANTITIES
             </span>
 
-            {/* Order S1-000 */}
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-[#1F293B] font-bold text-[13px] leading-[16px]">
-                S1-000
-              </span>
-              <span className="text-[#6B788C] text-[10px] leading-[12px] font-normal">
-                Expected 80
-              </span>
-              <span className="text-[#1F9457] font-bold text-[10px] leading-[12px]">
-                Delivered 80 ✓
-              </span>
-            </div>
-
-            {/* Order S1-001 */}
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[#1F293B] font-bold text-[13px] leading-[16px]">
-                S1-001
-              </span>
-              <span className="text-[#6B788C] text-[10px] leading-[12px] font-normal">
-                Expected 80
-              </span>
-              <span
-                className={`font-bold text-[10px] leading-[12px] ${
-                  isDiscrepancy ? "text-[#ED5214]" : "text-[#1F9457]"
+            {recOrders.map((ordRef, idx) => (
+              <div
+                key={ordRef}
+                className={`flex items-center justify-between ${
+                  idx < recOrders.length - 1 ? "mb-2" : "mb-3"
                 }`}
               >
-                {isDiscrepancy ? "Delivered 72" : "Delivered 80 ✓"}
-              </span>
-            </div>
+                <span className="text-[#1F293B] font-bold text-[13px] leading-[16px]">
+                  {ordRef}
+                </span>
+                <span className="text-[#6B788C] text-[10px] leading-[12px] font-normal">
+                  Expected {perOrderUnits}
+                </span>
+                <span
+                  className={`font-bold text-[10px] leading-[12px] ${
+                    isDiscrepancy && idx === recOrders.length - 1
+                      ? "text-[#ED5214]"
+                      : "text-[#1F9457]"
+                  }`}
+                >
+                  {isDiscrepancy && idx === recOrders.length - 1
+                    ? `Delivered ${Math.max(1, perOrderUnits - 8)}`
+                    : `Delivered ${perOrderUnits} ✓`}
+                </span>
+              </div>
+            ))}
 
-            {/* Frame Box (318 x 62, bg #EBFAF0, r: 8px) */}
+            {/* Frame Box (bg #EBFAF0, r: 8px) */}
             <div
-              className={`w-[318px] min-h-[62px] rounded-[8px] p-3 flex items-center justify-between ${
+              className={`w-full min-h-[62px] rounded-[8px] p-3 flex items-center justify-between ${
                 isDiscrepancy
                   ? "bg-[#FFF4ED] border border-[#ED5214]/20"
                   : "bg-[#EBFAF0] border border-[#1F9457]/20"
@@ -565,10 +568,13 @@ export function DriverHistoryMobileView({
               const isDiscrepancy = item.outcome === "discrepancy";
               const isNotDelivered = item.outcome === "none";
 
+              const matchStop = STOPS.find((s) => s.code === item.stopId || s.stopId === item.stopId);
+              const stopOrdersText = item.orders && item.orders.length > 0 ? item.orders.join(", ") : (matchStop?.orders?.join(", ") || "S1-000, S1-001");
+
               return (
                 <div
                   key={item.id}
-                  className="w-[350px] min-h-[180px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]"
+                  className="w-full min-h-[180px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]"
                 >
                   <div>
                     <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-2">
@@ -593,7 +599,7 @@ export function DriverHistoryMobileView({
                         : "Delivered in Full"}
                     </span>
                     <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-3">
-                      Stop {idx + 1} • Orders S1-000, S1-001 • POD captured
+                      Stop {matchStop?.id || idx + 1} • Orders {stopOrdersText} • POD captured
                     </span>
                   </div>
 

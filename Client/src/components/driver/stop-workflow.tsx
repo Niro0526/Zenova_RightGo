@@ -30,7 +30,7 @@ import { getOutletContact } from "@/lib/driver/outlet-service";
 import { postDriverDelivery } from "@/lib/driver/driver-api";
 import { NavigationPanel } from "@/components/driver/NavigationPanel";
 import { DriverCurrentStopMobileView } from "@/components/driver/current-stop/DriverCurrentStopMobileView";
-import type { Stop } from "@/components/driver/today-run/types";
+import { type Stop, STOPS } from "@/components/driver/today-run/types";
 
 export type DiscrepancyType = "Quantity Short" | "Damaged" | "Wrong Item" | "Other";
 export type NotDeliveredReason =
@@ -122,17 +122,29 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const isEffectiveSynced = isSynced || connectionState === "synced" || (isOnline && stopRecorded && pendingCount === 0);
   const effectiveTimeStr = lastSyncedTime || confirmedTimeStr;
 
+  // Look up current stop details dynamically from competition stop dataset
+  const currentStopData = STOPS.find((s) => s.code === targetStopId || s.stopId === targetStopId) || STOPS[0];
+  const initialStopUnits = currentStopData?.units || 92;
+
   // Outcome selection: 'full' | 'discrepancy' | 'none'
   const [deliveryOutcome, setDeliveryOutcome] = useState<"full" | "discrepancy" | "none">("discrepancy");
   const [photoFile, setPhotoFile] = useState<{ name: string; url: string } | null>(null);
   const [signatureFile, setSignatureFile] = useState<{ name: string; url: string } | null>(null);
 
-  // Discrepancy workflow fields
+  // Discrepancy workflow fields (dynamic from stop units)
   const [discrepancyType, setDiscrepancyType] = useState<DiscrepancyType>("Quantity Short");
-  const [expectedQty, setExpectedQty] = useState(80);
-  const [deliveredQty, setDeliveredQty] = useState("72");
+  const [expectedQty, setExpectedQty] = useState(initialStopUnits);
+  const [deliveredQty, setDeliveredQty] = useState(String(initialStopUnits));
   const [discrepancyNotes, setDiscrepancyNotes] = useState("");
   const [discrepancyPhoto, setDiscrepancyPhoto] = useState<{ name: string; url: string } | null>(null);
+
+  // Dynamically update units when targetStopId changes
+  useEffect(() => {
+    const s = STOPS.find((st) => st.code === targetStopId || st.stopId === targetStopId) || STOPS[0];
+    const u = s?.units || 92;
+    setExpectedQty(u);
+    setDeliveredQty(String(u));
+  }, [targetStopId]);
 
   // Not Delivered workflow fields
   const [notDeliveredReason, setNotDeliveredReason] = useState<NotDeliveredReason>("Store Closed");
@@ -305,22 +317,13 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           });
           return;
         }
-        if (!discrepancyPhoto) {
+        // Either Photo (camera or file) OR Signature is sufficient
+        if (!discrepancyPhoto && !photoFile && !signatureFile) {
           setToast({
             id: Date.now().toString(),
             type: "warning",
-            title: "Discrepancy Photo Required",
-            message: "Please take or attach photo evidence of the discrepancy.",
-            duration: 4000,
-          });
-          return;
-        }
-        if (!photoFile && !signatureFile) {
-          setToast({
-            id: Date.now().toString(),
-            type: "warning",
-            title: "Proof of Delivery Required",
-            message: "Please provide proof of delivery (take goods photo or capture store signature).",
+            title: "Photo or Signature Required",
+            message: "Please attach photo evidence OR capture signature (either one is sufficient).",
             duration: 4000,
           });
           return;
@@ -336,22 +339,13 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           return;
         }
       } else if (deliveryOutcome === "none") {
-        if (!notDeliveredNotes.trim()) {
+        // Any evidence is fine: driver note / reason OR photo evidence
+        if (!notDeliveredNotes.trim() && !notDeliveredPhoto && !photoFile) {
           setToast({
             id: Date.now().toString(),
             type: "warning",
-            title: "Issue Details Required",
-            message: "Please provide details explaining why delivery could not be completed.",
-            duration: 4000,
-          });
-          return;
-        }
-        if (!notDeliveredPhoto) {
-          setToast({
-            id: Date.now().toString(),
-            type: "warning",
-            title: "Photo Evidence Required",
-            message: "Please take or attach photo evidence of the non-delivery reason.",
+            title: "Reason or Evidence Required",
+            message: "Please provide driver notes explaining the issue OR attach photo evidence.",
             duration: 4000,
           });
           return;
@@ -404,8 +398,8 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           expectedQty,
           deliveredQty: Number(deliveredQty) || 0,
           notes: discrepancyNotes,
-          photoName: discrepancyPhoto?.name,
-          photoUrl: discrepancyPhoto?.url,
+          photoName: discrepancyPhoto?.name || photoFile?.name,
+          photoUrl: discrepancyPhoto?.url || photoFile?.url,
         } : undefined,
         notDeliveredDetails: deliveryOutcome === "none" ? {
           reason: notDeliveredReason,
@@ -1475,21 +1469,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                   type="button"
                   id="desktop-pod-confirm-checkbox"
                   onClick={() => setOrderConfirmed(!orderConfirmed)}
-                  className={`border-2 rounded-xl p-4 flex items-center gap-3.5 cursor-pointer transition-all text-left ${
+                  className={`border-2 rounded-xl p-4 flex items-center gap-3.5 cursor-pointer transition-all text-left border-[#F97316] ${
                     orderConfirmed
-                      ? "bg-[#ECFDF5] border-[#22C55E] ring-2 ring-[#22C55E]/30"
-                      : "bg-[#F9FAFB] border-[#CBD5E1] hover:bg-slate-100 hover:border-[#F97316]"
+                      ? "bg-[#ECFDF5] ring-2 ring-[#22C55E]/30"
+                      : "bg-[#F9FAFB] hover:bg-orange-50/30"
                   }`}
                 >
                   <div
-                    className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all shrink-0 ${
-                      orderConfirmed
-                        ? "bg-[#22C55E] border-[#22C55E] text-white shadow-sm"
-                        : "border-[#94A3B8] bg-white"
+                    className={`w-7 h-7 rounded-lg border-2 border-[#F97316] flex items-center justify-center transition-all shrink-0 bg-white ${
+                      orderConfirmed ? "shadow-sm" : ""
                     }`}
                   >
                     {orderConfirmed ? (
-                      <CheckIcon className="w-4 h-4 text-white" />
+                      <CheckIcon className="w-5 h-5 text-[#22C55E]" />
                     ) : null}
                   </div>
                   <div className="flex flex-col">
@@ -1599,21 +1591,19 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                 type="button"
                 id="live-route-confirm-tick"
                 onClick={() => setOrderConfirmed(!orderConfirmed)}
-                className={`border-2 rounded-2xl p-5 shadow-sm flex items-center gap-3.5 cursor-pointer transition-all text-left ${
+                className={`border-2 border-[#F97316] rounded-2xl p-5 shadow-sm flex items-center gap-3.5 cursor-pointer transition-all text-left ${
                   orderConfirmed
-                    ? "bg-[#ECFDF5] border-[#22C55E] ring-2 ring-[#22C55E]/30"
-                    : "bg-white border-[#CBD5E1] hover:bg-slate-50 hover:border-[#F97316]"
+                    ? "bg-[#ECFDF5] ring-2 ring-[#22C55E]/30"
+                    : "bg-white hover:bg-orange-50/30"
                 }`}
               >
                 <div
-                  className={`w-7 h-7 rounded-lg border-2 flex items-center justify-center transition-all shrink-0 ${
-                    orderConfirmed
-                      ? "bg-[#22C55E] border-[#22C55E] text-white shadow-sm"
-                      : "border-[#94A3B8] bg-white"
+                  className={`w-7 h-7 rounded-lg border-2 border-[#F97316] flex items-center justify-center transition-all shrink-0 bg-white ${
+                    orderConfirmed ? "shadow-sm" : ""
                   }`}
                 >
                   {orderConfirmed ? (
-                    <CheckIcon className="w-4 h-4 text-white" />
+                    <CheckIcon className="w-5 h-5 text-[#22C55E]" />
                   ) : null}
                 </div>
                 <div className="flex flex-col flex-1">
@@ -1755,38 +1745,37 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#CBD5E1] flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                   <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
-                    EXPECTED ORDERS (2)
+                    EXPECTED ORDERS ({(currentStopData?.orders || ["S1-000", "S1-001"]).length})
                   </span>
                   <span className="text-[#485563] font-semibold text-xs">
-                    2 orders for 1 outlet visit
+                    {(currentStopData?.orders || ["S1-000", "S1-001"]).length} orders for 1 outlet visit
                   </span>
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[#202D2D] font-bold text-base">S1-000</span>
-                      <span className="text-[#485563] font-medium text-xs">12 ambient units</span>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[#202D2D] font-bold text-base">97.8 kg</span>
-                      <span className="text-[#485563] font-semibold text-xs">0.500 m³</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
-                    <div className="flex items-center gap-3">
-                      <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B] shrink-0" />
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[#202D2D] font-bold text-base">S1-001</span>
-                        <span className="text-[#485563] font-medium text-xs">80 chilled units</span>
+                  {(currentStopData?.orders || ["S1-000", "S1-001"]).map((ordRef, idx) => {
+                    const ordCount = currentStopData?.orders?.length || 2;
+                    const ordUnits = Math.round((currentStopData?.units || 92) / ordCount);
+                    const ordWeight = ((currentStopData?.weightKg || 500) / ordCount).toFixed(1);
+                    const ordVol = ((currentStopData?.volumeM3 || 2.5) / ordCount).toFixed(3);
+                    return (
+                      <div key={ordRef} className="flex items-center justify-between bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
+                        <div className="flex items-center gap-3">
+                          {targetStopId === "OUT001" && idx === 1 && (
+                            <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B] shrink-0" />
+                          )}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[#202D2D] font-bold text-base">{ordRef}</span>
+                            <span className="text-[#485563] font-medium text-xs">{ordUnits} units • {idx === 0 ? "ambient" : "chilled"}</span>
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="text-[#202D2D] font-bold text-base">{ordWeight} kg</span>
+                          <span className="text-[#485563] font-semibold text-xs">{ordVol} m³</span>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[#202D2D] font-bold text-base">448.6 kg</span>
-                      <span className="text-[#485563] font-semibold text-xs">2.445 m³</span>
-                    </div>
-                  </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1830,33 +1819,44 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F6F8FB]">
         <DriverCurrentStopMobileView
           stop={{
-            id: 1,
+            id: currentStopData?.id || 1,
             stopId: targetStopId,
             code: targetStopId,
-            name: storeContact?.name || `${targetStopId} / Colpetty Retailer`,
-            address: storeContact?.address || "Galle Road, Colombo 03",
-            district: "Colombo",
-            depot: "Peliyagoda",
-            dockType: "Rear Dock",
-            parkingConstraint: "Standard",
-            managerName: storeContact?.managerName || "Store Manager",
-            managerPhone: storeContact?.phone || "+94 11 257 3489",
+            name: storeContact?.name || currentStopData?.name || `${targetStopId} / Colpetty Retailer`,
+            address: storeContact?.address || currentStopData?.address || "Galle Road, Colombo 03",
+            district: currentStopData?.district || "Colombo",
+            depot: currentStopData?.depot || "Peliyagoda",
+            dockType: currentStopData?.dockType || "Rear Dock",
+            parkingConstraint: currentStopData?.parkingConstraint || "Standard",
+            managerName: storeContact?.managerName || currentStopData?.managerName || "Store Manager",
+            managerPhone: storeContact?.phone || currentStopData?.managerPhone || "+94 11 257 3489",
             outlets: 1,
-            orders: ["S1-000", "S1-001"],
+            orders: currentStopData?.orders && currentStopData.orders.length > 0 ? currentStopData.orders : ["S1-000", "S1-001"],
+            units: currentStopData?.units || 92,
+            weightKg: currentStopData?.weightKg || 546.4,
+            volumeM3: currentStopData?.volumeM3 || 2.945,
             status: stopStatus === "ARRIVED" ? "next" : "upcoming",
-            timeWindow: "06:00 – 08:00",
-            windowOpen: "06:00",
-            windowClose: "08:00",
+            timeWindow: currentStopData?.timeWindow || "06:00 – 08:00",
+            windowOpen: currentStopData?.windowOpen || "06:00",
+            windowClose: currentStopData?.windowClose || "08:00",
           }}
-          totalStopsCount={4}
-          currentStopIndex={1}
+          totalStopsCount={STOPS.length || 4}
+          currentStopIndex={currentStopData?.id || 1}
           deliveryStarted={deliveryStarted}
           completingDelivery={completingDelivery}
           stopRecorded={stopRecorded}
           orderConfirmed={orderConfirmed}
           onToggleOrderConfirmed={() => setOrderConfirmed(!orderConfirmed)}
-          onStartDelivery={() => setDeliveryStarted(true)}
-          onProceedToComplete={() => setCompletingDelivery(true)}
+          onStartDelivery={() => {
+            setDeliveryStarted(true);
+            setCompletingDelivery(true);
+            setIsNavigating(false);
+          }}
+          onProceedToComplete={() => {
+            setDeliveryStarted(true);
+            setCompletingDelivery(true);
+            setIsNavigating(false);
+          }}
           onBackToOverview={() => setCompletingDelivery(false)}
           onSubmitStopRecord={handlePrimaryAction}
           onProceedToNextStop={() => router.push("/driver/today-run")}
@@ -2558,8 +2558,8 @@ function MobileCurrentStopCanvas({
         </div>
       ) : completingDelivery ? (
         /* ── MODE 3: PROOF OF DELIVERY / COMPLETE DELIVERY SCREEN ── */
-        <div className="flex flex-col items-start w-[390px] mx-auto bg-[#F8FAFC]" style={{ marginTop: 55 }}>
-          <div className="flex flex-col items-center bg-[#F8FAFC] w-[390px] p-4 gap-4 box-border">
+        <div className="flex flex-col items-start w-full max-w-[390px] mx-auto bg-[#F8FAFC]" style={{ marginTop: 55 }}>
+          <div className="flex flex-col items-center bg-[#F8FAFC] w-full p-4 gap-4 box-border">
             {/* 1. Header: Current Stop */}
             <div className="flex items-center justify-between w-full">
               <div className="flex flex-col items-start gap-0.5">
@@ -3043,20 +3043,16 @@ function MobileCurrentStopCanvas({
               type="button"
               id="mobile-pod-confirm-checkbox"
               onClick={onToggleOrderConfirmed}
-              className={`flex items-center gap-3 p-3.5 rounded-xl border-2 w-full cursor-pointer transition-all text-left shadow-sm ${
+              className={`flex items-center gap-3 p-3.5 rounded-xl border-2 border-[#F97316] w-full cursor-pointer transition-all text-left shadow-sm ${
                 orderConfirmed
-                  ? "bg-[#ECFDF5] border-[#22C55E] ring-2 ring-[#22C55E]/30"
-                  : "bg-white border-[#CBD5E1] hover:border-[#F97316]"
+                  ? "bg-[#ECFDF5] ring-2 ring-[#22C55E]/30"
+                  : "bg-white hover:bg-orange-50/30"
               }`}
             >
               <div
-                className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shrink-0 ${
-                  orderConfirmed
-                    ? "bg-[#22C55E] border-[#22C55E] text-white"
-                    : "border-[#94A3B8] bg-white"
-                }`}
+                className={`w-6 h-6 rounded-lg border-2 border-[#F97316] flex items-center justify-center transition-all shrink-0 bg-white`}
               >
-                {orderConfirmed ? <span className="font-bold text-xs text-white">✓</span> : null}
+                {orderConfirmed ? <span className="font-bold text-sm text-[#22C55E]">✓</span> : null}
               </div>
               <div className="flex flex-col">
                 <span className="text-xs font-bold text-[#202D2D] leading-tight flex items-center gap-2">
@@ -3119,12 +3115,12 @@ function MobileCurrentStopCanvas({
           <nav
             id="bottom-nav-canvas"
             aria-label="Driver navigation"
-            className="flex flex-col items-start bg-white border-t border-[#CBD5E1] shrink-0 w-[390px]"
+            className="flex flex-col items-start bg-white border-t border-[#CBD5E1] shrink-0 w-full max-w-[390px]"
             style={{ height: 77, boxSizing: "border-box" }}
           >
             <div
-              className="flex flex-row justify-between items-center"
-              style={{ width: 390, height: 64, padding: "0 12px", boxSizing: "border-box" }}
+              className="flex flex-row justify-between items-center w-full"
+              style={{ height: 64, padding: "0 12px", boxSizing: "border-box" }}
             >
               <Link
                 id="tab-my-run"
