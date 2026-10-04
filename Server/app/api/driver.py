@@ -25,6 +25,7 @@ from app.services.driver_service import (
     record_driver_delivery,
     record_driver_issue,
 )
+from app.services.storage_service import storage_service
 
 router = APIRouter(prefix="/driver", tags=["Driver Portal"])
 
@@ -38,26 +39,59 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
 
     # Get outlet details for each stop
     stops_data = []
-    outlets = {o.outlet_id: o for o in db.query(Outlet).filter(Outlet.outlet_id.in_(trip.stop_outlet_ids or [])).all()}
-    deliveries = {d.stop_id: d for d in db.query(DeliveryRecord).filter(DeliveryRecord.stop_id.in_(trip.stop_outlet_ids or [])).all()}
+    stop_ids = list(trip.stop_outlet_ids or [])
+    outlets = {o.outlet_id: o for o in db.query(Outlet).filter(Outlet.outlet_id.in_(stop_ids)).all()}
+    deliveries = {d.stop_id: d for d in db.query(DeliveryRecord).filter(DeliveryRecord.stop_id.in_(stop_ids)).all()}
+    
+    # Query orders associated with this trip or outlets
+    trip_orders = db.query(Order).filter(Order.outlet_id.in_(stop_ids)).all()
+    orders_by_outlet = {}
+    for o in trip_orders:
+        if trip.order_refs and o.order_ref in trip.order_refs:
+            orders_by_outlet.setdefault(o.outlet_id, []).append(o)
+        elif not trip.order_refs:
+            orders_by_outlet.setdefault(o.outlet_id, []).append(o)
 
-    for rank, out_id in enumerate(trip.stop_outlet_ids or [], 1):
+    for rank, out_id in enumerate(stop_ids, 1):
         outlet = outlets.get(out_id)
         del_rec = deliveries.get(out_id)
+        outlet_orders = orders_by_outlet.get(out_id, [])
+        order_refs = [o.order_ref for o in outlet_orders] if outlet_orders else [f"S1-{out_id[-3:]}"]
+        temp_reqs = list(set(o.temp_requirement for o in outlet_orders)) if outlet_orders else ["ambient"]
+        total_units = sum(o.order_units for o in outlet_orders) if outlet_orders else 40
+        total_weight = sum(o.order_weight_kg for o in outlet_orders) if outlet_orders else 250.0
+        total_volume = sum(o.order_volume_m3 for o in outlet_orders) if outlet_orders else 1.5
+
+        win_open = outlet.window_open_time if outlet else "05:00"
+        win_close = outlet.window_close_time if outlet else "07:30"
+
         stops_data.append({
+            "id": rank,
             "stopId": out_id,
             "stopNumber": rank,
-            "name": outlet.name if outlet else out_id,
-            "address": outlet.address if outlet else "Commercial Ave",
+            "code": out_id,
+            "name": outlet.name if outlet else f"{out_id} Outlet",
+            "address": outlet.address if outlet else f"Commercial Ave, {trip.district}",
             "district": outlet.district if outlet else trip.district,
+            "depot": outlet.depot if outlet else trip.depot,
             "dockType": outlet.dock_type if outlet else "street",
             "parkingConstraint": outlet.parking_constraint if outlet else "normal",
-            "windowOpen": outlet.window_open_time if outlet else "05:00",
-            "windowClose": outlet.window_close_time if outlet else "08:00",
-            "managerName": outlet.manager_name if outlet else "Manager",
-            "managerPhone": outlet.phone if outlet else "+94 77 0000000",
+            "mallWindow": outlet.mall_window if outlet else None,
+            "windowOpen": win_open,
+            "windowClose": win_close,
+            "timeWindow": f"{win_open} – {win_close}",
+            "managerName": outlet.manager_name if outlet else f"Manager {out_id}",
+            "managerPhone": outlet.phone if outlet else "+94 77 100000",
+            "latitude": outlet.latitude if outlet else None,
+            "longitude": outlet.longitude if outlet else None,
             "isCompleted": del_rec is not None,
             "outcome": del_rec.outcome if del_rec else None,
+            "orders": order_refs,
+            "outlets": 1,
+            "tempRequirement": ", ".join(temp_reqs),
+            "units": total_units,
+            "weightKg": round(total_weight, 2),
+            "volumeM3": round(total_volume, 3),
         })
 
     return {
@@ -67,7 +101,8 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
         "tripNo": trip.trip_no,
         "brand": trip.brand,
         "district": trip.district,
-        "manifestVersion": trip.manifest_version,
+        "depot": trip.depot,
+        "manifestVersion": f"Plan v{trip.manifest_version}",
         "plannedDepartureTime": trip.planned_departure_time,
         "isUnlocked": trip.otp_unlocked,
         "otpAttempts": trip.otp_attempts,
@@ -106,6 +141,9 @@ def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = De
 
     results = []
     for d in deliveries:
+        signed_pod_photo = storage_service.get_signed_url(d.pod_photo_url)
+        signed_pod_sig = storage_service.get_signed_url(d.pod_signature_url)
+
         disc = None
         if d.discrepancy_type:
             disc = DiscrepancyDetails(
@@ -114,6 +152,7 @@ def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = De
                 deliveredQty=d.delivered_qty,
                 notes=d.discrepancy_notes or "",
                 photoName=d.pod_photo_name,
+                photoUrl=signed_pod_photo,
             )
         not_del = None
         if d.not_delivered_reason:
@@ -121,13 +160,14 @@ def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = De
                 reason=d.not_delivered_reason,
                 notes=d.not_delivered_notes or "",
                 photoName=d.pod_photo_name,
+                photoUrl=signed_pod_photo,
             )
         pod = PodDetails(
             photoName=d.pod_photo_name,
-            photoUrl=d.pod_photo_url,
+            photoUrl=signed_pod_photo,
             signerName=d.pod_signer_name,
             hasSignature=d.pod_has_signature,
-            signatureUrl=d.pod_signature_url,
+            signatureUrl=signed_pod_sig,
         )
         results.append(LocalDeliveryRecordSchema(
             id=d.id,
@@ -174,7 +214,7 @@ def api_get_driver_issues_history(db: Session = Depends(get_db), user: CurrentUs
             stopCode=i.stop_code,
             outletName=i.outlet_name,
             description=i.description,
-            photo={"name": i.photo_name, "url": i.photo_url} if i.photo_name else None,
+            photo={"name": i.photo_name, "url": storage_service.get_signed_url(i.photo_url) or ""} if i.photo_name else None,
             status=i.status,
             offlineCreated=i.offline_created,
             createdAt=i.recorded_at.isoformat(),

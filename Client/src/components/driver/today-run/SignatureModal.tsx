@@ -144,13 +144,17 @@ export function SignatureModal({
   const handleFallbackFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const url = URL.createObjectURL(file);
-      onSave({
-        name: file.name,
-        url,
-        signerName: signerName.trim() || "Store Manager",
-      });
-      onClose();
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = reader.result as string;
+        onSave({
+          name: file.name,
+          url,
+          signerName: signerName.trim() || "Store Manager",
+        });
+        onClose();
+      };
+      reader.readAsDataURL(file);
     }
     e.target.value = "";
   };

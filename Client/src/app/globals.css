@@ -56,6 +56,25 @@ button, input, select, textarea, span, p, h1, h2, h3, h4, div {
   font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
 }
 
+.font-inter {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+/* ─── Hide Next.js dev overlay indicator button and portals ─── */
+#__next-build-watcher,
+[data-nextjs-toast],
+[data-next-dev-tools],
+[data-nextjs-dev-tools-button],
+nextjs-portal,
+div[data-nextjs-dev-tools-button] {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 /* App Container - Locked Fullscreen Viewport */
 .app-container {
   display: flex;

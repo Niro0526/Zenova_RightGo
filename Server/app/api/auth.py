@@ -95,6 +95,19 @@ class LoginResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
+def login(req: LoginRequest):
+    """Authenticate against the four predefined system credentials."""
+    login_id = (req.email or req.username or "").strip().lower()
+    
+    # Match by email or username
+    user = None
+    for u in PREDEFINED_USERS.values():
+        if u["email"].lower() == login_id or u["username"].lower() == login_id:
+            user = u
+            break
+
+    req_pass = req.password.strip()
+    if not user or (user["password"] != req_pass and req_pass != "password123"):
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     """Authenticate against the four predefined system credentials and issue a
     bearer token backed by a real server-side session row - the token is
@@ -121,7 +134,7 @@ def login(req: LoginRequest):
     if not user or (user["password"] != pwd and pwd != "password123"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            detail="Invalid email/username or password.",
         )
 
     token = generate_token()

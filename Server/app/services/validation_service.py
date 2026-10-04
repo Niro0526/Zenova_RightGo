@@ -593,6 +593,7 @@ class ValidationEngine:
         vehicle_trip_nos: Dict[str, Set[int]] = {}
 
         for k, ords in trip_groups.items():
+            vid, tno_str = k.rsplit("-", 1)
             vid, tno_str = k.split("-")
             tno = int(tno_str)
             vehicle_trip_nos.setdefault(vid, set()).add(tno)
@@ -645,7 +646,7 @@ class ValidationEngine:
 
         # Operational items
         for k, ords in trip_groups.items():
-            vid, tno_str = k.split("-")
+            vid, tno_str = k.rsplit("-", 1)
             tno = int(tno_str)
             dep_time = trip_meta.get(k)
             outlet_seq = stop_sequences.get(k, [])

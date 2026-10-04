@@ -10,12 +10,16 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@types/mapbox-gl": "^3.4.1",
     "lucide-react": "^0.468.0",
+    "mapbox-gl": "^3.32.0",
     "next": "^15.5.26",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@esbuild/win32-x64": "^0.28.2",
+    "@rollup/rollup-win32-x64-msvc": "^4.64.0",
     "@types/node": "^20.12.7",
     "@types/react": "^18.3.1",
     "@types/react-dom": "^18.3.0",

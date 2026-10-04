@@ -527,6 +527,7 @@ def suggest_plan_greedy(
         DraftStopSequence.locked == False,  # noqa: E712
     ).delete(synchronize_session=False)
     for key, seq in stop_seqs.items():
+        vid, tno_str = key.rsplit("-", 1)
         if key in locked_stop_keys:
             continue
         vid, tno_str = key.split("-")
@@ -543,6 +544,7 @@ def suggest_plan_greedy(
         DraftTripMeta.locked == False,  # noqa: E712
     ).delete(synchronize_session=False)
     for key, dep_time in trip_meta.items():
+        vid, tno_str = key.rsplit("-", 1)
         if key in locked_trip_meta_keys:
             continue
         vid, tno_str = key.split("-")
@@ -654,7 +656,7 @@ def release_plan(
 
     trip_counter = 1
     for key, trip_orders in trip_map.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         tno = int(tno_str)
         outlet_seq = draft_state["stopSequences"].get(key, list(dict.fromkeys(o.outlet_id for o in trip_orders)))
         dep_time = draft_state["tripMeta"].get(key, {}).get("plannedDepartureTime")
@@ -703,6 +705,11 @@ def release_plan(
                 is_loaded=False,
             ))
 
+    # Update Deferral Memory & Orders
+    existing_mems = {m.outlet_id: m for m in db.query(DeferralMemory).all()}
+    for o in engine.orders:
+        a = draft_state["assignments"].get(o.order_ref, {})
+        mem = existing_mems.get(o.outlet_id)
     # Update order status (per order) and Deferral Memory (per outlet).
     # Deferral memory is aggregated per outlet - not per order - because one
     # release can carry both a served and a deferred order for the same
@@ -731,6 +738,7 @@ def release_plan(
         if not mem:
             mem = DeferralMemory(outlet_id=outlet_id, consecutive_skips=0)
             db.add(mem)
+            existing_mems[o.outlet_id] = mem
 
         if decision["served"]:
             # Any order served for this outlet this run resets its skip streak,
