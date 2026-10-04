@@ -1,92 +1,351 @@
+"use client";
+
 import Link from 'next/link';
-import { BadgeAlert, TriangleAlert } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Search, 
+  Scan, 
+  ChevronRight, 
+  AlertTriangle, 
+  Truck, 
+  Clock, 
+  Package, 
+  Thermometer 
+} from 'lucide-react';
 
 type Status = 'Ready to Load' | 'Loading' | 'Attention';
+
 type Trip = {
   vehicle: string;
   id: string;
+  bay: string;
   area: string;
+  routeStr: string;
   departure: string;
   outlets: number;
   orders: number;
+  payloadKg: number;
+  vehicleType: string;
   plan: number;
   status: Status;
   issue: boolean;
+  issueNotes?: string;
+  stagingProgress?: number;
 };
 
 const trips: Trip[] = [
-  { vehicle: 'PEL-R04', id: 'S1-T001', area: 'Colombo West', departure: '05:30', outlets: 4, orders: 6, plan: 1, status: 'Ready to Load', issue: false },
-  { vehicle: 'PEL-D02', id: 'S1-T002', area: 'Colombo South', departure: '06:00', outlets: 3, orders: 4, plan: 1, status: 'Loading', issue: false },
-  { vehicle: 'PEL-R02', id: 'S1-T003', area: 'Colombo East', departure: '06:30', outlets: 3, orders: 5, plan: 1, status: 'Attention', issue: true },
-  { vehicle: 'PEL-V01', id: 'S1-T004', area: 'Colombo North', departure: '07:00', outlets: 2, orders: 2, plan: 2, status: 'Ready to Load', issue: false },
+  { 
+    vehicle: 'PEL-R04', 
+    id: 'S1-T001', 
+    bay: 'Bay 02',
+    area: 'Colombo West', 
+    routeStr: 'Peliyagoda → Pettah → Fort → Kollupitiya',
+    departure: '05:30', 
+    outlets: 4, 
+    orders: 6, 
+    payloadKg: 1320,
+    vehicleType: '14ft Reefer',
+    plan: 1, 
+    status: 'Ready to Load', 
+    issue: false 
+  },
+  { 
+    vehicle: 'PEL-D02', 
+    id: 'S1-T002', 
+    bay: 'Bay 04',
+    area: 'Colombo South', 
+    routeStr: 'Peliyagoda → Bambalapitiya → Wellawatte → Dehiwala',
+    departure: '06:00', 
+    outlets: 3, 
+    orders: 4, 
+    payloadKg: 890,
+    vehicleType: 'Dry Box Truck',
+    plan: 1, 
+    status: 'Loading', 
+    issue: false,
+    stagingProgress: 50
+  },
+  { 
+    vehicle: 'PEL-R02', 
+    id: 'S1-T003', 
+    bay: 'Bay 01',
+    area: 'Colombo East', 
+    routeStr: 'Peliyagoda → Dematagoda → Borella → Rajagiriya',
+    departure: '06:30', 
+    outlets: 3, 
+    orders: 5, 
+    payloadKg: 1150,
+    vehicleType: '14ft Reefer',
+    plan: 1, 
+    status: 'Attention', 
+    issue: true,
+    issueNotes: 'SKU count discrepancy reported during pallet staging'
+  },
+  { 
+    vehicle: 'PEL-V01', 
+    id: 'S1-T004', 
+    bay: 'Bay 05',
+    area: 'Colombo North', 
+    routeStr: 'Peliyagoda → Wattala → Mabola → Ja-Ela',
+    departure: '07:00', 
+    outlets: 2, 
+    orders: 2, 
+    payloadKg: 740,
+    vehicleType: '12ft Chilled',
+    plan: 2, 
+    status: 'Ready to Load', 
+    issue: false 
+  },
 ];
 
-const primaryButton = 'min-h-[45px] w-full rounded-lg bg-[#F97316] px-4 py-3 text-sm font-bold leading-[21px] text-white transition-colors hover:bg-[#EA580C] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#F97316] disabled:cursor-not-allowed disabled:hover:bg-[#F97316]';
-const continueLoadingButton = 'min-h-[45px] w-full rounded-lg bg-[#22C55E] px-4 py-3 text-sm font-bold leading-[21px] text-white transition-colors hover:bg-[#16A34A] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#22C55E] disabled:cursor-not-allowed disabled:hover:bg-[#22C55E]';
-
-function TripStatus({ status }: { status: Status }) {
-  const colors = status === 'Loading'
-    ? 'bg-[#ECFDF5] text-[#22C55E]'
-    : status === 'Attention' ? 'bg-[#FFF4ED] text-[#F59E0B]' : 'bg-[#FFF4ED] text-[#F97316]';
-  return <span className={`shrink-0 rounded-md px-2.5 py-1.5 text-xs font-bold leading-[18px] ${colors}`}>{status}</span>;
-}
-
-function TripDetails({ trip }: { trip: Trip }) {
-  return (
-    <div className="flex flex-col gap-1.5 text-xs font-medium leading-[18px] text-[#485563]">
-      <p className="text-[13px] font-normal leading-5">Depot: Peliyagoda • Brand: Unilever</p>
-      <p>Planned departure: {trip.departure}</p>
-      <p>{trip.outlets} outlets · {trip.orders} orders</p>
-      <p>Plan v{trip.plan}</p>
-      {trip.issue && <p className="flex items-center gap-1 text-[11px] font-semibold leading-[17px] text-[#EF4444]"><TriangleAlert size={14} aria-hidden="true" />1 loading issue reported</p>}
-    </div>
-  );
-}
-
 export default function LoaderDashboard() {
-  return (
-    <main id="loader-main" tabIndex={-1} className="flex-1 md:ml-[220px] lg:ml-[240px] min-h-screen w-full overflow-x-hidden p-4 pb-[85px] outline-none md:p-6 md:pb-12">
-      <a href="#loader-main" className="sr-only z-50 rounded bg-white p-3 focus:not-sr-only focus:absolute">Skip to main content</a>
-        <div className="flex flex-col gap-5">
-          <header className="border-b border-[#CBD5E1] pb-4">
-            <h1 className="text-[22px] font-bold leading-[33px]">Assigned Trips</h1>
-            <p className="mt-1 text-[13px] leading-5 text-[#485563]">Today&apos;s loading schedule and active vehicle assignments</p>
-          </header>
+  const [searchQuery, setSearchQuery] = useState('');
 
-          <div className="flex items-center gap-3 rounded-xl border border-[#FFF4ED] bg-[#FFFBEB] px-4 py-[15px] text-[13px] leading-5 text-[#485563]">
-            <BadgeAlert size={20} className="shrink-0 text-[#F59E0B]" aria-hidden="true" />
-            <p>Scan vehicle barcode or select a trip card to begin</p>
+  const filteredTrips = trips.filter(trip => 
+    trip.vehicle.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    trip.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    trip.area.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    trip.bay.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  return (
+    <div className="w-full max-w-7xl mx-auto flex flex-col gap-6">
+      
+      {/* 1. Header Section */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-slate-900">Assigned Trips</h1>
+            <span className="px-3 py-1 bg-emerald-100 text-emerald-700 font-medium text-xs rounded-full flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Peliyagoda Hub • Shift 1 Active
+            </span>
           </div>
-          <section aria-label="Assigned trips" className="flex flex-col gap-4">
-            {trips.map((trip) => <article key={trip.id} aria-labelledby={`title-${trip.id}`} className={`flex flex-col gap-4 rounded-xl bg-white p-4 ${trip.status === 'Loading' ? 'border-2 border-[#22C55E]' : 'border border-[#CBD5E1]'}`}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div><h2 id={`title-${trip.id}`} className="text-base font-bold leading-6">{trip.vehicle} / {trip.id}</h2><p className="mt-0.5 text-xs font-semibold leading-[18px] text-[#485563]">{trip.area}</p></div>
-                <TripStatus status={trip.status} />
+          <p className="text-sm text-slate-500 mt-1">
+            Real-time vehicle docking schedule, cargo staging readiness, and loading sequence assignments.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <button className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 text-slate-700 text-sm font-medium rounded-xl hover:bg-slate-50 shadow-sm transition">
+            <Scan className="w-4 h-4 text-slate-500" />
+            Scan Barcode
+          </button>
+          <Link 
+            href="/loader/load-sequence" 
+            className="flex items-center gap-2 px-4 py-2 bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-medium rounded-xl shadow-sm transition"
+          >
+            Current Trip <ChevronRight className="w-4 h-4" />
+          </Link>
+        </div>
+      </div>
+
+      {/* 2. Search & Total Metrics Bar */}
+      <div className="flex flex-col sm:flex-row items-center gap-4">
+        <div className="relative flex-1 w-full">
+          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by vehicle (e.g. PEL-R04), trip ID (S1-T001), bay, or corridor..."
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition shadow-sm"
+          />
+        </div>
+        <div className="px-4 py-2.5 bg-slate-200/60 text-slate-700 text-xs font-semibold rounded-xl whitespace-nowrap">
+          Total Planned: <span className="text-slate-900 font-bold">4 Vehicles • 4,100 kg</span>
+        </div>
+      </div>
+
+      {/* 3. KPI Metrics Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* All Trips */}
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+          <div>
+            <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">ALL TRIPS</span>
+            <p className="text-3xl font-extrabold text-slate-900 mt-1">4</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <div className="p-2 bg-slate-100 rounded-lg text-slate-600">
+              <Truck className="w-4 h-4" />
+            </div>
+            <span className="text-[11px] font-medium text-slate-500">Planned</span>
+          </div>
+        </div>
+
+        {/* Loading */}
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+          <div>
+            <span className="text-xs font-bold tracking-wider text-emerald-600 uppercase">LOADING</span>
+            <p className="text-3xl font-extrabold text-slate-900 mt-1">1</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <span className="text-[11px] font-medium text-slate-500">Bay 04 Active</span>
+          </div>
+        </div>
+
+        {/* Ready */}
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+          <div>
+            <span className="text-xs font-bold tracking-wider text-amber-600 uppercase">READY</span>
+            <p className="text-3xl font-extrabold text-slate-900 mt-1">2</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+            <span className="text-[11px] font-medium text-slate-500">Staged at Docks</span>
+          </div>
+        </div>
+
+        {/* Attention */}
+        <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-sm flex justify-between items-start">
+          <div>
+            <span className="text-xs font-bold tracking-wider text-rose-600 uppercase">ATTENTION</span>
+            <p className="text-3xl font-extrabold text-slate-900 mt-1">1</p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-rose-500"></span>
+            <span className="text-[11px] font-bold text-rose-600">1 Discrepancy</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 4. Trip Cards Grid (2x2 Layout) */}
+      <section aria-label="Assigned trips grid" className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {filteredTrips.map((trip) => {
+          const isLoading = trip.status === 'Loading';
+          const isAttention = trip.status === 'Attention';
+          const canOpen = trip.id === 'S1-T001' || isLoading;
+
+          return (
+            <article 
+              key={trip.id} 
+              aria-labelledby={`title-${trip.id}`} 
+              className={`bg-white rounded-2xl p-5 shadow-sm space-y-4 ${
+                isLoading 
+                  ? 'border-2 border-emerald-500' 
+                  : isAttention 
+                    ? 'border border-rose-300' 
+                    : 'border border-slate-200'
+              }`}
+            >
+              {/* Card Top Pill Badges */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-1 bg-slate-900 text-white font-bold text-xs rounded-md">{trip.vehicle}</span>
+                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">{trip.id}</span>
+                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">{trip.bay}</span>
+                </div>
+
+                {/* Status Badge */}
+                {isLoading ? (
+                  <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-semibold rounded-full flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Loading in Progress
+                  </span>
+                ) : isAttention ? (
+                  <span className="px-3 py-1 bg-rose-50 text-rose-700 border border-rose-200 text-xs font-semibold rounded-full flex items-center gap-1">
+                    <AlertTriangle className="w-3 h-3" /> Attention Required
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 bg-amber-50 text-amber-700 border border-amber-200 text-xs font-semibold rounded-full flex items-center gap-1">
+                    <Clock className="w-3 h-3" /> Ready to Load
+                  </span>
+                )}
               </div>
-              <TripDetails trip={trip} />
-              {trip.id === 'S1-T001' || trip.status === 'Loading' ? (
+
+              {/* Area & Route */}
+              <div>
+                <h2 id={`title-${trip.id}`} className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${isLoading ? 'bg-emerald-500' : isAttention ? 'bg-rose-500' : 'bg-orange-500'}`}></span>
+                  {trip.area} <span className="text-slate-400 font-normal text-xs">(Plan v{trip.plan})</span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  <span className="font-semibold text-slate-600">Route:</span> {trip.routeStr}
+                </p>
+              </div>
+
+              {/* Metric Summary Box */}
+              <div className="grid grid-cols-3 gap-2 bg-slate-50 p-3 rounded-xl border border-slate-100 text-center">
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">DEPARTURE</span>
+                  <span className="text-xs font-bold text-slate-800 flex items-center justify-center gap-1 mt-1">
+                    <Clock className="w-3 h-3 text-slate-400" /> {trip.departure}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">OUTLETS / ORDERS</span>
+                  <span className="text-xs font-bold text-slate-800 flex items-center justify-center gap-1 mt-1">
+                    <Package className="w-3 h-3 text-slate-400" /> {trip.outlets} / {trip.orders}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">PAYLOAD / TEMP</span>
+                  <span className="text-xs font-bold text-slate-800 flex items-center justify-center gap-1 mt-1">
+                    <Thermometer className="w-3 h-3 text-sky-500" /> {trip.payloadKg.toLocaleString()} kg
+                  </span>
+                </div>
+              </div>
+
+              {/* Staging Progress Bar (if Loading) */}
+              {isLoading && (
+                <div className="space-y-1.5 p-3 bg-emerald-50/60 border border-emerald-100 rounded-xl">
+                  <div className="flex justify-between items-center text-xs text-emerald-800 font-semibold">
+                    <span>Staging Stop 2 of 3 (450 kg staged)</span>
+                    <span>{trip.stagingProgress}%</span>
+                  </div>
+                  <div className="w-full h-2 bg-emerald-200/80 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${trip.stagingProgress}%` }}></div>
+                  </div>
+                </div>
+              )}
+
+              {/* Discrepancy Alert Box (if Attention) */}
+              {isAttention && trip.issueNotes && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-bold">Loading issue reported</p>
+                    <p className="text-[11px] text-amber-700 mt-0.5">{trip.issueNotes}</p>
+                  </div>
+                </div>
+              )}
+
+              {!isLoading && !isAttention && (
+                <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+                  <span className="text-emerald-600 font-medium">Cargo verified & staged at dock</span>
+                  <span className="text-slate-400">{trip.vehicleType}</span>
+                </div>
+              )}
+
+              {/* Action Button */}
+              {canOpen ? (
                 <Link
                   href="/loader/load-sequence"
-                  className={`${trip.status === 'Loading' ? continueLoadingButton : primaryButton} block text-center`}
-                  aria-label={`${trip.status === 'Loading' ? 'Continue loading' : 'Open trip'} ${trip.id}`}
+                  className={`w-full py-2.5 font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition shadow-sm ${
+                    isLoading 
+                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 
+                      : 'bg-[#F97316] hover:bg-[#EA580C] text-white'
+                  }`}
+                  aria-label={`${isLoading ? 'Continue loading' : 'Open trip'} ${trip.id}`}
                 >
-                  {trip.status === 'Loading' ? 'Continue Loading' : 'Open Trip'}
+                  {isLoading ? 'Continue Loading' : 'Open Trip'} <ChevronRight className="w-4 h-4" />
                 </Link>
               ) : (
                 <button
                   type="button"
-                  className={primaryButton}
                   disabled
+                  className="w-full py-2.5 bg-slate-100 text-slate-400 font-bold text-sm rounded-xl cursor-not-allowed text-center"
                   title="Loading details are not available for this demo trip"
                 >
-                  Open Trip
+                  Open Trip (Locked)
                 </button>
               )}
-            </article>)}
-          </section>
-          <p id="loader-integration-note" className="sr-only">Loading details are available for trip S1-T001.</p>
+            </article>
+          );
+        })}
+      </section>
 
-        </div>
-    </main>
+      <p id="loader-integration-note" className="sr-only">Loading details are available for trip S1-T001.</p>
+    </div>
   );
 }
