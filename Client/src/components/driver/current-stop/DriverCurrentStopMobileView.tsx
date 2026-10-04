@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Stop } from "@/components/driver/today-run/types";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { DriverOfflineSyncNotice } from "@/components/driver/today-run-workflow";
@@ -114,6 +115,7 @@ export function DriverCurrentStopMobileView({
   onConfirmArrival,
   storeContact,
 }: DriverCurrentStopMobileViewProps) {
+  const router = useRouter();
   const { isOnline, connectionState } = useConnectivity();
 
   const stopCode = stop.code || "OUT001";
@@ -128,71 +130,343 @@ export function DriverCurrentStopMobileView({
 
   const ordersList =
     stop.orders && stop.orders.length > 0 ? stop.orders : ["S1-000", "S1-001"];
+  const firstOrder = ordersList[0] || "S1-000";
+  const secondOrder = ordersList[1] || ordersList[0] || "S1-001";
+  const perOrderUnits = Math.max(1, Math.round((stop.units || expectedQty || 80) / Math.max(1, ordersList.length)));
 
   const [isDiscrepancyDropdownOpen, setIsDiscrepancyDropdownOpen] = useState(false);
 
   // ═════════════════════════════════════════════════════════════════════════
-  // 1. STATE 4: STOP RECORDED / SUCCESS CONFIRMATION SCREEN
+  // 1. STATE 4: STOP RECORDED / SUCCESS CONFIRMATION SCREEN (FIGMA 1:1)
   // ═════════════════════════════════════════════════════════════════════════
   if (stopRecorded) {
+    const isFull = deliveryOutcome === "full";
+    const isDiscrepancy = deliveryOutcome === "discrepancy";
+    const isNotDelivered = deliveryOutcome === "none";
+
+    const reasonLabel = notDeliveredReason || "Store Closed";
+
+    const discrepancyLabel =
+      discrepancyType === "Quantity Short"
+        ? "Quantity Shortage"
+        : discrepancyType === "Damaged"
+        ? "Damaged Goods"
+        : discrepancyType === "Wrong Item"
+        ? "Incorrect SKU"
+        : discrepancyType || "Quantity Shortage";
+
+    const calcDeliveredQty = deliveredQty ? Number(deliveredQty) : 72;
+    const calcDiff = Math.max(0, expectedQty - calcDeliveredQty);
+
     return (
       <div
         id="driver-current-stop-mobile"
         className="font-inter w-full max-w-[390px] mx-auto min-h-[844px] bg-[#F6F8FB] pb-28 relative flex flex-col shadow-xl sm:rounded-[24px] overflow-hidden border border-slate-200"
         style={{ fontFamily: "'Inter', sans-serif" }}
       >
-        {/* Header */}
-        <header className="w-full h-[70px] bg-white flex items-center justify-between px-5 border-b border-[#F1F5F9] shrink-0 sticky top-0 z-30 shadow-2xs">
-          <span className="font-bold text-[21px] leading-[25px] text-[#ED5214]">
+        {/* Header (bg #FFFFFF) */}
+        <header className="w-full h-[70px] bg-white flex items-center justify-between px-5 border-b border-[#E2E8F0] shrink-0 sticky top-0 z-30">
+          <span
+            className="font-bold text-[21px] leading-[25px] text-[#ED5214] cursor-pointer"
+            onClick={() => router.push("/driver/today-run")}
+          >
             RightGo
           </span>
           <span className="font-bold text-[12px] leading-[15px] text-[#1F9457]">
-            Stop Completed ✓
+            Online
           </span>
         </header>
 
-        <main className="flex-1 flex flex-col gap-4 px-5 pt-5">
+        <main className="flex-1 flex flex-col px-5 pt-4 pb-6">
           <DriverOfflineSyncNotice />
 
-          {/* Success Card */}
-          <div className="bg-white rounded-[12px] p-5 flex flex-col items-center text-center gap-3 border border-emerald-200 shadow-xs">
-            <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center font-bold text-2xl shadow-sm">
+          {/* Title */}
+          <h1 className="text-[#1F293B] font-bold text-[22px] leading-[27px] m-0 mb-3">
+            Stop Recorded
+          </h1>
+
+          {/* ── BANNER CARD (bg #FFFFFF, r: 12px) ── */}
+          <div className="w-full bg-white rounded-[12px] p-4 flex flex-col items-center justify-center text-center mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+            <span className="text-[#1F9457] font-bold text-[30px] leading-[36px] mb-1.5">
               ✓
-            </div>
-            <div className="flex flex-col gap-1">
-              <h2 className="font-bold text-[20px] text-[#1F293B] m-0">
-                Delivery Recorded
-              </h2>
-              <span className="font-normal text-[12px] text-[#6B788C]">
-                {stopCode} • {stopName}
-              </span>
-            </div>
+            </span>
 
-            <div className="w-full bg-[#EBFAF0] rounded-[9px] p-3 text-left flex flex-col gap-1 text-[11px] text-[#1F9457]">
-              <span className="font-bold">
-                Outcome:{" "}
-                {deliveryOutcome === "full"
-                  ? "Delivered in Full"
-                  : deliveryOutcome === "discrepancy"
-                  ? `Discrepancy (${discrepancyType})`
-                  : `Not Delivered (${notDeliveredReason})`}
-              </span>
-              <span className="text-[#6B788C]">
-                {photoFile ? "✓ Goods photo captured" : ""}
-                {photoFile && signatureFile ? " • " : ""}
-                {signatureFile ? "✓ Store signature attached" : ""}
-              </span>
-            </div>
+            {isFull && (
+              <>
+                <span className="text-[#1F9457] font-bold text-[16px] leading-[19px] mb-1">
+                  Delivery Recorded
+                </span>
+                <span className="text-[#1F9457] font-bold text-[12px] leading-[15px] mb-1.5">
+                  Delivered in Full
+                </span>
+                <span className="text-[#6B788C] text-[11px] leading-[13px] font-normal">
+                  The stop outcome has been saved to the trip log.
+                </span>
+              </>
+            )}
 
-            <Link
-              id="btn-proceed-next-stop-mobile"
-              href="/driver/today-run"
-              onClick={onProceedToNextStop}
-              className="w-full h-[46px] bg-[#ED5214] hover:bg-[#d8460d] active:scale-[0.98] rounded-[10px] text-white font-bold text-[13px] flex items-center justify-center transition-all no-underline shadow-md mt-2 cursor-pointer"
-            >
-              Proceed to Today&apos;s Run →
-            </Link>
+            {isDiscrepancy && (
+              <>
+                <span className="text-[#1F9457] font-bold text-[16px] leading-[19px] mb-1">
+                  Delivery Recorded
+                </span>
+                <span className="text-[#ED5214] font-bold text-[12px] leading-[15px] mb-1.5">
+                  Delivered with Discrepancy
+                </span>
+                <span className="text-[#6B788C] text-[11px] leading-[13px] font-normal">
+                  Saved to the trip log.
+                </span>
+              </>
+            )}
+
+            {isNotDelivered && (
+              <>
+                <span className="text-[#1F9457] font-bold text-[16px] leading-[19px] mb-1">
+                  Not Delivered Recorded
+                </span>
+                <span className="text-[#ED5214] font-bold text-[12px] leading-[15px] mb-1.5">
+                  No delivery quantity was recorded.
+                </span>
+                <span className="text-[#6B788C] text-[11px] leading-[13px] font-normal">
+                  Saved to the trip log.
+                </span>
+              </>
+            )}
           </div>
+
+          {/* ── CARD 1: DELIVERY RECORD (bg #FFFFFF, r: 12px) ── */}
+          <div className="w-full bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+            <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-2">
+              DELIVERY RECORD
+            </span>
+            <span className="block text-[#1F293B] font-bold text-[15px] leading-[18px] mb-2">
+              {stopCode} / {stopName}
+            </span>
+
+            {isFull && (
+              <div className="flex flex-col gap-1.5 text-[10px] leading-[12px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Outcome</span>
+                  <span className="text-[#1F9457] font-bold text-[11px] leading-[13px]">
+                    Delivered in Full
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Stop</span>
+                  <span className="text-[#1F293B] font-normal text-[10px] leading-[12px]">
+                    1 of 4 • Trip A
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {isDiscrepancy && (
+              <div className="flex flex-col gap-1.5 text-[10px] leading-[12px]">
+                <span className="text-[#6B788C] font-normal mb-0.5">
+                  Trip A • Stop {currentStopIndex} of {totalStopsCount} • PEL-R04
+                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Outcome</span>
+                  <span className="text-[#ED5214] font-bold text-[11px] leading-[13px]">
+                    Delivered — Discrepancy
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {isNotDelivered && (
+              <div className="flex flex-col gap-1.5 text-[10px] leading-[12px]">
+                <span className="text-[#6B788C] font-normal mb-0.5">
+                  Trip A • Stop {currentStopIndex} of {totalStopsCount} • PEL-R04
+                </span>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Outcome</span>
+                  <span className="text-[#ED5214] font-bold text-[11px] leading-[13px]">
+                    Not Delivered
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Reason</span>
+                  <span className="text-[#1F293B] font-bold text-[11px] leading-[13px]">
+                    {reasonLabel}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Evidence</span>
+                  <span className="text-[#1F9457] font-bold text-[11px] leading-[13px]">
+                    Photo attached ✓
+                  </span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── CARD 2 (FULL): DELIVERED ORDERS ── */}
+          {isFull && (
+            <div className="w-full bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+              <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-3">
+                DELIVERED ORDERS
+              </span>
+
+              {ordersList.map((ordRef, idx) => (
+                <div key={ordRef} className={`flex items-center justify-between ${idx < ordersList.length - 1 ? "mb-2" : "mb-3"}`}>
+                  <span className="text-[#1F293B] font-bold text-[13px] leading-[16px]">
+                    {ordRef}
+                  </span>
+                  <span className="text-[#6B788C] text-[10px] leading-[12px] font-normal">
+                    Expected {perOrderUnits}
+                  </span>
+                  <span className="text-[#1F9457] font-bold text-[10px] leading-[12px]">
+                    Delivered {perOrderUnits} ✓
+                  </span>
+                </div>
+              ))}
+
+              {/* Summary Frame */}
+              <div className="w-full min-h-[58px] bg-[#EBFAF0] rounded-[8px] p-3 flex items-center justify-between border border-[#1F9457]/20">
+                <div className="flex flex-col">
+                  <span className="text-[#6B788C] text-[10px] leading-[12px] font-normal mb-0.5">
+                    Total delivered
+                  </span>
+                  <span className="text-[#1F9457] font-bold text-[14px] leading-[17px]">
+                    {stop.units || perOrderUnits * ordersList.length} units
+                  </span>
+                </div>
+                <span className="text-[#1F9457] font-bold text-[10px] leading-[12px]">
+                  All quantities matched
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ── CARD 2 (DISCREPANCY): DISCREPANCY DETAILS ── */}
+          {isDiscrepancy && (
+            <div className="w-full bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+              <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-3">
+                DISCREPANCY DETAILS
+              </span>
+
+              <div className="flex flex-col gap-2 text-[10px] leading-[12px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Affected Order</span>
+                  <span className="text-[#1F293B] font-bold text-[11px] leading-[13px]">
+                    {secondOrder}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Expected Quantity</span>
+                  <span className="text-[#6B788C] font-normal text-[10px] leading-[12px]">
+                    {expectedQty || perOrderUnits} units
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Actual Delivered</span>
+                  <span className="text-[#1F293B] font-bold text-[10px] leading-[12px]">
+                    {calcDeliveredQty} units
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Difference</span>
+                  <span className="text-[#ED5214] font-bold text-[10px] leading-[12px]">
+                    {calcDiff > 0 ? `${calcDiff} units short` : "8 units short"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Reason</span>
+                  <span className="text-[#1F293B] font-bold text-[10px] leading-[12px]">
+                    {discrepancyLabel}
+                  </span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── CARD (DISCREPANCY & NOT DELIVERED): DRIVER NOTE ── */}
+          {(isDiscrepancy || isNotDelivered) && (
+            <div className="w-full bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+              <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-2">
+                DRIVER NOTE
+              </span>
+              <p className="text-[#1F293B] text-[11px] leading-[15px] font-normal m-0">
+                {isDiscrepancy
+                  ? discrepancyNotes || "8 units unavailable at delivery."
+                  : notDeliveredNotes ||
+                    "Store was closed at the scheduled delivery time. Evidence captured before leaving the stop."}
+              </p>
+            </div>
+          )}
+
+          {/* ── CARD 3 (FULL & DISCREPANCY): PROOF OF DELIVERY ── */}
+          {!isNotDelivered && (
+            <div className="w-full bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+              <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-3">
+                PROOF OF DELIVERY
+              </span>
+
+              <div className="flex flex-col gap-2.5 text-[10px] leading-[12px]">
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Photo Evidence</span>
+                  <span className="text-[#1F9457] font-bold text-[11px] leading-[13px]">
+                    Captured ✓
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[#6B788C] font-normal">Store Manager Signature</span>
+                  <span className="text-[#1F9457] font-bold text-[11px] leading-[13px]">
+                    Captured ✓
+                  </span>
+                </div>
+                <span className="text-[#1F9457] font-bold text-[10px] leading-[12px] pt-1 border-t border-[#EDF2FA]">
+                  POD complete
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* ── CARD: TRIP PROGRESS ── */}
+          <div className="w-full bg-white rounded-[12px] p-4 flex items-center justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+            <div>
+              <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-1.5">
+                TRIP PROGRESS
+              </span>
+              <span className="block text-[#1F293B] font-bold text-[11px] leading-[13px]">
+                {isNotDelivered
+                  ? "1 stop recorded • 3 stops remaining"
+                  : isDiscrepancy
+                  ? "1 of 4 stops recorded"
+                  : "1 of 4 stops completed"}
+              </span>
+            </div>
+            <span className="text-[#ED5214] font-bold text-[14px] leading-[17px]">
+              25%
+            </span>
+          </div>
+
+          {/* ── ACTION BUTTONS ── */}
+          <div className="w-full flex flex-col gap-2.5 mb-3">
+            <button
+              type="button"
+              id="open-next-stop-button"
+              onClick={onProceedToNextStop}
+              className="w-full h-[50px] bg-[#ED5214] hover:bg-[#d9460d] text-white font-bold text-[13px] leading-[16px] rounded-[10px] flex items-center justify-center cursor-pointer transition-all border-none shadow-md active:scale-[0.99]"
+            >
+              Open Next Stop
+            </button>
+
+            <button
+              type="button"
+              id="view-delivery-history-button"
+              onClick={() => router.push("/driver/history")}
+              className="w-full h-[44px] bg-[#EDF2FA] hover:bg-[#e2e8f0] text-[#ED5214] font-bold text-[13px] leading-[16px] rounded-[10px] flex items-center justify-center cursor-pointer transition-all border-none"
+            >
+              View Delivery History
+            </button>
+          </div>
+
+          {/* Bottom Note */}
+          <span className="text-[#6B788C] text-[10px] leading-[13px] font-normal text-center max-w-[320px] mx-auto">
+            This outcome is synced to the trip log and remains available in History.
+          </span>
         </main>
       </div>
     );
@@ -323,54 +597,34 @@ export function DriverCurrentStopMobileView({
             </button>
           </div>
 
-          {/* ── CARD 3A: DELIVERED IN FULL — ORDER QUANTITIES BREAKDOWN (350x238, radius: 12px) ── */}
+          {/* ── CARD 3A: DELIVERED IN FULL — ORDER QUANTITIES BREAKDOWN (radius: 12px) ── */}
           {deliveryOutcome === "full" && (
             <div className="bg-white rounded-[12px] p-4 flex flex-col gap-3.5 border border-[#E2E8F0] shadow-xs">
               <span className="font-bold text-[10px] leading-[12px] text-[#6B788C] uppercase tracking-wider">
                 ORDER QUANTITIES
               </span>
 
-              {/* Order S1-000 */}
-              <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-                <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                  S1-000
-                </span>
-                <div className="flex items-center gap-6">
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Expected
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F293B]">80</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Actual
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F9457]">80</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Order S1-001 */}
-              <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-                <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                  S1-001
-                </span>
-                <div className="flex items-center gap-6">
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Expected
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F293B]">80</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Actual
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F9457]">80</span>
+              {ordersList.map((ordRef) => (
+                <div key={ordRef} className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
+                  <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                    {ordRef}
+                  </span>
+                  <div className="flex items-center gap-6">
+                    <div className="flex flex-col items-center">
+                      <span className="font-normal text-[10px] text-[#6B788C]">
+                        Expected
+                      </span>
+                      <span className="font-bold text-[15px] text-[#1F293B]">{perOrderUnits}</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <span className="font-normal text-[10px] text-[#6B788C]">
+                        Actual
+                      </span>
+                      <span className="font-bold text-[15px] text-[#1F9457]">{perOrderUnits}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ))}
 
               {/* Match Banner */}
               <div className="bg-[#EBFAF0] rounded-[9px] p-3 flex items-center justify-center">
@@ -384,45 +638,65 @@ export function DriverCurrentStopMobileView({
           {/* ── CARD 3B: DISCREPANCY FLOW (ACTUAL QUANTITIES, DETAILS, DRIVER NOTE) ── */}
           {deliveryOutcome === "discrepancy" && (
             <>
-              {/* 1. ACTUAL QUANTITIES (height: 260px, radius: 12px, bg: #FFFFFF) */}
+              {/* 1. ACTUAL QUANTITIES (radius: 12px, bg: #FFFFFF) */}
               <div className="bg-white rounded-[12px] p-4 flex flex-col gap-3 border border-[#E2E8F0] shadow-xs">
                 <span className="font-bold text-[10px] leading-[12px] text-[#6B788C] uppercase tracking-wider">
                   ACTUAL QUANTITIES
                 </span>
 
-                {/* S1-000 */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                      S1-000
-                    </span>
-                    <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
-                      Expected 80
-                    </span>
-                  </div>
-                  <div className="w-[96px] h-[40px] bg-[#EDF2FA] rounded-[8px] flex items-center justify-center">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                      80
-                    </span>
-                  </div>
-                </div>
+                {ordersList.length > 1 ? (
+                  <>
+                    {/* First order (undisputed) */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                          {firstOrder}
+                        </span>
+                        <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
+                          Expected {perOrderUnits}
+                        </span>
+                      </div>
+                      <div className="w-[96px] h-[40px] bg-[#EDF2FA] rounded-[8px] flex items-center justify-center">
+                        <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                          {perOrderUnits}
+                        </span>
+                      </div>
+                    </div>
 
-                {/* S1-001 */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                      S1-001
-                    </span>
-                    <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
-                      Expected 80
-                    </span>
+                    {/* Second order (with discrepancy adjustment) */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                          {secondOrder}
+                        </span>
+                        <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
+                          Expected {expectedQty || perOrderUnits}
+                        </span>
+                      </div>
+                      <div className="w-[96px] h-[40px] bg-[#FFF2E8] rounded-[8px] flex items-center justify-center">
+                        <span className="font-bold text-[14px] leading-[17px] text-[#ED5214]">
+                          {deliveredQty || String(expectedQty || perOrderUnits)}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                        {firstOrder}
+                      </span>
+                      <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
+                        Expected {expectedQty || perOrderUnits}
+                      </span>
+                    </div>
+                    <div className="w-[96px] h-[40px] bg-[#FFF2E8] rounded-[8px] flex items-center justify-center">
+                      <span className="font-bold text-[14px] leading-[17px] text-[#ED5214]">
+                        {deliveredQty || String(expectedQty || perOrderUnits)}
+                      </span>
+                    </div>
                   </div>
-                  <div className="w-[96px] h-[40px] bg-[#FFF2E8] rounded-[8px] flex items-center justify-center">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#ED5214]">
-                      {deliveredQty || "72"}
-                    </span>
-                  </div>
-                </div>
+                )}
 
                 {/* Quantity Discrepancy Alert Banner */}
                 <div className="w-full bg-[#FFF7E3] rounded-[9px] p-3 flex flex-col gap-1 border border-amber-200/60">
@@ -430,7 +704,7 @@ export function DriverCurrentStopMobileView({
                     Quantity discrepancy
                   </span>
                   <span className="font-normal text-[11px] leading-[13px] text-[#1F293B]">
-                    S1-001: {Math.max(0, expectedQty - (Number(deliveredQty) || 72))} units short from expected quantity.
+                    {Math.max(0, (expectedQty || perOrderUnits) - (Number(deliveredQty) || (expectedQty || perOrderUnits)))} units short from expected quantity.
                   </span>
                   <span className="font-normal text-[10px] leading-[12px] text-[#6B788C]">
                     A reason is required before continuing.
@@ -438,7 +712,7 @@ export function DriverCurrentStopMobileView({
                 </div>
               </div>
 
-              {/* 2. DISCREPANCY DETAILS (height: 360px / 565px when dropdown open, radius: 12px) */}
+              {/* 2. DISCREPANCY DETAILS (radius: 12px) */}
               <div className="bg-white rounded-[12px] p-4 flex flex-col gap-3.5 border border-[#E2E8F0] shadow-xs relative">
                 <span className="font-bold text-[10px] leading-[12px] text-[#6B788C] uppercase tracking-wider">
                   DISCREPANCY DETAILS
@@ -451,7 +725,7 @@ export function DriverCurrentStopMobileView({
                   </span>
                   <div className="w-full h-[42px] px-3 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center">
                     <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-                      S1-001
+                      {secondOrder}
                     </span>
                   </div>
                 </div>
@@ -463,39 +737,120 @@ export function DriverCurrentStopMobileView({
                   </span>
                   <div className="w-full h-[42px] px-3 bg-[#F7F9FB] border border-[#E0E3E8] rounded-[8px] flex items-center">
                     <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-                      {expectedQty} units
+                      {expectedQty || perOrderUnits} units
                     </span>
                   </div>
                 </div>
 
-                {/* Actual Delivered (Editable) */}
-                <div className="flex flex-col gap-1">
-                  <span className="font-normal text-[9px] leading-[11px] text-[#6B788C]">
-                    Actual Delivered
-                  </span>
-                  <div className="w-full h-[42px] px-3 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center justify-between">
-                    <input
-                      type="number"
-                      value={deliveredQty}
-                      onChange={(e) => onChangeDeliveredQty(e.target.value)}
-                      placeholder="72"
-                      className="font-bold text-[11px] leading-[13px] text-[#1F293B] bg-transparent border-none outline-hidden w-24"
-                    />
-                    <span className="font-bold text-[12px] leading-[15px] text-[#ED5214]">
-                      ✎
+                {/* Actual Delivered (Editable with Stepper & Quick Presets) */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-[10px] leading-[12px] text-[#6B788C]">
+                      Actual Delivered Quantity
                     </span>
+                    <span className="text-[10px] text-[#ED5214] font-bold">
+                      Tap + / − or type
+                    </span>
+                  </div>
+
+                  {/* Stepper Input Box */}
+                  <div className="w-full h-[46px] px-2 bg-white border-[1.5px] border-[#ED5214] rounded-[10px] flex items-center justify-between shadow-2xs">
+                    {/* Decrement Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(deliveredQty) || 0;
+                        const next = Math.max(0, current - 1);
+                        onChangeDeliveredQty(String(next));
+                      }}
+                      className="w-9 h-9 rounded-[8px] bg-[#FFF2E8] hover:bg-[#ffe3d1] text-[#ED5214] font-black text-lg flex items-center justify-center cursor-pointer border-none transition-all active:scale-90"
+                      title="Decrease quantity by 1"
+                    >
+                      −
+                    </button>
+
+                    {/* Numeric Input */}
+                    <div className="flex items-center justify-center flex-1 px-2">
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        value={deliveredQty}
+                        onChange={(e) => onChangeDeliveredQty(e.target.value)}
+                        placeholder={String(expectedQty)}
+                        className="font-extrabold text-[15px] leading-[18px] text-[#1F293B] bg-transparent border-0 outline-none ring-0 text-center w-28 p-0"
+                      />
+                      <span className="text-[11px] font-bold text-[#6B788C] ml-1">
+                        units
+                      </span>
+                    </div>
+
+                    {/* Increment Button */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(deliveredQty) || 0;
+                        const next = Math.min(expectedQty, current + 1);
+                        onChangeDeliveredQty(String(next));
+                      }}
+                      className="w-9 h-9 rounded-[8px] bg-[#FFF2E8] hover:bg-[#ffe3d1] text-[#ED5214] font-black text-lg flex items-center justify-center cursor-pointer border-none transition-all active:scale-90"
+                      title="Increase quantity by 1"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Quick Preset Buttons for rapid 1-tap adjustments */}
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(deliveredQty) || 0;
+                        onChangeDeliveredQty(String(Math.max(0, current - 5)));
+                      }}
+                      className="px-2.5 py-1 bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] text-[10px] font-bold rounded-[6px] border-none cursor-pointer transition-all active:scale-95"
+                    >
+                      −5
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const current = Number(deliveredQty) || 0;
+                        onChangeDeliveredQty(String(Math.max(0, current - 10)));
+                      }}
+                      className="px-2.5 py-1 bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#475569] text-[10px] font-bold rounded-[6px] border-none cursor-pointer transition-all active:scale-95"
+                    >
+                      −10
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onChangeDeliveredQty(String(expectedQty))}
+                      className="ml-auto px-2.5 py-1 bg-[#EDF2FA] hover:bg-[#dbe4f4] text-[#1F293B] text-[10px] font-bold rounded-[6px] border-none cursor-pointer transition-all active:scale-95"
+                    >
+                      Reset to {expectedQty}
+                    </button>
                   </div>
                 </div>
 
                 {/* Difference */}
                 <div className="flex flex-col gap-1">
                   <span className="font-normal text-[9px] leading-[11px] text-[#6B788C]">
-                    Difference
+                    Difference Calculation
                   </span>
-                  <div className="w-full h-[42px] px-3 bg-[#F7F9FB] border border-[#E0E3E8] rounded-[8px] flex items-center">
+                  <div className="w-full h-[42px] px-3 bg-[#F7F9FB] border border-[#E0E3E8] rounded-[8px] flex items-center justify-between">
                     <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-                      {Math.max(0, expectedQty - (Number(deliveredQty) || 72))} units short
+                      {Math.max(0, expectedQty - (Number(deliveredQty) || expectedQty)) > 0
+                        ? `${Math.max(0, expectedQty - (Number(deliveredQty) || expectedQty))} units short`
+                        : "0 units (Delivered in full)"}
                     </span>
+                    {Math.max(0, expectedQty - (Number(deliveredQty) || expectedQty)) > 0 ? (
+                      <span className="text-[10px] font-extrabold text-[#ED5214] bg-[#FFF2E8] px-2 py-0.5 rounded-[4px]">
+                        Shortage
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-extrabold text-[#1F9457] bg-[#E8F8F0] px-2 py-0.5 rounded-[4px]">
+                        ✓ Full
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -507,7 +862,7 @@ export function DriverCurrentStopMobileView({
                   <button
                     type="button"
                     onClick={() => setIsDiscrepancyDropdownOpen(!isDiscrepancyDropdownOpen)}
-                    className="w-full h-[42px] px-3 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center justify-between cursor-pointer text-left"
+                    className="w-full h-[42px] px-3 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center justify-between cursor-pointer text-left shadow-2xs"
                   >
                     <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
                       {discrepancyType === "Quantity Short"
@@ -568,33 +923,66 @@ export function DriverCurrentStopMobileView({
                 </div>
               </div>
 
-              {/* 3. DISCREPANCY REASON & DRIVER NOTE (radius: 12px, bg: #FFFFFF) */}
-              <div className="bg-white rounded-[12px] p-4 flex flex-col gap-3.5 border border-[#E2E8F0] shadow-xs">
-                <span className="font-bold text-[10px] leading-[12px] text-[#6B788C] uppercase tracking-wider">
-                  DISCREPANCY REASON
-                </span>
-
-                <div className="w-full bg-[#EDF2FA] rounded-[8px] p-3">
-                  <textarea
-                    rows={2}
-                    value={discrepancyNotes}
-                    onChange={(e) => onChangeDiscrepancyNotes(e.target.value)}
-                    placeholder="Enter reason for the quantity difference…"
-                    className="w-full bg-transparent border-none outline-hidden font-normal text-[11px] leading-[14px] text-[#1F293B] placeholder-[#6B788C] resize-none"
-                  />
+              {/* 3. DISCREPANCY REASON & DESCRIPTION (radius: 12px, bg: #FFFFFF) */}
+              <div className="bg-white rounded-[12px] p-4 flex flex-col gap-3 border border-[#E2E8F0] shadow-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[10px] leading-[12px] text-[#6B788C] uppercase tracking-wider">
+                    DISCREPANCY REASON & NOTES
+                  </span>
+                  <span className="text-[9px] text-[#6B788C]">
+                    Required for discrepancy log
+                  </span>
                 </div>
 
-                <div className="flex flex-col gap-1">
-                  <span className="font-normal text-[9px] leading-[11px] text-[#6B788C]">
-                    DRIVER NOTE
-                  </span>
-                  <div className="w-full min-h-[39px] px-3 py-2 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center justify-between">
-                    <span className="font-normal text-[11px] leading-[13px] text-[#1F293B]">
-                      {discrepancyNotes || "8 units unavailable at delivery."}
+                {/* Quick 1-Tap Preset Reason Chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    "Damaged Carton",
+                    "Missing from Warehouse",
+                    "Rejected by Store",
+                    "Broken Seal",
+                    "Wrong Variant",
+                  ].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => {
+                        const current = discrepancyNotes.trim();
+                        if (current.includes(chip)) return;
+                        const updated = current ? `${current}. ${chip}` : chip;
+                        onChangeDiscrepancyNotes(updated);
+                      }}
+                      className="px-2 py-1 bg-[#F1F5F9] hover:bg-[#FFF2E8] hover:text-[#ED5214] text-[#475569] text-[10px] font-semibold rounded-[6px] border border-[#E2E8F0] cursor-pointer transition-all active:scale-95"
+                    >
+                      + {chip}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Description Textarea Box */}
+                <div className="w-full bg-[#F6F8FB] border border-[#D6DBE3] focus-within:border-[#ED5214] focus-within:bg-white rounded-[10px] p-3 transition-colors">
+                  <textarea
+                    rows={3}
+                    value={discrepancyNotes}
+                    onChange={(e) => onChangeDiscrepancyNotes(e.target.value)}
+                    placeholder="Enter reason for quantity difference, damaged items, or notes for the store manager…"
+                    className="w-full bg-transparent border-0 outline-none ring-0 font-normal text-[11px] leading-[15px] text-[#1F293B] placeholder-[#6B788C] resize-none p-0"
+                  />
+                  <div className="flex items-center justify-between pt-1 border-t border-[#E2E8F0]/60 mt-1.5">
+                    <span className="text-[9px] text-[#6B788C]">
+                      {discrepancyNotes.length > 0
+                        ? `${discrepancyNotes.length} characters`
+                        : "Tap preset chips above or type custom note"}
                     </span>
-                    <span className="font-bold text-[12px] leading-[15px] text-[#ED5214]">
-                      ✎
-                    </span>
+                    {discrepancyNotes && (
+                      <button
+                        type="button"
+                        onClick={() => onChangeDiscrepancyNotes("")}
+                        className="text-[9px] text-[#ED5214] font-bold hover:underline bg-transparent border-none cursor-pointer p-0"
+                      >
+                        Clear
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -801,30 +1189,49 @@ export function DriverCurrentStopMobileView({
 
               {/* Subtext */}
               <span className="font-normal text-[9px] leading-[11px] text-[#6B788C]">
-                Photo and store manager signature required before submission.
+                Photo or store manager signature required (either one is sufficient).
               </span>
             </div>
           )}
 
-          {/* ── CARD 5: CONFIRMATION CHECKBOX ── */}
-          <div className="bg-white rounded-[12px] p-4 flex flex-col gap-3 border border-[#E2E8F0] shadow-xs">
-            <label className="flex items-center gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={orderConfirmed}
-                onChange={onToggleOrderConfirmed}
-                className="w-5 h-5 rounded border-2 border-[#ED5214] text-[#ED5214] focus:ring-[#ED5214]"
-              />
-              <div className="flex flex-col">
+          {/* ── CARD 5: CONFIRMATION BUTTON ── */}
+          <button
+            type="button"
+            id="mobile-pod-confirm-checkbox"
+            onClick={onToggleOrderConfirmed}
+            className={`w-full rounded-[12px] p-4 flex items-center gap-3 cursor-pointer transition-all border-2 border-[#ED5214] text-left shadow-xs ${
+              orderConfirmed ? "bg-[#EBFAF0]" : "bg-white hover:bg-orange-50/40"
+            }`}
+          >
+            <div
+              className={`w-6 h-6 rounded-[6px] border-2 border-[#ED5214] flex items-center justify-center transition-all shrink-0 bg-white`}
+            >
+              {orderConfirmed && (
+                <span className="text-[#1F9457] font-extrabold text-[16px] leading-none select-none">
+                  ✓
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col flex-1">
+              <div className="flex items-center justify-between">
                 <span className="font-bold text-[12px] text-[#1F293B]">
                   Confirm complete order
                 </span>
-                <span className="text-[10px] text-[#6B788C]">
-                  {orderConfirmed ? "Confirmed ✓" : "Required before submission"}
-                </span>
+                {orderConfirmed && (
+                  <span className="text-[10px] font-bold text-[#1F9457]">
+                    Confirmed ✓
+                  </span>
+                )}
               </div>
-            </label>
-          </div>
+              <span
+                className={`text-[10px] ${
+                  orderConfirmed ? "font-bold text-[#1F9457]" : "text-[#6B788C]"
+                }`}
+              >
+                {orderConfirmed ? "Confirmed and verified ✓" : "Required before submission"}
+              </span>
+            </div>
+          </button>
 
           {/* ── ACTION BUTTONS: Report Issue & Continue / Record Not Delivered ── */}
           <div className="grid grid-cols-2 gap-3 pt-1">
@@ -917,72 +1324,57 @@ export function DriverCurrentStopMobileView({
               EXPECTED ORDERS
             </span>
 
-            {/* S1-000 */}
-            <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-              <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                S1-000
-              </span>
-              <span className="font-normal text-[11px] leading-[13px] text-[#1F9457]">
-                Ready for delivery
-              </span>
-            </div>
-
-            {/* S1-001 */}
-            <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-              <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                S1-001
-              </span>
-              <span className="font-normal text-[11px] leading-[13px] text-[#1F9457]">
-                Replacement stock verified
-              </span>
-            </div>
-
-            {/* Confirm Order Checkbox Frame */}
-            <div
-              onClick={onToggleOrderConfirmed}
-              className="flex items-center gap-3 pt-1 cursor-pointer p-1 rounded-lg hover:bg-slate-50 transition-colors select-none"
-            >
-              <input
-                type="checkbox"
-                id="checkbox-confirm-order-inprogress"
-                checked={orderConfirmed}
-                onChange={onToggleOrderConfirmed}
-                onClick={(e) => e.stopPropagation()}
-                className="w-5 h-5 rounded border-2 border-[#ED5214] text-[#ED5214] focus:ring-[#ED5214] cursor-pointer shrink-0"
-              />
-              <div className="flex flex-col">
-                <span className="font-bold text-[12px] leading-[15px] text-[#1F293B]">
-                  Confirm complete order
+            {ordersList.map((ordRef, idx) => (
+              <div key={ordRef} className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
+                <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                  {ordRef}
                 </span>
+                <span className="font-normal text-[11px] leading-[13px] text-[#1F9457]">
+                  {idx === 0 ? "Ready for delivery" : "Verified for stop"}
+                </span>
+              </div>
+            ))}
+
+            {/* Confirm Order Button with Theme Orange Border & Green Tick */}
+            <button
+              type="button"
+              id="button-confirm-order-inprogress"
+              onClick={onToggleOrderConfirmed}
+              className={`w-full rounded-[10px] p-3 flex items-center gap-3 cursor-pointer transition-all border-2 border-[#ED5214] text-left mt-1 ${
+                orderConfirmed ? "bg-[#EBFAF0]" : "bg-white hover:bg-orange-50/40"
+              }`}
+            >
+              <div
+                className={`w-6 h-6 rounded-[6px] border-2 border-[#ED5214] flex items-center justify-center transition-all shrink-0 bg-white`}
+              >
+                {orderConfirmed && (
+                  <span className="text-[#1F9457] font-extrabold text-[16px] leading-none select-none">
+                    ✓
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-col flex-1">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-[12px] leading-[15px] text-[#1F293B]">
+                    Confirm complete order
+                  </span>
+                  {orderConfirmed && (
+                    <span className="text-[10px] font-bold text-[#1F9457]">
+                      Confirmed ✓
+                    </span>
+                  )}
+                </div>
                 <span
-                  className={`text-[10px] leading-[12px] ${
+                  className={`text-[10px] leading-[12px] mt-0.5 ${
                     orderConfirmed ? "font-bold text-[#1F9457]" : "text-[#6B788C]"
                   }`}
                 >
-                  {orderConfirmed ? "Confirmed ✓" : "Tap to confirm before Complete Order"}
+                  {orderConfirmed
+                    ? "Order quantities confirmed ✓"
+                    : "Tap to confirm before Complete Order"}
                 </span>
               </div>
-            </div>
-
-            {/* Notice Frame */}
-            <div
-              onClick={!orderConfirmed ? onToggleOrderConfirmed : undefined}
-              className={`rounded-[8px] p-3 flex items-center justify-center transition-all ${
-                orderConfirmed
-                  ? "bg-[#EBFAF0]"
-                  : "bg-[#FFF7E3] cursor-pointer hover:bg-amber-100"
-              }`}
-            >
-              <span
-                className={`font-bold text-[11px] leading-[13px] ${
-                  orderConfirmed ? "text-[#1F9457]" : "text-[#ED5214]"
-                }`}
-              >
-                {orderConfirmed
-                  ? "Order quantities confirmed ✓"
-                  : "Confirmation required (Tap to confirm)"}
-              </span>
-            </div>
+            </button>
           </div>
 
           {/* ── CARD 4: DELIVERY ACTIONS ── */}
@@ -1107,31 +1499,34 @@ export function DriverCurrentStopMobileView({
           ))}
         </div>
 
-        {/* ── CARD 3: LOADING UPDATE RESOLVED (350x150, radius: 12px, bg: #EBFAF0) ── */}
-        <div className="bg-[#EBFAF0] rounded-[12px] p-4 flex flex-col gap-2 border border-emerald-200">
-          <span className="font-bold text-[13px] leading-[16px] text-[#1F9457]">
-            Loading Update — Resolved
-          </span>
-          <p className="font-normal text-[11px] leading-[14px] text-[#1F293B] m-0">
-            Loading issue reported for order S1-001 at {stopCode} / {stopName}.
-          </p>
-          <p className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
-            8 damaged units were replaced before departure. Final quantity verified by the Loader.
-          </p>
-          <span className="font-bold text-[11px] leading-[13px] text-[#1F9457]">
-            No action required.
-          </span>
-        </div>
+        {/* ── CARD 3 & 4: LOADING UPDATE RESOLVED & ACKNOWLEDGED PLAN CHANGES (shown on OUT001) ── */}
+        {stopCode === "OUT001" && (
+          <>
+            <div className="bg-[#EBFAF0] rounded-[12px] p-4 flex flex-col gap-2 border border-emerald-200">
+              <span className="font-bold text-[13px] leading-[16px] text-[#1F9457]">
+                Loading Update — Resolved
+              </span>
+              <p className="font-normal text-[11px] leading-[14px] text-[#1F293B] m-0">
+                Loading issue reported for order {secondOrder} at {stopCode} / {stopName}.
+              </p>
+              <p className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
+                8 damaged units were replaced before departure. Final quantity verified by the Loader.
+              </p>
+              <span className="font-bold text-[11px] leading-[13px] text-[#1F9457]">
+                No action required.
+              </span>
+            </div>
 
-        {/* ── CARD 4: ACKNOWLEDGED PLAN CHANGES (350x102, radius: 12px, bg: #FFF7E3) ── */}
-        <div className="bg-[#FFF7E3] rounded-[12px] p-4 flex flex-col gap-1.5 border border-amber-200">
-          <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-            ACKNOWLEDGED PLAN CHANGES
-          </span>
-          <p className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
-            Plan v2: 8 units of S1-001 replaced due to loading shortfall. Original 80 units → replacement stock loaded. Quantity verified by loader.
-          </p>
-        </div>
+            <div className="bg-[#FFF7E3] rounded-[12px] p-4 flex flex-col gap-1.5 border border-amber-200">
+              <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
+                ACKNOWLEDGED PLAN CHANGES
+              </span>
+              <p className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
+                Plan v2: 8 units of {secondOrder} replaced due to loading shortfall. Original 80 units → replacement stock loaded. Quantity verified by loader.
+              </p>
+            </div>
+          </>
+        )}
 
         {/* ── CARD 5: MAPBOX MAP PREVIEW & NAVIGATION (350x231, radius: 12px) ── */}
         <div className="flex flex-col gap-2">

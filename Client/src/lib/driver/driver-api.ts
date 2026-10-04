@@ -256,6 +256,9 @@ export async function fetchDriverHistory(vehicleId: string = "PEL-R04"): Promise
   }
 }
 
+
+
+
 /**
  * Post an operational road / delivery issue report to FastAPI backend
  */
