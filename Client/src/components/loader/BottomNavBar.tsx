@@ -22,7 +22,7 @@ export const BottomNavBar: React.FC = () => {
               key={href}
               href={href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-11 flex-col items-center justify-center gap-1 py-1 px-4 text-[11px] transition-colors ${
+              className={`flex min-h-12 flex-1 flex-col items-center justify-center gap-1 py-2 px-1 sm:px-4 text-[10px] sm:text-[11px] transition-colors ${
                 active ? "text-[#F97316] font-bold" : "text-[#485563] font-medium"
               }`}
             >
@@ -36,7 +36,7 @@ export const BottomNavBar: React.FC = () => {
           type="button"
           onClick={logout}
           aria-label="Sign Out"
-          className="flex min-h-11 flex-col items-center justify-center gap-1 py-1 px-4 text-[11px] text-[#485563] hover:text-red-600 transition-colors"
+          className="flex min-h-12 flex-1 flex-col items-center justify-center gap-1 py-2 px-1 sm:px-4 text-[10px] sm:text-[11px] text-[#485563] hover:text-red-600 transition-colors"
         >
           <LogOut className="w-5 h-5" />
           <span>Exit</span>

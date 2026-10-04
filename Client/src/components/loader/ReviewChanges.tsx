@@ -51,7 +51,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
   return (
     <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
       {/* Mobile Top Navigation Bar */}
-      <div className="flex md:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
+      <div className="flex lg:hidden items-center justify-between px-4 h-14 bg-white border-b border-[#CBD5E1] sticky top-0 z-30">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -81,7 +81,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
       {/* Content Container */}
       <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 box-border">
         {/* Desktop Header */}
-        <div className="hidden md:flex flex-col gap-3 pb-4 border-b border-[#CBD5E1]">
+        <div className="hidden lg:flex flex-col gap-3 pb-4 border-b border-[#CBD5E1]">
           <div className="flex items-center justify-between">
             <button
               type="button"
@@ -127,7 +127,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
         </div>
 
         {/* Change Rationale Banner */}
-        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 lg:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-xs">
+        <div className="bg-[#FFFBEB] border border-[#FDE68A] rounded-xl p-4 lg:p-5 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-xs">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-lg bg-[#FEF3C7] text-[#D97706] flex items-center justify-center shrink-0 mt-0.5">
               <AlertTriangle size={20} />
@@ -147,7 +147,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
             </div>
           </div>
 
-          <div className="flex md:flex-col items-center md:items-end justify-between md:justify-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-[#FDE68A]">
+          <div className="flex lg:flex-col items-center lg:items-end justify-between lg:justify-center gap-2 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-[#FDE68A]">
             <span className="text-[11px] text-[#92400E] font-medium">Dispatcher:</span>
             <span className="text-xs font-bold text-[#78350F] bg-[#FEF3C7] px-2.5 py-1 rounded border border-[#FDE68A]">
               P. Silva (Peliyagoda Hub)
@@ -156,7 +156,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
         </div>
 
         {/* Key Metrics Comparison Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4 w-full">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 w-full">
           <div className="bg-white border border-[#CBD5E1] rounded-xl p-3.5 lg:p-4 flex flex-col gap-1 shadow-xs">
             <span className="text-[11px] font-semibold text-[#64748B] uppercase tracking-wide">
               Planned Departure
@@ -341,7 +341,7 @@ export default function ReviewChanges({ onNavigate }: ReviewChangesProps) {
             <span className="text-xs text-[#059669] font-bold">ALL CHECKS PASSED ✓</span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 text-xs">
             <div className="flex items-start gap-2 p-2.5 rounded-lg bg-[#F8FAFC] border border-[#E2E8F0]">
               <CheckCircle2 size={15} className="text-[#22C55E] shrink-0 mt-0.5" />
               <div>

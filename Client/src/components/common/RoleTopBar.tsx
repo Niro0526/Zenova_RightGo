@@ -51,7 +51,7 @@ export default function RoleTopBar({
 
   return (
     <>
-      <header className="rightgo-top-navbar w-full flex items-center justify-between px-6 py-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-40">
+      <header className="rightgo-top-navbar w-full flex items-center justify-between px-3 sm:px-4 lg:px-6 py-2.5 sm:py-3 bg-white border-b border-[#E2E8F0] sticky top-0 z-40">
         {/* Left: Title or Blank */}
         <div className="flex items-center gap-3">
           {title}
@@ -94,7 +94,7 @@ export default function RoleTopBar({
           {/* User Profile Button with Circle Avatar */}
           <button
             type="button"
-            className="store-manager-profile-btn"
+            className="store-manager-profile-btn min-h-11 max-w-[65vw] sm:max-w-none"
             onClick={() => setShowProfileModal(true)}
             title={`View ${displayName} profile`}
           >
@@ -104,7 +104,7 @@ export default function RoleTopBar({
             >
               {displayInitials}
             </div>
-            <div className="profile-info-text">
+            <div className="profile-info-text hidden sm:flex">
               <span className="profile-name-label">{displayName}</span>
               <span className="profile-role-sub">{role}</span>
             </div>
