@@ -81,7 +81,7 @@ class ReleasedTrip(Base):
     scenario = Column(String(32), default="S1", nullable=False)
     vehicle_id = Column(String(32), nullable=False, index=True)
     trip_no = Column(Integer, nullable=False)
-    trip_id_str = Column(String(64), nullable=False, index=True) # e.g. "S1-T001" or "PEL-R04-1"
+    trip_id_str = Column(String(64), nullable=False, index=True) # e.g. "S1-T001" or "VEH036-1"
     brand = Column(String(32), nullable=False)
     district = Column(String(64), nullable=False)
     depot = Column(String(64), nullable=False)

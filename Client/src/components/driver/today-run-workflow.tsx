@@ -23,6 +23,7 @@ import NextStopCard from "@/components/driver/today-run/NextStopCard";
 import StopsDirectory from "@/components/driver/today-run/StopsDirectory";
 import BottomNav from "@/components/driver/today-run/BottomNav";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
+import { useAuth } from "@/context/AuthContext";
 import {
   getAllLocalDeliveryRecords,
   type LocalDeliveryRecord,
@@ -351,7 +352,7 @@ export function TodayRunMobileCanvas({
   completedCount,
   nextStop,
   stops,
-  vehicleId = "PEL-R04",
+  vehicleId = "",
   tripPlanId = "S1-T001",
   planVersion = "Plan v2",
   dateStr = "Tuesday, September 29, 2026",
@@ -382,14 +383,16 @@ export function TodayRunMobileCanvas({
 /* ─── Today Run Workflow Component ───────────────────────────── */
 export function TodayRunWorkflow() {
   const { connectionState } = useConnectivity();
+  const { user } = useAuth();
   const [completedRecords, setCompletedRecords] = useState<LocalDeliveryRecord[]>([]);
   const [selectedRecord, setSelectedRecord] = useState<LocalDeliveryRecord | null>(null);
   const [dateStr, setDateStr] = useState<string>("Tuesday, September 29, 2026");
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // Dynamic run state loaded from backend
   const [tripInfo, setTripInfo] = useState({
-    vehicleId: "PEL-R04",
+    vehicleId: user?.vehicle_id ?? "",
     tripPlanId: "S1-T001",
     planVersion: "Plan v2",
     brand: "Fresh",
@@ -399,7 +402,8 @@ export function TodayRunWorkflow() {
 
   const loadRunData = useCallback(async () => {
     try {
-      const run = await fetchDriverRun("PEL-R04");
+      const run = await fetchDriverRun();
+      setLoadError(null);
       if (run && run.stops && run.stops.length > 0) {
         const formattedStops: Stop[] = run.stops.map((s) => ({
           id: s.id,
@@ -426,7 +430,7 @@ export function TodayRunWorkflow() {
         }));
 
         setTripInfo({
-          vehicleId: run.vehicleId || "PEL-R04",
+          vehicleId: run.vehicleId || user?.vehicle_id || "",
           tripPlanId: run.tripId || "S1-T001",
           planVersion: run.manifestVersion || "Plan v2",
           brand: run.brand || "Fresh",
@@ -435,7 +439,10 @@ export function TodayRunWorkflow() {
         });
       }
     } catch (err) {
-      console.warn("Using baseline stops for driver run:", err);
+      console.warn("Failed to load driver run from server:", err);
+      setLoadError(
+        err instanceof Error ? err.message : "Could not reach the RightGo server to load your assigned run."
+      );
     } finally {
       setIsLoading(false);
     }
@@ -493,6 +500,12 @@ export function TodayRunWorkflow() {
         onClose={() => setSelectedRecord(null)}
         record={selectedRecord}
       />
+
+      {loadError && (
+        <div className="m-4 mb-0 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          Could not load your live run from the server - showing the last known data. {loadError}
+        </div>
+      )}
 
       {/* ══════════════════════════════════════════
           DESKTOP layout  (md+) — fluid, full-width

@@ -10,7 +10,7 @@ export interface LocalDeliveryRecord {
   id: string; // e.g. "DEL-S1-T001-001"
   stopId: string; // "OUT001"
   stopName: string; // "OUT001 / Colpetty Retailer"
-  vehicleId: string; // "PEL-R04"
+  vehicleId: string; // the authenticated driver's own assigned vehicle, e.g. "VEH036"
   outcome: "full" | "discrepancy" | "none";
   discrepancyDetails?: {
     type: string;
@@ -49,7 +49,7 @@ export interface IssueCategoryItem {
 export interface IssueReportRecord {
   id: string; // e.g. "REP-S1-T001-001"
   tripId: string; // "S1-T001"
-  vehicleId: string; // "PEL-R04"
+  vehicleId: string; // the authenticated driver's own assigned vehicle, e.g. "VEH036"
   categoryId: string;
   categoryLabel: string;
   categoryIcon: string;
@@ -377,19 +377,14 @@ import { postDriverDelivery, postDriverIssue } from "./driver-api";
 export async function transmitDeliveryRecordToBackend(
   record: LocalDeliveryRecord
 ): Promise<{ success: boolean; remoteId?: string }> {
-  try {
-    const res = await postDriverDelivery(record);
-    return {
-      success: true,
-      remoteId: res.deliveryId || `DEL-${record.id}`,
-    };
-  } catch (err) {
-    console.warn("Direct postDriverDelivery failed, recording locally:", err);
-    return {
-      success: true,
-      remoteId: `OFFLINE-DEL-${record.id}`,
-    };
-  }
+  // Deliberately does not catch: a failed transmission must propagate to the
+  // caller so the record stays "Pending Sync" instead of being marked
+  // Synced when the backend never actually acknowledged it.
+  const res = await postDriverDelivery(record);
+  return {
+    success: true,
+    remoteId: res.deliveryId || `DEL-${record.id}`,
+  };
 }
 
 /**
@@ -399,19 +394,14 @@ export async function transmitDeliveryRecordToBackend(
 export async function transmitIssueReportToBackend(
   report: IssueReportRecord
 ): Promise<{ success: boolean; remoteId?: string }> {
-  try {
-    const res = await postDriverIssue(report);
-    return {
-      success: true,
-      remoteId: res.issueId || `REP-${report.id}`,
-    };
-  } catch (err) {
-    console.warn("Direct postDriverIssue failed, recording locally:", err);
-    return {
-      success: true,
-      remoteId: `OFFLINE-REP-${report.id}`,
-    };
-  }
+  // Deliberately does not catch: a failed transmission must propagate to the
+  // caller so the report stays "Pending Sync" instead of being marked
+  // Synced when the backend never actually acknowledged it.
+  const res = await postDriverIssue(report);
+  return {
+    success: true,
+    remoteId: res.issueId || `REP-${report.id}`,
+  };
 }
 
 /**

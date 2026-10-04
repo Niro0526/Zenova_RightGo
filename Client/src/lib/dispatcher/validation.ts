@@ -642,7 +642,7 @@ export function validatePlan(state: PlanState): PlanCheckRow[] {
   let budgetsOk = true;
   let budgetFailure = '';
   for (const [key, list] of tripOrders) {
-    const [vehicleId] = key.split('-');
+    const vehicleId = key.slice(0, key.lastIndexOf('-'));
     const duration = computeTripDuration(list.map(o => o.orderRef), ordersByRef, allowances, districtTravel);
     const brand = list[0].brand;
     const budget = budgetForBrand(brand);
@@ -662,7 +662,9 @@ export function validatePlan(state: PlanState): PlanCheckRow[] {
 
   // Operational checks, per trip, using the same live tripOrders grouping.
   for (const [key, list] of tripOrders) {
-    const [vehicleId, tripNoStr] = key.split('-');
+    const splitIdx = key.lastIndexOf('-');
+    const vehicleId = key.slice(0, splitIdx);
+    const tripNoStr = key.slice(splitIdx + 1);
     const tripNo = Number(tripNoStr) as 1 | 2;
     const outletSeq = stopSequences.get(key) ?? Array.from(new Set(list.map(o => o.outletId)));
     const stops = buildTripStops(outletSeq, list.map(o => o.orderRef), ordersByRef);
@@ -690,7 +692,7 @@ export function validatePlan(state: PlanState): PlanCheckRow[] {
   }
   // Trip overlap, once per vehicle with both trips populated.
   const vehicleIdsWithBothTrips = new Set(
-    Array.from(tripOrders.keys()).map(k => k.split('-')[0]).filter(vId => tripOrders.has(`${vId}-1`) && tripOrders.has(`${vId}-2`)),
+    Array.from(tripOrders.keys()).map(k => k.slice(0, k.lastIndexOf('-'))).filter(vId => tripOrders.has(`${vId}-1`) && tripOrders.has(`${vId}-2`)),
   );
   for (const vehicleId of vehicleIdsWithBothTrips) {
     const list1 = tripOrders.get(`${vehicleId}-1`)!;

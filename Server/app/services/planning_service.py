@@ -24,6 +24,40 @@ from app.services.ledger_service import record_ledger_entry
 from app.services.scheduling_service import current_run_date
 from app.core.security import generate_otp_code
 
+def find_dispatched_trip_for_order(db: Session, order_ref: str, scenario: str = "S1") -> Optional[ReleasedTrip]:
+    """Return the ReleasedTrip this order already rode out on, if that trip
+    has departed or completed. Per the documented rule, a started execution
+    record is historical truth - moving a load already dispatched is not an
+    ordinary draft edit, so callers use this to reject such edits with 409."""
+    active_manifest = db.query(ReleasedManifest).filter(
+        ReleasedManifest.scenario == scenario, ReleasedManifest.is_active == True
+    ).order_by(ReleasedManifest.version.desc()).first()
+    if not active_manifest:
+        return None
+    trips = db.query(ReleasedTrip).filter(
+        ReleasedTrip.manifest_id == active_manifest.id,
+        ReleasedTrip.loading_status.in_(["departed", "completed"]),
+    ).all()
+    for t in trips:
+        if order_ref in (t.order_refs or []):
+            return t
+    return None
+
+def find_dispatched_trip_for_vehicle_trip(db: Session, vehicle_id: str, trip_no: int, scenario: str = "S1") -> Optional[ReleasedTrip]:
+    """Same as find_dispatched_trip_for_order but keyed by vehicle/trip_no,
+    for edits (like stop reordering) that target a trip rather than an order."""
+    active_manifest = db.query(ReleasedManifest).filter(
+        ReleasedManifest.scenario == scenario, ReleasedManifest.is_active == True
+    ).order_by(ReleasedManifest.version.desc()).first()
+    if not active_manifest:
+        return None
+    return db.query(ReleasedTrip).filter(
+        ReleasedTrip.manifest_id == active_manifest.id,
+        ReleasedTrip.vehicle_id == vehicle_id,
+        ReleasedTrip.trip_no == trip_no,
+        ReleasedTrip.loading_status.in_(["departed", "completed"]),
+    ).first()
+
 def planning_eligible_orders_query(db: Session, scenario: str = "S1"):
     """Orders eligible for ordinary planning: not cancelled, and either a
     legacy/seed row (run_date is NULL) or due on/before the current run."""
@@ -120,6 +154,13 @@ def assign_order(
     scenario: str = "S1",
     actor: str = "Sarah Jenkins",
 ) -> Dict[str, Any]:
+    dispatched = find_dispatched_trip_for_order(db, order_ref, scenario)
+    if dispatched:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order {order_ref} already departed on trip {dispatched.trip_id_str} (vehicle {dispatched.vehicle_id}) - a dispatched load cannot be reassigned by an ordinary draft edit.",
+        )
+
     engine = get_validation_engine(db, scenario)
     draft_state = get_draft_state(db, scenario)
     assignments = draft_state["assignments"]
@@ -210,6 +251,13 @@ def defer_order(
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
+    dispatched = find_dispatched_trip_for_order(db, order_ref, scenario)
+    if dispatched:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Order {order_ref} already departed on trip {dispatched.trip_id_str} (vehicle {dispatched.vehicle_id}) - a dispatched load cannot be deferred by an ordinary draft edit.",
+        )
+
     da = db.query(DraftAssignment).filter(
         DraftAssignment.scenario == scenario,
         DraftAssignment.order_ref == order_ref,
@@ -256,6 +304,13 @@ def reorder_trip_stops(
     scenario: str = "S1",
     actor: str = "Sarah Jenkins",
 ) -> Dict[str, Any]:
+    dispatched = find_dispatched_trip_for_vehicle_trip(db, vehicle_id, trip_no, scenario)
+    if dispatched:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Trip {dispatched.trip_id_str} (vehicle {vehicle_id}) already departed - its stop sequence is historical execution truth and cannot be edited.",
+        )
+
     dseq = db.query(DraftStopSequence).filter(
         DraftStopSequence.scenario == scenario,
         DraftStopSequence.vehicle_id == vehicle_id,
@@ -431,6 +486,48 @@ def suggest_plan_greedy(
                 "reason_note": a.get("reasonNote"),
             }
             locked_order_refs.add(ref)
+
+    # Orders already riding on a departed/completed trip are historical
+    # execution truth, not a re-plannable draft - preserved exactly like a
+    # manual lock even if the dispatcher never explicitly locked them.
+    active_manifest = db.query(ReleasedManifest).filter(
+        ReleasedManifest.scenario == scenario, ReleasedManifest.is_active == True
+    ).order_by(ReleasedManifest.version.desc()).first()
+    if active_manifest:
+        dispatched_trips = db.query(ReleasedTrip).filter(
+            ReleasedTrip.manifest_id == active_manifest.id,
+            ReleasedTrip.loading_status.in_(["departed", "completed"]),
+        ).all()
+        for t in dispatched_trips:
+            for ref in (t.order_refs or []):
+                if ref in locked_order_refs:
+                    continue
+                assignments[ref] = {
+                    "decision": "served",
+                    "vehicle_id": t.vehicle_id,
+                    "trip_no": t.trip_no,
+                    "reason_code": None,
+                    "reason_note": None,
+                }
+                locked_order_refs.add(ref)
+                # The persistence step below skips writing any ref already in
+                # locked_order_refs, on the assumption a locked=True row
+                # already exists (true for manual dispatcher locks) - for a
+                # dispatched order there is no such row yet, so write one now
+                # or that order would end up with no DraftAssignment at all.
+                existing_da = db.query(DraftAssignment).filter(
+                    DraftAssignment.scenario == scenario, DraftAssignment.order_ref == ref
+                ).first()
+                if not existing_da:
+                    db.add(DraftAssignment(
+                        scenario=scenario, order_ref=ref, decision="served",
+                        vehicle_id=t.vehicle_id, trip_no=t.trip_no, locked=True,
+                    ))
+                elif not existing_da.locked:
+                    existing_da.decision = "served"
+                    existing_da.vehicle_id = t.vehicle_id
+                    existing_da.trip_no = t.trip_no
+                    existing_da.locked = True
     for key, locked in draft_state["stopSequenceLocks"].items():
         if locked:
             stop_seqs[key] = list(draft_state["stopSequences"].get(key, []))
@@ -530,7 +627,6 @@ def suggest_plan_greedy(
         vid, tno_str = key.rsplit("-", 1)
         if key in locked_stop_keys:
             continue
-        vid, tno_str = key.split("-")
         db.add(DraftStopSequence(
             scenario=scenario,
             vehicle_id=vid,
@@ -547,7 +643,6 @@ def suggest_plan_greedy(
         vid, tno_str = key.rsplit("-", 1)
         if key in locked_trip_meta_keys:
             continue
-        vid, tno_str = key.split("-")
         db.add(DraftTripMeta(
             scenario=scenario,
             vehicle_id=vid,

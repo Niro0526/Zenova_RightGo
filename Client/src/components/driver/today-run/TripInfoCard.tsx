@@ -7,7 +7,7 @@ interface TripInfoCardProps {
 }
 
 export default function TripInfoCard({
-  vehicleId = "PEL-R04",
+  vehicleId = "",
   tripPlanId = "S1-T001",
   planVersion = "Plan v2",
 }: TripInfoCardProps) {

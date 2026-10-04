@@ -91,13 +91,12 @@ def test_api_e2e_flow(client):
     assert res_ack.json()["acknowledgement"] == "acknowledged"
 
     # 7. Driver: Check My Run & OTP Verify - strictly the driver's own
-    # assigned vehicle (never a client-supplied id). NOTE: the seeded demo
-    # driver account's vehicle_id ("PEL-R04") is a long-standing placeholder
-    # that does not match any real VEH0xx fleet id from vehicles.csv, so
-    # hasRun is expected to be False here until that demo data is corrected -
-    # this is a known, pre-existing data gap, not a regression. The important
-    # behavior this test guards is that /driver/my-run no longer falls back
-    # to handing the driver an unrelated vehicle's trip (the previous bug).
+    # assigned vehicle (never a client-supplied id). The seeded demo driver
+    # account's vehicle_id is the real fleet vehicle VEH036 (vehicles.csv),
+    # which does have a seeded active trip, so hasRun is expected to be True
+    # here - but the branch below stays defensive in case seed data changes.
+    # The important behavior this test guards is that /driver/my-run never
+    # falls back to handing the driver an unrelated vehicle's trip.
     res_run = client.get("/api/driver/my-run", headers=driver_auth)
     assert res_run.status_code == 200
     run_info = res_run.json()

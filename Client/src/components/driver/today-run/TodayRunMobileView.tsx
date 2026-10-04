@@ -27,7 +27,7 @@ export function TodayRunMobileView({
   currentStop,
   nextStop,
   stops,
-  vehicleId = "PEL-R04",
+  vehicleId = "",
   tripPlanId = "Trip A",
   planVersion = "Plan v2",
   completedRecords = [],

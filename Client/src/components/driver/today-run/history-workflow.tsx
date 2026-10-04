@@ -23,6 +23,7 @@ import {
 } from "@/lib/driver/driver-offline-db";
 import { getOutletContact } from "@/lib/driver/outlet-service";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
+import { useAuth } from "@/context/AuthContext";
 import { CompletedDeliveryModal } from "./CompletedDeliveryModal";
 import {
   ReportDetailsModal,
@@ -33,72 +34,6 @@ import { DriverHistoryMobileView } from "@/components/driver/history/DriverHisto
 
 import { fetchDriverHistory, fetchDriverIssuesHistory } from "@/lib/driver/driver-api";
 
-// Initial baseline completed record for today's run so history is immediately rich
-const BASELINE_HISTORY_RECORDS: LocalDeliveryRecord[] = [
-  {
-    id: "DEL-S1-T001-DEP",
-    stopId: "DEP001",
-    stopName: "Peliyagoda Central Depot — Departure Gate Check",
-    vehicleId: "PEL-R04",
-    outcome: "full",
-    podDetails: {
-      signerName: "Rizwan (Head Loader)",
-      hasSignature: true,
-      hasPhoto: true,
-      photoName: "depot_seal_pel_r04.jpg",
-    },
-    status: "Synced",
-    offlineCreated: false,
-    createdAt: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
-    syncedAt: new Date(Date.now() - 1000 * 60 * 53).toISOString(),
-  },
-];
-
-// Baseline issue reports
-const BASELINE_REPORT_RECORDS: IssueReportRecord[] = [
-  {
-    id: "REP-S1-T001-001",
-    tripId: "S1-T001",
-    vehicleId: "PEL-R04",
-    categoryId: "shortfall",
-    categoryLabel: "Shortfall / Stock Discrepancy",
-    categoryIcon: "📦",
-    categories: [
-      { id: "shortfall", label: "Shortfall / Stock Discrepancy", icon: "📦" },
-    ],
-    relatedScope: "Order S1-001 (Stop 1 – OUT001 / Colombo Fresh Outlet)",
-    orderId: "S1-001",
-    stopCode: "OUT001",
-    outletName: "OUT001 / Colombo Fresh Outlet",
-    description:
-      "8 damaged chilled units identified during morning vehicle load. Replaced before depot departure with verified replacement stock (Plan v2).",
-    photo: null,
-    status: "Synced",
-    offlineCreated: false,
-    createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "REP-S1-T001-002",
-    tripId: "S1-T001",
-    vehicleId: "PEL-R04",
-    categoryId: "access",
-    categoryLabel: "Outlet Closed / Access Restricted",
-    categoryIcon: "🚪",
-    categories: [
-      { id: "access", label: "Outlet Closed / Access Restricted", icon: "🚪" },
-    ],
-    relatedScope: "Entire Stop 1 (OUT001 / Colombo Fresh Outlet)",
-    stopCode: "OUT001",
-    outletName: "OUT001 / Colombo Fresh Outlet",
-    description:
-      "Delivery street dock entrance was blocked by market utility van. Driver contacted store lead and dock access cleared by 05:20 AM.",
-    photo: null,
-    status: "Synced",
-    offlineCreated: false,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-];
-
 const LOCAL_STORAGE_REPORTS_KEY = "RightGo_Driver_Issue_Reports";
 
 export function DriverHistoryWorkflow() {
@@ -106,6 +41,8 @@ export function DriverHistoryWorkflow() {
   const initialTab = searchParams.get("tab") === "reports" ? "reports" : "deliveries";
 
   const { connectionState, syncNow, isOnline, pendingCount } = useConnectivity();
+  const { user } = useAuth();
+  const vehicleId = user?.vehicle_id ?? "";
 
   // Top-level History View State: "deliveries" | "reports"
   const [historySection, setHistorySection] = useState<"deliveries" | "reports">(initialTab);
@@ -116,7 +53,7 @@ export function DriverHistoryWorkflow() {
   const [deliveryFilter, setDeliveryFilter] = useState<"all" | "full" | "discrepancy" | "none" | "pending">("all");
 
   // Issue Reports State
-  const [reportRecords, setReportRecords] = useState<IssueReportRecord[]>(BASELINE_REPORT_RECORDS);
+  const [reportRecords, setReportRecords] = useState<IssueReportRecord[]>([]);
   const [selectedReportRecord, setSelectedReportRecord] = useState<IssueReportRecord | null>(null);
   const [reportFilter, setReportFilter] = useState<string>("all");
 
@@ -127,14 +64,10 @@ export function DriverHistoryWorkflow() {
     try {
       const [localRecords, remoteRecords] = await Promise.all([
         getAllLocalDeliveryRecords(),
-        fetchDriverHistory("PEL-R04").catch(() => []),
+        fetchDriverHistory().catch(() => []),
       ]);
       const mergedMap = new Map<string, LocalDeliveryRecord>();
 
-      // Put baseline first
-      BASELINE_HISTORY_RECORDS.forEach((r: LocalDeliveryRecord) => {
-        mergedMap.set(r.id, r);
-      });
       // Put remote records
       remoteRecords.forEach((r: LocalDeliveryRecord) => mergedMap.set(r.id, r));
       // Put local records (most recent)
@@ -146,7 +79,7 @@ export function DriverHistoryWorkflow() {
       setDeliveryRecords(sorted);
     } catch (err) {
       console.error("Failed to load delivery history records:", err);
-      setDeliveryRecords(BASELINE_HISTORY_RECORDS);
+      setDeliveryRecords([]);
     } finally {
       setIsLoading(false);
     }
@@ -157,13 +90,10 @@ export function DriverHistoryWorkflow() {
     try {
       const [localReports, remoteReports] = await Promise.all([
         getAllLocalIssueReports(),
-        fetchDriverIssuesHistory("PEL-R04").catch(() => []),
+        fetchDriverIssuesHistory().catch(() => []),
       ]);
       const mergedMap = new Map<string, IssueReportRecord>();
 
-      BASELINE_REPORT_RECORDS.forEach((r: IssueReportRecord) => {
-        mergedMap.set(r.id, r);
-      });
       remoteReports.forEach((r: IssueReportRecord) => mergedMap.set(r.id, r));
       localReports.forEach((r: IssueReportRecord) => mergedMap.set(r.id, r));
 
@@ -173,7 +103,7 @@ export function DriverHistoryWorkflow() {
       setReportRecords(sorted);
     } catch (e) {
       console.error("Failed to load stored issue reports:", e);
-      setReportRecords(BASELINE_REPORT_RECORDS);
+      setReportRecords([]);
     }
   };
 
@@ -256,7 +186,7 @@ export function DriverHistoryWorkflow() {
                 <span className="text-xs font-bold uppercase tracking-wider text-[#F97316] bg-orange-50 px-2.5 py-0.5 rounded border border-orange-200">
                   Driver History Hub
                 </span>
-                <span className="text-xs font-bold text-[#485563]">Vehicle: PEL-R04</span>
+                <span className="text-xs font-bold text-[#485563]">Vehicle: {vehicleId}</span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-extrabold text-[#202D2D] mt-1 m-0">
                 {historySection === "deliveries" ? "Delivery History" : "Report History"}
@@ -627,7 +557,7 @@ export function DriverHistoryWorkflow() {
                     Logged Issue Reports (Read-Only)
                   </h3>
                   <p className="text-xs text-[#485563] m-0 mt-0.5">
-                    View verified issue reports, shortfall replacements, and cloud sync status for vehicle PEL-R04.
+                    View verified issue reports, shortfall replacements, and cloud sync status for vehicle {vehicleId}.
                   </p>
                 </div>
               </div>

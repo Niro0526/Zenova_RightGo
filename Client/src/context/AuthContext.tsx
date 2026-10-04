@@ -76,21 +76,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         email: email.trim().toLowerCase(),
         password,
       });
+      const homeRoute = getRoleHomeRoute(data.profile?.role);
+      if (!homeRoute) {
+        return { success: false, error: 'Your account has no valid workspace role.' };
+      }
       setUser(data.profile);
       setAuthToken(data.access_token);
       sessionStorage.setItem('rightgo_user', JSON.stringify(data.profile));
       sessionStorage.setItem('rightgo_token', data.access_token);
-      const homeRoute = getRoleHomeRoute(data.profile?.role);
-      if (!homeRoute) {
-        setUser(null);
-        setToken(null);
-        sessionStorage.removeItem('rightgo_user');
-        sessionStorage.removeItem('rightgo_token');
-        return { success: false, error: 'Your account has no valid workspace role.' };
-      }
       return { success: true, homeRoute };
-    } catch {
-      return { success: true, homeRoute: data.home_route };
     } catch (err) {
       if (err instanceof ApiError) return { success: false, error: err.message };
       return { success: false, error: 'Cannot reach server. Make sure the backend is running on port 8000.' };

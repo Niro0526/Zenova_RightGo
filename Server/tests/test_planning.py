@@ -11,6 +11,8 @@ from app.services.planning_service import (
     set_vehicle_fuel_input,
     release_plan,
 )
+from app.services.loading_service import acknowledge_manifest, get_trip_loading_sequence, mark_order_loaded, depart_trip
+from app.models.plan import ReleasedTrip
 
 def confirm_fuel_for_used_vehicles(db_session, draft, scenario="S1"):
     """Fuel is never auto-confirmed by the greedy planner (a vehicle used by a
@@ -73,3 +75,43 @@ def test_atomic_release(db_session):
             scenario="S1",
         )
     assert exc.value.status_code == 409
+
+def test_dispatched_order_cannot_be_moved_by_ordinary_draft_edit(db_session):
+    """Per the documented rule (started execution records remain historical
+    truth), once a trip has departed, none of assign/defer/reorder/re-suggest
+    may move its orders - only release_plan's own revision/version machinery
+    (release of a NEW manifest) may ever touch them again, and even then
+    only by carrying them forward unchanged."""
+    draft = suggest_plan_greedy(db_session, "S1")
+    draft = confirm_fuel_for_used_vehicles(db_session, draft)
+    manifest = release_plan(db_session, draft["draftRevision"], scenario="S1")
+    acknowledge_manifest(db_session, version=manifest.version, acknowledged_by="Rizwan")
+
+    trip = db_session.query(ReleasedTrip).filter(ReleasedTrip.manifest_id == manifest.id).first()
+    seq_info = get_trip_loading_sequence(db_session, trip.id)
+    for step in seq_info["loadingSequence"]:
+        for ord_info in step["orders"]:
+            mark_order_loaded(db_session, trip.id, ord_info["orderRef"])
+    depart_trip(db_session, trip.id)
+
+    dispatched_order_ref = trip.order_refs[0]
+    other_vehicle = db_session.query(ReleasedTrip).filter(ReleasedTrip.id != trip.id).first()
+    fallback_vehicle = other_vehicle.vehicle_id if other_vehicle else "VEH999"
+
+    with pytest.raises(HTTPException) as exc:
+        assign_order(db_session, dispatched_order_ref, fallback_vehicle, 1, scenario="S1")
+    assert exc.value.status_code == 409
+
+    with pytest.raises(HTTPException) as exc:
+        defer_order(db_session, dispatched_order_ref, reason_code="capacity", scenario="S1")
+    assert exc.value.status_code == 409
+
+    with pytest.raises(HTTPException) as exc:
+        reorder_trip_stops(db_session, trip.vehicle_id, trip.trip_no, list(reversed(trip.stop_outlet_ids)), scenario="S1")
+    assert exc.value.status_code == 409
+
+    # And a fresh re-suggest must still carry the dispatched order forward
+    # unchanged rather than silently dropping its decision.
+    draft2 = suggest_plan_greedy(db_session, "S1")
+    assert draft2["assignments"][dispatched_order_ref]["decision"] == "served"
+    assert draft2["assignments"][dispatched_order_ref]["vehicleId"] == trip.vehicle_id

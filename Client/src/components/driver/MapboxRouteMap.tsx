@@ -269,7 +269,7 @@ export function MapboxRouteMap({
             const driverPopup = new mapboxgl.Popup({ offset: 15 }).setHTML(`
               <div style="font-family: sans-serif; padding: 4px;">
                 <strong style="color: #2563eb; font-size: 13px; display: block;">Driver Location (You)</strong>
-                <span style="color: #475569; font-size: 11px;">PEL-R04 En Route</span>
+                <span style="color: #475569; font-size: 11px;">Your Vehicle - En Route</span>
               </div>
             `);
             const marker = new mapboxgl.Marker({ element: driverEl, anchor: "center" })

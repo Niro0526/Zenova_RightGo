@@ -78,3 +78,28 @@ def test_loading_workflow(db_session):
     # Departure should now succeed
     departed_trip = depart_trip(db_session, trip.id)
     assert departed_trip.loading_status == "departed"
+
+    # Re-departing an already-departed trip must be rejected, not silently re-accepted
+    with pytest.raises(HTTPException) as exc:
+        depart_trip(db_session, trip.id)
+    assert exc.value.status_code == 409
+
+def test_depart_trip_blocked_when_loading_incomplete(db_session):
+    """A trip with zero open issues must still be blocked from departing if
+    not every order has actually been loaded yet - having no open issues is
+    not sufficient readiness on its own."""
+    draft = suggest_plan_greedy(db_session, "S1")
+    for vid in {a["vehicleId"] for a in draft["assignments"].values() if a.get("vehicleId")}:
+        draft = set_vehicle_fuel_input(db_session, vid, 0.0, scenario="S1")
+    manifest = release_plan(db_session, draft["draftRevision"], scenario="S1")
+    acknowledge_manifest(db_session, version=manifest.version, acknowledged_by="Rizwan")
+
+    trip = db_session.query(ReleasedTrip).filter(ReleasedTrip.manifest_id == manifest.id).first()
+    assert trip is not None
+    # Deliberately leave loading incomplete (no mark_order_loaded calls at all).
+
+    with pytest.raises(HTTPException) as exc:
+        depart_trip(db_session, trip.id)
+    assert exc.value.status_code == 409
+    db_session.refresh(trip)
+    assert trip.loading_status != "departed"

@@ -48,7 +48,7 @@ export const FIGMA_ORDER_OPTIONS = [
   { id: "S1-001", label: "S1-001 (80 chilled units • 448.6 kg)" },
   { id: "S1-000", label: "S1-000 (12 ambient units • 97.8 kg)" },
   { id: "Entire Stop 1", label: "Entire Stop 1 (OUT001 / Colpetty Retailer)" },
-  { id: "Vehicle PEL-R04", label: "Vehicle PEL-R04 (Trip Level)" },
+  { id: "Vehicle Level", label: "Vehicle (Trip Level)" },
 ];
 
 export function DriverReportMobileView({
@@ -56,7 +56,7 @@ export function DriverReportMobileView({
   outletName = "Colpetty Retailer",
   tripId = "Trip A",
   stopSequence = "Stop 1 of 4",
-  vehicleId = "PEL-R04",
+  vehicleId = "",
 
   selectedIssueType,
   onSelectIssueType,

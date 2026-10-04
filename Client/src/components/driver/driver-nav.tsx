@@ -32,7 +32,7 @@ export const DRIVER_NAV_ITEMS = [
 /* ─── Sidebar (desktop / tablet) ─────────────────────────── */
 export function DriverSidebar({ pathname }: { pathname: string }) {
   const { connectionState } = useConnectivity();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   return (
     <aside
@@ -76,7 +76,7 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
             </span>
           </div>
           <span className="text-white font-bold text-sm">S1-T001</span>
-          <span className="text-gray-400 text-[11px]">Vehicle: PEL-R04 · Wave 1</span>
+          <span className="text-gray-400 text-[11px]">Vehicle: {user?.vehicle_id || "-"} · Wave 1</span>
         </div>
 
         <button

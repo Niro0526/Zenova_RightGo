@@ -222,3 +222,22 @@ function mapReceipt(w: WireReceiptRecord): ReceiptRecord {
 }
 export const getReceipts = () => apiGet<WireReceiptRecord[]>('/receipts').then((rows) => rows.map(mapReceipt));
 
+export interface ConfirmReceiptInput {
+  orderRef: string;
+  outletId: string;
+  confirmedUnits: number;
+  hasIssue?: boolean;
+  issueType?: string;
+  notes?: string;
+}
+export const confirmReceipt = (input: ConfirmReceiptInput) =>
+  apiPost<WireReceiptRecord>('/receipts/confirm', {
+    order_ref: input.orderRef, outlet_id: input.outletId, confirmed_units: input.confirmedUnits,
+    has_issue: input.hasIssue ?? false, issue_type: input.issueType, notes: input.notes,
+  }).then(mapReceipt);
+
+export const acknowledgeDeferral = (outletId: string, orderRef: string, manifestVersion: number, notes?: string) =>
+  apiPost<{ success: boolean; ackId: string; acknowledgedAt: string }>('/deferrals/ack', {
+    outlet_id: outletId, order_ref: orderRef, manifest_version: manifestVersion, notes,
+  });
+

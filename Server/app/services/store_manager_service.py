@@ -143,6 +143,37 @@ def confirm_store_receipt(
     req: ReceiptConfirmRequest,
     confirmed_by: Optional[str] = None,
 ) -> ReceiptRecord:
+    if req.confirmed_units < 0:
+        raise HTTPException(status_code=400, detail="Confirmed units cannot be negative.")
+
+    order = db.query(Order).filter(Order.order_ref == req.order_ref).first()
+    if not order:
+        raise HTTPException(status_code=404, detail=f"Order {req.order_ref} not found.")
+    if order.outlet_id != req.outlet_id:
+        raise HTTPException(status_code=403, detail=f"Order {req.order_ref} does not belong to outlet {req.outlet_id}.")
+
+    delivery = db.query(DeliveryRecord).filter(DeliveryRecord.stop_id == req.outlet_id).order_by(
+        DeliveryRecord.recorded_at.desc()
+    ).first()
+    if not delivery:
+        raise HTTPException(status_code=409, detail=f"No delivery has been recorded for outlet {req.outlet_id} yet.")
+    if delivery.outcome == "none":
+        raise HTTPException(status_code=409, detail="This stop was recorded as not delivered - nothing to confirm receipt of.")
+
+    max_allowed = min(delivery.delivered_qty, order.order_units)
+    if req.confirmed_units > max_allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Confirmed units ({req.confirmed_units}) cannot exceed the delivered/ordered amount ({max_allowed}).",
+        )
+
+    existing = db.query(ReceiptRecord).filter(
+        ReceiptRecord.order_ref == req.order_ref,
+        ReceiptRecord.outlet_id == req.outlet_id,
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Receipt for order {req.order_ref} at {req.outlet_id} was already confirmed.")
+
     receipt = ReceiptRecord(
         order_ref=req.order_ref,
         outlet_id=req.outlet_id,

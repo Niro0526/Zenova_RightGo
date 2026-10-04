@@ -17,7 +17,8 @@ import {
 import { CameraModal } from "@/components/driver/today-run/CameraModal";
 import { Toast, ToastState } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
-import { saveLocalIssueReport } from "@/lib/driver/driver-offline-db";
+import { useAuth } from "@/context/AuthContext";
+import { saveLocalIssueReport, updateIssueReportSyncStatus } from "@/lib/driver/driver-offline-db";
 import { postDriverIssue } from "@/lib/driver/driver-api";
 import {
   ReportDetailsModal,
@@ -70,7 +71,7 @@ export const ISSUE_TYPES = [
     label: "Vehicle Issue / Delay",
     icon: "🚚",
     requiresOrder: false,
-    hint: "Applies to trip & vehicle PEL-R04",
+    hint: "Applies to this trip & your assigned vehicle",
   },
   {
     id: "other",
@@ -83,7 +84,6 @@ export const ISSUE_TYPES = [
 
 export const CURRENT_TRIP_INFO = {
   tripId: "S1-T001",
-  vehicleId: "PEL-R04",
   driverName: "Sunil (Senior Driver)",
   planVersion: "Plan v2",
   stops: [
@@ -126,50 +126,6 @@ export const CURRENT_TRIP_INFO = {
   ],
 };
 
-const BASELINE_REPORTS: IssueReportRecord[] = [
-  {
-    id: "REP-S1-T001-001",
-    tripId: "S1-T001",
-    vehicleId: "PEL-R04",
-    categoryId: "shortfall",
-    categoryLabel: "Shortfall / Stock Discrepancy",
-    categoryIcon: "📦",
-    categories: [
-      { id: "shortfall", label: "Shortfall / Stock Discrepancy", icon: "📦" },
-    ],
-    relatedScope: "Order S1-001 (Stop 1 – OUT001 / Colombo Fresh Outlet)",
-    orderId: "S1-001",
-    stopCode: "OUT001",
-    outletName: "OUT001 / Colombo Fresh Outlet",
-    description:
-      "8 damaged chilled units identified during morning vehicle load. Replaced before depot departure with verified replacement stock (Plan v2).",
-    photo: null,
-    status: "Synced",
-    offlineCreated: false,
-    createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: "REP-S1-T001-002",
-    tripId: "S1-T001",
-    vehicleId: "PEL-R04",
-    categoryId: "access",
-    categoryLabel: "Outlet Closed / Access Restricted",
-    categoryIcon: "🚪",
-    categories: [
-      { id: "access", label: "Outlet Closed / Access Restricted", icon: "🚪" },
-    ],
-    relatedScope: "Entire Stop 1 (OUT001 / Colombo Fresh Outlet)",
-    stopCode: "OUT001",
-    outletName: "OUT001 / Colombo Fresh Outlet",
-    description:
-      "Delivery street dock entrance was blocked by market utility van. Driver contacted store lead and dock access cleared by 05:20 AM.",
-    photo: null,
-    status: "Synced",
-    offlineCreated: false,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-];
-
 const LOCAL_STORAGE_REPORTS_KEY = "RightGo_Driver_Issue_Reports";
 
 export function DriverReportWorkflow() {
@@ -190,8 +146,11 @@ export function DriverReportWorkflow() {
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submittedReportId, setSubmittedReportId] = useState("");
 
+  const { user } = useAuth();
+  const vehicleId = user?.vehicle_id ?? "";
+
   // Reports History State
-  const [reports, setReports] = useState<IssueReportRecord[]>(BASELINE_REPORTS);
+  const [reports, setReports] = useState<IssueReportRecord[]>([]);
   const [selectedHistoryReport, setSelectedHistoryReport] = useState<IssueReportRecord | null>(null);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
 
@@ -206,11 +165,6 @@ export function DriverReportWorkflow() {
         const parsed = JSON.parse(stored) as IssueReportRecord[];
         const mergedMap = new Map<string, IssueReportRecord>();
         parsed.forEach((r) => mergedMap.set(r.id, r));
-        BASELINE_REPORTS.forEach((r) => {
-          if (!mergedMap.has(r.id)) {
-            mergedMap.set(r.id, r);
-          }
-        });
         const sorted = Array.from(mergedMap.values()).sort(
           (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
@@ -288,7 +242,7 @@ export function DriverReportWorkflow() {
 
   const getSelectedScopeDisplay = () => {
     if (selectedOrder === "VEHICLE_PEL_R04") {
-      return `Trip & Vehicle Level (PEL-R04) — ${CURRENT_TRIP_INFO.tripId}`;
+      return `Trip & Vehicle Level (${vehicleId}) — ${CURRENT_TRIP_INFO.tripId}`;
     }
     if (selectedOrder.startsWith("STOP_")) {
       const stopNum = selectedOrder.split("_")[1];
@@ -308,7 +262,7 @@ export function DriverReportWorkflow() {
 
   const getTargetOutletName = () => {
     if (selectedOrder === "VEHICLE_PEL_R04") {
-      return `Trip ${CURRENT_TRIP_INFO.tripId} • Vehicle ${CURRENT_TRIP_INFO.vehicleId}`;
+      return `Trip ${CURRENT_TRIP_INFO.tripId} • Vehicle ${vehicleId}`;
     }
     if (selectedOrder.startsWith("STOP_")) {
       const stopNum = selectedOrder.split("_")[1];
@@ -382,7 +336,7 @@ export function DriverReportWorkflow() {
     const newRecord: IssueReportRecord = {
       id: reportId,
       tripId: CURRENT_TRIP_INFO.tripId,
-      vehicleId: CURRENT_TRIP_INFO.vehicleId,
+      vehicleId,
       categoryId: primaryCategory.id,
       categoryLabel: combinedLabel,
       categoryIcon: combinedIcons,
@@ -392,28 +346,40 @@ export function DriverReportWorkflow() {
       outletName: getTargetOutletName(),
       description: description.trim(),
       photo: photo ? { ...photo } : null,
-      status: connectionState === "offline" ? "Pending Sync" : "Synced",
+      // Always starts Pending Sync - only flipped to Synced below once the
+      // backend actually acknowledges the POST, never just because the
+      // browser reports itself online.
+      status: "Pending Sync",
       offlineCreated: connectionState === "offline",
       createdAt: new Date().toISOString(),
     };
 
+    const persistReports = (list: IssueReportRecord[]) => {
+      setReports(list);
+      try {
+        localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(list));
+      } catch (err) {
+        console.error("Failed to save report to localStorage:", err);
+      }
+    };
+
     setTimeout(async () => {
       const updatedReports = [newRecord, ...reports];
-      setReports(updatedReports);
+      persistReports(updatedReports);
       saveLocalIssueReport(newRecord).catch((err: unknown) =>
         console.error("Failed to save issue report to IndexedDB:", err)
       );
       if (connectionState !== "offline") {
         try {
           await postDriverIssue(newRecord);
+          const syncedAt = new Date().toISOString();
+          await updateIssueReportSyncStatus(newRecord.id, "Synced", syncedAt);
+          persistReports(
+            updatedReports.map((r) => (r.id === newRecord.id ? { ...r, status: "Synced", syncedAt } : r))
+          );
         } catch (postErr) {
-          console.warn("Direct postDriverIssue notice:", postErr);
+          console.warn("Direct postDriverIssue failed, will retry via background sync:", postErr);
         }
-      }
-      try {
-        localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(updatedReports));
-      } catch (err) {
-        console.error("Failed to save report to localStorage:", err);
       }
 
       setIsSubmitting(false);
@@ -501,7 +467,7 @@ export function DriverReportWorkflow() {
                   Driver Issue Management
                 </span>
                 <span className="text-[#485563] font-bold text-sm">
-                  Trip: {CURRENT_TRIP_INFO.tripId} • Vehicle: {CURRENT_TRIP_INFO.vehicleId}
+                  Trip: {CURRENT_TRIP_INFO.tripId} • Vehicle: {vehicleId}
                 </span>
               </div>
               <h1 className="text-[#202D2D] font-extrabold text-2xl lg:text-3xl mt-1 m-0">
@@ -624,7 +590,7 @@ export function DriverReportWorkflow() {
                     <div>
                       <span className="text-slate-500 font-medium block">Trip &amp; Vehicle</span>
                       <span className="font-bold text-[#202D2D] mt-0.5 block">
-                        {CURRENT_TRIP_INFO.tripId} • {CURRENT_TRIP_INFO.vehicleId}
+                        {CURRENT_TRIP_INFO.tripId} • {vehicleId}
                       </span>
                     </div>
                     <div>
@@ -691,7 +657,7 @@ export function DriverReportWorkflow() {
                         {CURRENT_TRIP_INFO.tripId}
                       </span>
                       <span className="text-sm font-bold text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200">
-                        Vehicle: {CURRENT_TRIP_INFO.vehicleId}
+                        Vehicle: {vehicleId}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 m-0">
@@ -817,7 +783,7 @@ export function DriverReportWorkflow() {
                                 🚪 Entire Stop 1 (OUT001 / Colpetty Retailer)
                               </option>
                               <option value="VEHICLE_PEL_R04">
-                                🚚 Vehicle PEL-R04 / Trip S1-T001 General Delay
+                                🚚 Vehicle {vehicleId} / Trip {CURRENT_TRIP_INFO.tripId} General Delay
                               </option>
                             </optgroup>
                           )}
@@ -828,7 +794,7 @@ export function DriverReportWorkflow() {
                         {requiresOrderAny
                           ? "Showing only orders assigned to your current run (Trip S1-T001). Please select the affected order."
                           : selectedIssues.includes("vehicle")
-                          ? "This issue is associated with your vehicle PEL-R04 and trip manifest."
+                          ? `This issue is associated with your vehicle ${vehicleId} and trip manifest.`
                           : "You can associate this issue with a specific order or the entire stop."}
                       </p>
                     </div>
@@ -1178,7 +1144,7 @@ export function DriverReportWorkflow() {
           outletName="Colpetty Retailer"
           tripId="Trip A"
           stopSequence="Stop 1 of 4"
-          vehicleId="PEL-R04"
+          vehicleId={vehicleId}
           selectedIssueType={ID_TO_FIGMA_MAP[selectedIssues[0]] || "Delivery Quantity Issue"}
           onSelectIssueType={(label: string) => {
             const mappedId = FIGMA_TO_ID_MAP[label] || "shortfall";

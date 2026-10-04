@@ -6,10 +6,13 @@ import { DriverSidebar, DriverMobileBottomNav } from "@/components/driver/driver
 import { DriverConnectivityProvider } from "@/context/DriverConnectivityContext";
 import { OfflineBanner } from "@/components/driver/today-run/OfflineBanner";
 import RoleTopBar from "@/components/common/RoleTopBar";
+import { useAuth } from "@/context/AuthContext";
 
 /* ─── Root Driver Layout ──────────────────────────────────── */
 export default function DriverLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const vehicleId = user?.vehicle_id || "";
 
   return (
     <DriverConnectivityProvider>
@@ -24,11 +27,11 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
         <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
           <div className="hidden md:block">
             <RoleTopBar
-              name="D. Silva (Driver PEL-R04)"
+              name="Driver"
               role="Fleet Driver"
               initials="D"
-              stationId="PEL-R04"
-              stationName="Vehicle PEL-R04 · Plan v2"
+              stationId={vehicleId || undefined}
+              stationName={vehicleId ? `Vehicle ${vehicleId} · Plan v2` : undefined}
               avatarColor="#F97316"
             />
           </div>

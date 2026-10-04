@@ -25,7 +25,8 @@ import { CameraModal } from "@/components/driver/today-run/CameraModal";
 import { SignatureModal } from "@/components/driver/today-run/SignatureModal";
 import { Toast, type ToastMessage } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
-import { saveLocalDeliveryRecord, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
+import { useAuth } from "@/context/AuthContext";
+import { saveLocalDeliveryRecord, updateRecordSyncStatus, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
 import { getOutletContact } from "@/lib/driver/outlet-service";
 import { postDriverDelivery } from "@/lib/driver/driver-api";
 import { NavigationPanel } from "@/components/driver/NavigationPanel";
@@ -68,6 +69,8 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
     syncNow,
     refreshPendingCount,
   } = useConnectivity();
+  const { user } = useAuth();
+  const vehicleId = user?.vehicle_id ?? "";
 
   const storeContact = getOutletContact(targetStopId);
 
@@ -390,14 +393,17 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         }
       }
 
-      // Prepare local delivery record for offline/sync flow
+      // Prepare local delivery record for offline/sync flow - always starts
+      // Pending Sync. It is only flipped to Synced below once the backend
+      // actually acknowledges the POST, never just because the browser
+      // reports itself online.
       const recordId = `DEL-S1-T001-${targetStopId}-${Date.now()}`;
-      const recordStatus = isOnline ? "Synced" : "Pending Sync";
+      const recordStatus: LocalDeliveryRecord["status"] = "Pending Sync";
       const localRecord: LocalDeliveryRecord = {
         id: recordId,
         stopId: targetStopId,
         stopName: storeContact.name || `${targetStopId} Outlet`,
-        vehicleId: "PEL-R04",
+        vehicleId,
         outcome: deliveryOutcome,
         discrepancyDetails: deliveryOutcome === "discrepancy" ? {
           type: discrepancyType,
@@ -424,17 +430,26 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         status: recordStatus,
         offlineCreated: !isOnline,
         createdAt: new Date().toISOString(),
-        syncedAt: isOnline ? new Date().toISOString() : null,
+        syncedAt: null,
       };
 
-      // Store in local IndexedDB and transmit immediately if online
+      // Store in local IndexedDB and transmit immediately if online. The
+      // record only becomes Synced once the backend actually acknowledges
+      // it - a failed attempt leaves it Pending Sync for the background
+      // sync loop to retry, it is never marked Synced on a guess.
       saveLocalDeliveryRecord(localRecord)
         .then(async () => {
           if (isOnline) {
             try {
               await postDriverDelivery(localRecord);
+              const syncedAt = new Date().toISOString();
+              await updateRecordSyncStatus(recordId, "Synced", syncedAt);
+              setIsSynced(true);
             } catch (postErr) {
-              console.warn("Direct postDriverDelivery notice:", postErr);
+              console.warn("Direct postDriverDelivery failed, will retry via background sync:", postErr);
+              setIsSynced(false);
+            } finally {
+              setIsSyncing(false);
             }
           }
           await refreshPendingCount();
@@ -442,8 +457,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         .catch((err: unknown) => console.error("Failed to save delivery record to IndexedDB:", err));
 
       if (isOnline) {
-        setIsSynced(true);
-        setIsSyncing(false);
+        setIsSyncing(true);
       } else {
         setIsSynced(false);
         setIsSyncing(false);
@@ -759,7 +773,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                 <div className="grid grid-cols-2 gap-3 text-xs">
                   <div className="bg-white p-3 rounded-xl border border-[#E2E8F0]">
                     <span className="text-[#64748B] block font-medium">Vehicle / Driver</span>
-                    <span className="font-bold text-[#202D2D] mt-0.5 block">PEL-R04 (Van)</span>
+                    <span className="font-bold text-[#202D2D] mt-0.5 block">{vehicleId} (Van)</span>
                   </div>
                   <div className="bg-white p-3 rounded-xl border border-[#E2E8F0]">
                     <span className="text-[#64748B] block font-medium">Trip Plan</span>
@@ -1455,7 +1469,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                       Onboard Stock Return Policy
                     </span>
                     <p className="text-xs text-red-700 m-0 leading-relaxed font-medium">
-                      All allocated items ({expectedQty} units) will remain secured on vehicle <span className="font-bold">PEL-R04</span> and returned to Colombo Depot for reschedule.
+                      All allocated items ({expectedQty} units) will remain secured on vehicle <span className="font-bold">{vehicleId}</span> and returned to Colombo Depot for reschedule.
                     </p>
                   </div>
 
@@ -2076,6 +2090,8 @@ function MobileCurrentStopCanvas({
   onArrived?: () => void;
 }) {
   const { connectionState } = useConnectivity();
+  const { user } = useAuth();
+  const vehicleId = user?.vehicle_id ?? "";
   const storeContact = initialStoreContact || getOutletContact(targetStopId || "OUT001");
   const canvasHeight = stopRecorded || completingDelivery ? "auto" : deliveryStarted ? 1150 : 1650;
 
@@ -3033,7 +3049,7 @@ function MobileCurrentStopCanvas({
                   Stock Return to Depot
                 </span>
                 <p className="text-xs text-red-700 m-0 leading-relaxed">
-                  All {expectedQty} units remain aboard PEL-R04 and return to depot for reschedule.
+                  All {expectedQty} units remain aboard {vehicleId} and return to depot for reschedule.
                 </p>
               </div>
             )}

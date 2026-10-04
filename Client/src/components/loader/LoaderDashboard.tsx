@@ -17,26 +17,26 @@ import {
   Keyboard
 } from 'lucide-react';
 import { BrowserMultiFormatReader } from '@zxing/library';
-import { supabase } from '@/lib/supabase';
+import { fetchLatestManifest, fetchTripReadiness } from '@/lib/loader/loader-api';
+import { ApiError } from '@/lib/api/client';
 
 type Status = 'Ready to Load' | 'Loading' | 'Attention';
 
 type Trip = {
+  tripDbId: number;
   vehicle: string;
   id: string;
-  bay: string;
   area: string;
   routeStr: string;
   departure: string;
   outlets: number;
   orders: number;
-  payloadKg: number;
-  vehicleType: string;
   plan: number;
   status: Status;
   issue: boolean;
   issueNotes?: string;
-  stagingProgress?: number;
+  loadedOrders?: number;
+  totalOrders?: number;
 };
 
 export default function LoaderDashboard() {
@@ -51,78 +51,62 @@ export default function LoaderDashboard() {
   const codeReaderRef = useRef<BrowserMultiFormatReader | null>(null);
 
   const fetchTrips = async () => {
-    if (!supabase) {
-      setLoadError('Supabase is not configured.');
-      return;
-    }
+    try {
+      const manifest = await fetchLatestManifest();
+      if (!manifest) {
+        setLoadError(null);
+        setTrips([]);
+        return;
+      }
 
-    const { data, error } = await supabase
-      .from('trips')
-      .select('trip_code, vehicle_id, status, departure_time, bay, route_summary, outlets_count, payload_kg')
-      .order('departure_time', { ascending: true });
+      const readinessByTrip = await Promise.all(
+        manifest.trips.map((t) => fetchTripReadiness(t.id).catch(() => null))
+      );
 
-    if (error) {
-      setLoadError(error.message);
-      return;
-    }
-
-    setLoadError(null);
-    setTrips((data ?? []).map((row) => {
-      const rawStatus = String(row.status ?? '').toLowerCase();
-      const status: Status = rawStatus.includes('load') && !rawStatus.includes('ready')
-        ? 'Loading'
-        : rawStatus.includes('hold') || rawStatus.includes('attention') || rawStatus.includes('issue')
-          ? 'Attention'
+      setLoadError(null);
+      setTrips(manifest.trips.map((t, idx) => {
+        const readiness = readinessByTrip[idx];
+        const status: Status =
+          t.loadingStatus === 'loading' ? 'Loading'
+          : readiness?.hasOpenIssues ? 'Attention'
           : 'Ready to Load';
-      const count = Number(row.outlets_count ?? 0);
 
-      return {
-        vehicle: String(row.vehicle_id ?? 'Unknown Vehicle'),
-        id: String(row.trip_code ?? 'Unassigned Trip'),
-        bay: String(row.bay ?? 'Bay —'),
-        area: String(row.route_summary ?? 'Route unavailable'),
-        routeStr: String(row.route_summary ?? 'Route unavailable'),
-        departure: row.departure_time
-          ? new Date(String(row.departure_time)).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          : '—',
-        outlets: count,
-        orders: count,
-        payloadKg: Number(row.payload_kg ?? 0),
-        vehicleType: 'Vehicle',
-        plan: 1,
-        status,
-        issue: status === 'Attention',
-        issueNotes: status === 'Attention' ? 'Trip requires attention before loading.' : undefined,
-        stagingProgress: status === 'Loading' ? 50 : undefined,
-      };
-    }));
+        return {
+          tripDbId: t.id,
+          vehicle: t.vehicleId,
+          id: t.tripId || `${t.vehicleId}-${t.tripNo}`,
+          area: t.district || t.depot || 'Route unavailable',
+          routeStr: [t.depot, t.district].filter(Boolean).join(' -> ') || 'Route unavailable',
+          departure: t.plannedDepartureTime || '-',
+          outlets: t.stopOutletIds.length,
+          orders: t.orderRefs.length,
+          plan: manifest.version,
+          status,
+          issue: status === 'Attention',
+          issueNotes: status === 'Attention' ? 'Open loading issue(s) must be resolved before this trip can depart.' : undefined,
+          loadedOrders: readiness?.loadedOrders,
+          totalOrders: readiness?.totalOrders,
+        };
+      }));
+    } catch (err) {
+      setLoadError(err instanceof ApiError ? err.message : 'Cannot reach the RightGo server.');
+    }
   };
 
   useEffect(() => {
     void fetchTrips();
-    if (!supabase) return;
-    const client = supabase;
-    const channel = client
-      .channel('loader-dashboard-trips')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trips' }, () => void fetchTrips())
-      .subscribe();
-
-    return () => {
-      void client.removeChannel(channel);
-    };
   }, []);
 
-  const filteredTrips = trips.filter(trip => 
+  const filteredTrips = trips.filter(trip =>
     trip.vehicle.toLowerCase().includes(searchQuery.toLowerCase()) ||
     trip.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    trip.area.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    trip.bay.toLowerCase().includes(searchQuery.toLowerCase())
+    trip.area.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const loadingCount = trips.filter((trip) => trip.status === 'Loading').length;
   const readyCount = trips.filter((trip) => trip.status === 'Ready to Load').length;
   const attentionCount = trips.filter((trip) => trip.status === 'Attention').length;
-  const plannedPayload = trips.reduce((sum, trip) => sum + trip.payloadKg, 0);
+  const totalOutlets = trips.reduce((sum, trip) => sum + trip.outlets, 0);
 
   // Camera Barcode Scanning Setup
   useEffect(() => {
@@ -171,7 +155,13 @@ export default function LoaderDashboard() {
 
   return (
     <div className="w-full max-w-7xl mx-auto flex flex-col gap-6 relative">
-      
+
+      {loadError && (
+        <div className="flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+          Could not load trips from the server. {loadError}
+        </div>
+      )}
+
       {/* Header Section */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -196,8 +186,8 @@ export default function LoaderDashboard() {
             Scan Barcode
           </button>
           
-          <Link 
-            href={trips[0] ? `/loader/load-sequence?tripId=${encodeURIComponent(trips[0].id)}` : "/loader/load-sequence"} 
+          <Link
+            href={trips[0] ? `/loader/load-sequence?tripId=${trips[0].tripDbId}` : "/loader/load-sequence"}
             className="min-h-11 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#F97316] hover:bg-[#EA580C] text-white text-sm font-medium rounded-xl shadow-sm transition"
           >
             Current Trip <ChevronRight className="w-4 h-4" />
@@ -213,12 +203,12 @@ export default function LoaderDashboard() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by vehicle (e.g. PEL-R04), trip ID (S1-T001), bay, or corridor..."
+            placeholder="Search by vehicle, trip ID (e.g. S1-T001), bay, or corridor..."
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition shadow-sm"
           />
         </div>
         <div className="px-4 py-2.5 bg-slate-200/60 text-slate-700 text-xs font-semibold rounded-xl sm:whitespace-nowrap">
-          Total Planned: <span className="text-slate-900 font-bold">{trips.length} Vehicles • {plannedPayload.toLocaleString()} kg</span>
+          Total Planned: <span className="text-slate-900 font-bold">{trips.length} Vehicles • {totalOutlets} Outlets</span>
         </div>
       </div>
 
@@ -293,7 +283,6 @@ export default function LoaderDashboard() {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="px-2.5 py-1 bg-slate-900 text-white font-bold text-xs rounded-md">{trip.vehicle}</span>
                   <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">{trip.id}</span>
-                  <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-semibold rounded-md border border-slate-200">{trip.bay}</span>
                 </div>
 
                 {isLoading ? (
@@ -335,24 +324,27 @@ export default function LoaderDashboard() {
                   </span>
                 </div>
                 <div>
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">PAYLOAD / TEMP</span>
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-slate-400 block">LOADED ORDERS</span>
                   <span className="text-xs font-bold text-slate-800 flex items-center justify-center gap-1 mt-1">
-                    <Thermometer className="w-3 h-3 text-sky-500" /> {trip.payloadKg.toLocaleString()} kg
+                    <Thermometer className="w-3 h-3 text-sky-500" /> {trip.loadedOrders ?? 0} / {trip.totalOrders ?? trip.orders}
                   </span>
                 </div>
               </div>
 
-              {isLoading && (
+              {isLoading && trip.totalOrders ? (
                 <div className="space-y-1.5 p-3 bg-emerald-50/60 border border-emerald-100 rounded-xl">
                   <div className="flex justify-between items-center text-xs text-emerald-800 font-semibold">
-                    <span>Staging Stop 2 of 3 (450 kg staged)</span>
-                    <span>{trip.stagingProgress}%</span>
+                    <span>{trip.loadedOrders ?? 0} of {trip.totalOrders} orders loaded</span>
+                    <span>{Math.round(((trip.loadedOrders ?? 0) / trip.totalOrders) * 100)}%</span>
                   </div>
                   <div className="w-full h-2 bg-emerald-200/80 rounded-full overflow-hidden">
-                    <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${trip.stagingProgress}%` }}></div>
+                    <div
+                      className="h-full bg-emerald-500 rounded-full"
+                      style={{ width: `${Math.round(((trip.loadedOrders ?? 0) / trip.totalOrders) * 100)}%` }}
+                    ></div>
                   </div>
                 </div>
-              )}
+              ) : null}
 
               {isAttention && trip.issueNotes && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2.5 text-amber-900">
@@ -369,13 +361,12 @@ export default function LoaderDashboard() {
                   <span className="text-emerald-600 font-medium flex items-center gap-1">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Cargo verified & staged at dock
                   </span>
-                  <span className="text-slate-400">{trip.vehicleType}</span>
                 </div>
               )}
 
               {canOpen ? (
                 <Link
-                  href={`/loader/load-sequence?tripId=${encodeURIComponent(trip.id)}`}
+                  href={`/loader/load-sequence?tripId=${trip.tripDbId}`}
                   className={`w-full py-2.5 font-bold text-sm rounded-xl flex items-center justify-center gap-2 transition shadow-sm ${
                     isLoading 
                       ? 'bg-emerald-600 hover:bg-emerald-700 text-white' 

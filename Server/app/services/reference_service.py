@@ -76,7 +76,7 @@ def seed_users(db: Session):
             "display_name": "Sunil (Senior Driver)",
             "phone": "+94 77 3456789",
             "outlet_id": None,
-            "vehicle_id": "PEL-R04",
+            "vehicle_id": "VEH036",
         },
         {
             "username": "kavitha",
@@ -253,19 +253,6 @@ def seed_reference_data(db: Session, force_reload: bool = False):
                     weekly_fuel_quota_l=float(row["weekly_fuel_quota_l"]),
                     depot=str(row["depot"]),
                 ))
-            # Also ensure PEL-R04 exists for driver Sunil demo account
-            if not db.query(Vehicle).filter(Vehicle.vehicle_id == "PEL-R04").first():
-                db.add(Vehicle(
-                    vehicle_id="PEL-R04",
-                    type="van",
-                    temp="reefer",
-                    weight_cap_kg=1040.0,
-                    volume_cap_m3=7.0,
-                    fuel_type="diesel",
-                    km_per_l=10.3,
-                    weekly_fuel_quota_l=480.0,
-                    depot="Peliyagoda",
-                ))
             db.commit()
 
     # 5. Scenario Fleet
@@ -278,12 +265,6 @@ def seed_reference_data(db: Session, force_reload: bool = False):
                     scenario=str(row["scenario"]),
                     vehicle_id=str(row["vehicle_id"]),
                     status=str(row["status"]),
-                ))
-            if not db.query(ScenarioFleetEntry).filter(ScenarioFleetEntry.scenario == "S1", ScenarioFleetEntry.vehicle_id == "PEL-R04").first():
-                db.add(ScenarioFleetEntry(
-                    scenario="S1",
-                    vehicle_id="PEL-R04",
-                    status="available",
                 ))
             db.commit()
 
@@ -386,12 +367,12 @@ def seed_reference_data(db: Session, force_reload: bool = False):
             db.commit()
             db.refresh(active_manifest)
 
-            # Seed Driver Sunil's Active Trip PEL-R04 (Trip 1)
+            # Seed Driver Sunil's Active Trip VEH036 (Trip 1)
             driver_trip = ReleasedTrip(
                 manifest_id=active_manifest.id,
                 manifest_version=1,
                 scenario="S1",
-                vehicle_id="PEL-R04",
+                vehicle_id="VEH036",
                 trip_no=1,
                 trip_id_str="S1-T001",
             brand="Fresh",

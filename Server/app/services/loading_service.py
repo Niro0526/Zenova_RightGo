@@ -7,6 +7,7 @@ from fastapi import HTTPException, status
 from app.models.plan import ReleasedManifest, ReleasedTrip, OrderLoadingState
 from app.models.operations import LoadingIssue
 from app.models.order import Order
+from app.models.reference import Outlet, Vehicle
 from app.schemas.loading import LoadingIssueCreateRequest, LoadingIssueActionRequest
 from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
@@ -49,14 +50,33 @@ def get_trip_loading_sequence(db: Session, trip_id: int) -> Dict[str, Any]:
 
     order_states = db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
     orders_map = {o.order_ref: o for o in db.query(Order).filter(Order.order_ref.in_([s.order_ref for s in order_states])).all()}
+    outlets_map = {o.outlet_id: o for o in db.query(Outlet).filter(Outlet.outlet_id.in_(loading_sequence_outlets)).all()}
+    vehicle = db.query(Vehicle).filter(Vehicle.vehicle_id == trip.vehicle_id).first()
 
     loading_steps = []
+    loaded_weight_kg = 0.0
+    loaded_volume_m3 = 0.0
+    total_weight_kg = 0.0
+    total_volume_m3 = 0.0
     for step_num, outlet_id in enumerate(loading_sequence_outlets, 1):
         matching_states = [s for s in order_states if orders_map.get(s.order_ref) and orders_map[s.order_ref].outlet_id == outlet_id]
+        step_weight_kg = sum(orders_map[s.order_ref].order_weight_kg for s in matching_states)
+        step_volume_m3 = sum(orders_map[s.order_ref].order_volume_m3 for s in matching_states)
+        total_weight_kg += step_weight_kg
+        total_volume_m3 += step_volume_m3
+        step_all_loaded = all(s.is_loaded for s in matching_states) if matching_states else False
+        if step_all_loaded:
+            loaded_weight_kg += step_weight_kg
+            loaded_volume_m3 += step_volume_m3
+
+        outlet = outlets_map.get(outlet_id)
         loading_steps.append({
             "step": step_num,
             "outletId": outlet_id,
+            "outletName": outlet.name if outlet else outlet_id,
             "deliveryStopRank": delivery_stops.index(outlet_id) + 1,
+            "weightKg": round(step_weight_kg, 1),
+            "volumeM3": round(step_volume_m3, 3),
             "orders": [
                 {
                     "orderRef": s.order_ref,
@@ -65,11 +85,13 @@ def get_trip_loading_sequence(db: Session, trip_id: int) -> Dict[str, Any]:
                     "plannedUnits": s.planned_units,
                     "loadedUnits": s.loaded_units,
                     "effectiveUnits": s.effective_units,
+                    "weightKg": orders_map[s.order_ref].order_weight_kg,
+                    "volumeM3": orders_map[s.order_ref].order_volume_m3,
                     "isLoaded": s.is_loaded,
                 }
                 for s in matching_states
             ],
-            "allOrdersLoaded": all(s.is_loaded for s in matching_states),
+            "allOrdersLoaded": step_all_loaded,
         })
 
     return {
@@ -83,6 +105,12 @@ def get_trip_loading_sequence(db: Session, trip_id: int) -> Dict[str, Any]:
         "leaveByTime": trip.leave_by_time,
         "loadingStatus": trip.loading_status,
         "loadingSequence": loading_steps,
+        "loadedWeightKg": round(loaded_weight_kg, 1),
+        "loadedVolumeM3": round(loaded_volume_m3, 3),
+        "totalWeightKg": round(total_weight_kg, 1),
+        "totalVolumeM3": round(total_volume_m3, 3),
+        "vehicleWeightCapKg": vehicle.weight_cap_kg if vehicle else None,
+        "vehicleVolumeCapM3": vehicle.volume_cap_m3 if vehicle else None,
     }
 
 def mark_order_loaded(db: Session, trip_id: int, order_ref: str, loaded_units: Optional[int] = None) -> OrderLoadingState:
@@ -251,10 +279,17 @@ def resolve_loading_issue(db: Session, issue_id: str, req: LoadingIssueActionReq
     return issue
 
 def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
-    """Departure gate: verifies loading complete and no blocking issues before vehicle departs warehouse."""
+    """Departure gate: a trip may only depart once it has reached the "ready"
+    loading status (per the documented planned -> loading -> ready ->
+    in_transit state machine) - i.e. every order is loaded, the manifest is
+    acknowledged, and no loading issue is open. A trip is never allowed to
+    depart merely because no issues happen to be open right now."""
     trip = db.query(ReleasedTrip).filter(ReleasedTrip.id == trip_id).first()
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
+
+    if trip.loading_status in ("departed", "completed"):
+        raise HTTPException(status_code=409, detail=f"Trip {trip.trip_id_str} has already departed.")
 
     open_issues = db.query(LoadingIssue).filter(
         LoadingIssue.manifest_version == trip.manifest_version,
@@ -267,6 +302,21 @@ def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Departure blocked: {open_issues} open loading issue(s) remain on vehicle {trip.vehicle_id}.",
         )
+
+    if trip.loading_status != "ready":
+        states = db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
+        unloaded = sum(1 for s in states if not s.is_loaded)
+        manifest = db.query(ReleasedManifest).filter(ReleasedManifest.id == trip.manifest_id).first()
+        if unloaded > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Departure blocked: {unloaded} order(s) not yet loaded on vehicle {trip.vehicle_id}.",
+            )
+        if not manifest or manifest.acknowledgement != "acknowledged":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Departure blocked: manifest has not been acknowledged yet.",
+            )
 
     trip.loading_status = "departed"
     trip.departed_at = datetime.now(timezone.utc)

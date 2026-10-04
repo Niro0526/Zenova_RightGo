@@ -156,6 +156,7 @@ export function formatArrivalTime(durationSeconds: number): string {
   return arrivalDate.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
 }
 

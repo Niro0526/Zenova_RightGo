@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
 import type { IssueReportRecord } from "@/components/driver/today-run/ReportDetailsModal";
+import EmptyState from "@/components/common/EmptyState";
 
 export interface DriverHistoryMobileViewProps {
   deliveryRecords: LocalDeliveryRecord[];
@@ -140,7 +141,7 @@ export function DriverHistoryMobileView({
               <div className="flex items-center">
                 <span className="w-[104px] text-[#6B788C] font-normal">Vehicle</span>
                 <span className="text-[#1F293B] font-bold text-[11px] leading-[13px]">
-                  {rec.vehicleId || "PEL-R04"}
+                  {rec.vehicleId || "-"}
                 </span>
               </div>
               <div className="flex items-center">
@@ -379,7 +380,7 @@ export function DriverHistoryMobileView({
               <div className="flex items-center">
                 <span className="w-[89px] text-[#6B788C] font-normal">Vehicle</span>
                 <span className="text-[#1F293B] font-bold text-[11px] leading-[13px]">
-                  {rep.vehicleId || "PEL-R04"}
+                  {rep.vehicleId || "-"}
                 </span>
               </div>
             </div>
@@ -546,7 +547,7 @@ export function DriverHistoryMobileView({
                 Completed stops and recorded delivery outcomes.
               </span>
               <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px]">
-                Trip A • PEL-R04
+                Trip A
               </span>
             </div>
 
@@ -608,141 +609,11 @@ export function DriverHistoryMobileView({
               );
             })}
 
-            {/* 2. Standard Figma Historical Mock Baseline Cards (Rich experience) */}
             {deliveryRecords.length === 0 && (
-              <>
-                {/* Card 1: Delivered in Full */}
-                <div className="w-[350px] h-[180px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
-                  <div>
-                    <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-2">
-                      29 Sep 2026 • 07:42
-                    </span>
-                    <span className="block text-[#1F293B] font-bold text-[15px] leading-[18px] mb-2">
-                      OUT001 / Colpetty Retailer
-                    </span>
-                    <span className="block text-[#1F9457] font-bold text-[11px] leading-[13px] mb-2">
-                      Delivered in Full
-                    </span>
-                    <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-3">
-                      Stop 1 • Orders S1-000, S1-001 • POD captured
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectDeliveryRecord({
-                        id: "DEL-S1-T001-001",
-                        stopId: "OUT001",
-                        stopName: "OUT001 / Colpetty Retailer",
-                        vehicleId: "PEL-R04",
-                        outcome: "full",
-                        podDetails: {
-                          signerName: "Colpetty Store Lead",
-                          hasSignature: true,
-                          hasPhoto: true,
-                          photoName: "pod_colpetty_001.jpg",
-                        },
-                        status: "Synced",
-                        offlineCreated: false,
-                        createdAt: "2026-09-29T07:42:00.000Z",
-                      })
-                    }
-                    className="w-[318px] h-[40px] bg-[#EDF2FA] hover:bg-[#e2e8f0] text-[#ED5214] font-bold text-[12px] leading-[15px] rounded-[9px] flex items-center justify-center cursor-pointer transition-all border-none"
-                  >
-                    View Details
-                  </button>
-                </div>
-
-                {/* Card 2: Delivered — Discrepancy */}
-                <div className="w-[350px] h-[180px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
-                  <div>
-                    <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-2">
-                      28 Sep 2026 • 08:10
-                    </span>
-                    <span className="block text-[#1F293B] font-bold text-[15px] leading-[18px] mb-2">
-                      OUT004 / Wellawatte Mart
-                    </span>
-                    <span className="block text-[#ED5214] font-bold text-[11px] leading-[13px] mb-2">
-                      Delivered — Discrepancy
-                    </span>
-                    <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-3">
-                      Stop 3 • Quantity shortage recorded
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectDeliveryRecord({
-                        id: "DEL-S1-T001-003",
-                        stopId: "OUT004",
-                        stopName: "OUT004 / Wellawatte Mart",
-                        vehicleId: "PEL-R04",
-                        outcome: "discrepancy",
-                        discrepancyDetails: {
-                          type: "shortage",
-                          expectedQty: 80,
-                          deliveredQty: 72,
-                          notes: "8 units shortfall recorded upon unloading.",
-                        },
-                        podDetails: {
-                          signerName: "Wellawatte Lead",
-                          hasSignature: true,
-                          hasPhoto: true,
-                        },
-                        status: "Synced",
-                        offlineCreated: false,
-                        createdAt: "2026-09-28T08:10:00.000Z",
-                      })
-                    }
-                    className="w-[318px] h-[40px] bg-[#EDF2FA] hover:bg-[#e2e8f0] text-[#ED5214] font-bold text-[12px] leading-[15px] rounded-[9px] flex items-center justify-center cursor-pointer transition-all border-none"
-                  >
-                    View Details
-                  </button>
-                </div>
-
-                {/* Card 3: Not Delivered */}
-                <div className="w-[350px] h-[180px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
-                  <div>
-                    <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-2">
-                      27 Sep 2026 • 07:18
-                    </span>
-                    <span className="block text-[#1F293B] font-bold text-[15px] leading-[18px] mb-2">
-                      OUT007 / Dehiwala Stores
-                    </span>
-                    <span className="block text-[#ED5214] font-bold text-[11px] leading-[13px] mb-2">
-                      Not Delivered
-                    </span>
-                    <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-3">
-                      Stop 2 • Store Closed • Evidence attached
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onSelectDeliveryRecord({
-                        id: "DEL-S1-T001-002",
-                        stopId: "OUT007",
-                        stopName: "OUT007 / Dehiwala Stores",
-                        vehicleId: "PEL-R04",
-                        outcome: "none",
-                        notDeliveredDetails: {
-                          reason: "closed",
-                          notes: "Outlet shutter closed. Contact number unreachable.",
-                        },
-                        status: "Synced",
-                        offlineCreated: false,
-                        createdAt: "2026-09-27T07:18:00.000Z",
-                      })
-                    }
-                    className="w-[318px] h-[40px] bg-[#EDF2FA] hover:bg-[#e2e8f0] text-[#ED5214] font-bold text-[12px] leading-[15px] rounded-[9px] flex items-center justify-center cursor-pointer transition-all border-none"
-                  >
-                    View Details
-                  </button>
-                </div>
-              </>
+              <EmptyState
+                title="No delivery history yet"
+                description="Completed stops will appear here once you record a delivery outcome."
+              />
             )}
           </div>
         )}
@@ -805,7 +676,7 @@ export function DriverHistoryMobileView({
                     </span>
 
                     <span className="block text-[#6B788C] font-normal text-[10px] leading-[12px] mb-3 truncate">
-                      {rep.outletName} • {rep.orderId || "Stop Level"} • Trip A • PEL-R04
+                      {rep.outletName} • {rep.orderId || "Stop Level"} • {rep.tripId} • {rep.vehicleId || "-"}
                     </span>
                   </div>
 

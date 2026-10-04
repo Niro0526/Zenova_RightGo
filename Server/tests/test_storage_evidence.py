@@ -37,7 +37,7 @@ def test_storage_upload_and_signed_url_direct(client):
     assert sig_data["storagePath"] == data["storagePath"]
     assert sig_data["signedUrl"] is not None
 
-def test_driver_delivery_online_pod_storage_persistence(client, db_session):
+def test_driver_delivery_online_pod_storage_persistence(client, db_session, driver_auth):
     """
     Test that when a driver records a stop with a Base64 signature and photo,
     PostgreSQL stores ONLY the Supabase storage path reference, not raw Base64.
@@ -47,7 +47,7 @@ def test_driver_delivery_online_pod_storage_persistence(client, db_session):
         "id": delivery_id,
         "stopId": "OUT001",
         "stopName": "Colpetty Retailer",
-        "vehicleId": "PEL-R04",
+        "vehicleId": "VEH036",
         "outcome": "full",
         "podDetails": {
             "signerName": "Store Lead",
@@ -62,7 +62,7 @@ def test_driver_delivery_online_pod_storage_persistence(client, db_session):
         "createdAt": "2026-10-04T08:00:00Z",
     }
 
-    res = client.post("/api/driver/deliveries", json=payload)
+    res = client.post("/api/driver/deliveries", json=payload, headers=driver_auth)
     assert res.status_code == 200
 
     # Inspect directly in the database session
@@ -81,7 +81,7 @@ def test_driver_delivery_online_pod_storage_persistence(client, db_session):
     assert len(db_rec.pod_photo_url) < 200
 
     # History API should resolve the storage path into a usable signed URL for the frontend
-    hist_res = client.get("/api/driver/history?vehicle_id=PEL-R04")
+    hist_res = client.get("/api/driver/history?vehicle_id=VEH036", headers=driver_auth)
     assert hist_res.status_code == 200
     hist_items = hist_res.json()
     match = next((item for item in hist_items if item["id"] == delivery_id), None)
@@ -89,7 +89,7 @@ def test_driver_delivery_online_pod_storage_persistence(client, db_session):
     assert match["podDetails"]["signatureUrl"] is not None
     assert match["podDetails"]["photoUrl"] is not None
 
-def test_driver_issue_evidence_storage(client, db_session):
+def test_driver_issue_evidence_storage(client, db_session, driver_auth):
     """
     Test that road issue photo attachments are stored in driver-issue-evidence bucket
     and referenced cleanly in PostgreSQL.
@@ -98,7 +98,7 @@ def test_driver_issue_evidence_storage(client, db_session):
     payload = {
         "id": issue_id,
         "tripId": "S1-T001",
-        "vehicleId": "PEL-R04",
+        "vehicleId": "VEH036",
         "categoryId": "access",
         "categoryLabel": "Access Blocked",
         "categoryIcon": "🚪",
@@ -114,7 +114,7 @@ def test_driver_issue_evidence_storage(client, db_session):
         "createdAt": "2026-10-04T08:30:00Z",
     }
 
-    res = client.post("/api/driver/issues", json=payload)
+    res = client.post("/api/driver/issues", json=payload, headers=driver_auth)
     assert res.status_code == 200
 
     # Inspect in database
@@ -124,20 +124,21 @@ def test_driver_issue_evidence_storage(client, db_session):
     assert not db_issue.photo_url.startswith("data:")
 
     # Verify history retrieval returns signed URL
-    hist_res = client.get("/api/driver/issues/history?vehicle_id=PEL-R04")
+    hist_res = client.get("/api/driver/issues/history?vehicle_id=VEH036", headers=driver_auth)
     assert hist_res.status_code == 200
     hist_items = hist_res.json()
     match = next((item for item in hist_items if item["id"] == issue_id), None)
     assert match is not None
     assert match["photo"]["url"] is not None
 
-def test_offline_sync_uploads_evidence_and_saves_references(client, db_session):
+def test_offline_sync_uploads_evidence_and_saves_references(client, db_session, driver_auth, seed_active_trip):
     """
     Test offline-first driver workflow:
     Driver records offline delivery and issue with Base64 payloads.
     When connection returns, /api/sync processes events, uploads evidence to Supabase Storage,
     saves storage paths in PostgreSQL, and marks records as Synced.
     """
+    seed_active_trip("VEH036", ["OUT001", "OUT002", "OUT003"])
     event_id = f"evt-offline-{uuid.uuid4().hex[:8]}"
     del_id = f"DEL-OFFLINE-{uuid.uuid4().hex[:6]}"
 
@@ -153,7 +154,7 @@ def test_offline_sync_uploads_evidence_and_saves_references(client, db_session):
                     "id": del_id,
                     "stopId": "OUT002",
                     "stopName": "Bambalapitiya Grocers",
-                    "vehicleId": "PEL-R04",
+                    "vehicleId": "VEH036",
                     "outcome": "discrepancy",
                     "discrepancyDetails": {
                         "type": "Quantity Short",
@@ -174,7 +175,7 @@ def test_offline_sync_uploads_evidence_and_saves_references(client, db_session):
         ],
     }
 
-    res = client.post("/api/sync", json=sync_payload)
+    res = client.post("/api/sync", json=sync_payload, headers=driver_auth)
     assert res.status_code == 200
     data = res.json()
     assert data["success"] is True
@@ -190,10 +191,11 @@ def test_offline_sync_uploads_evidence_and_saves_references(client, db_session):
     assert not db_rec.pod_signature_url.startswith("data:")
     assert not db_rec.pod_photo_url.startswith("data:")
 
-def test_offline_sync_duplicate_idempotency(client, db_session):
+def test_offline_sync_duplicate_idempotency(client, db_session, driver_auth, seed_active_trip):
     """
     Test that replaying duplicate offline events is idempotent and does not create duplicate records.
     """
+    seed_active_trip("VEH036", ["OUT001", "OUT002", "OUT003"])
     event_id = f"evt-idempotent-{uuid.uuid4().hex[:8]}"
     del_id = f"DEL-IDEM-{uuid.uuid4().hex[:6]}"
 
@@ -209,7 +211,7 @@ def test_offline_sync_duplicate_idempotency(client, db_session):
                     "id": del_id,
                     "stopId": "OUT003",
                     "stopName": "Kollupitiya Super",
-                    "vehicleId": "PEL-R04",
+                    "vehicleId": "VEH036",
                     "outcome": "full",
                     "podDetails": {
                         "signerName": "Lead",
@@ -222,12 +224,12 @@ def test_offline_sync_duplicate_idempotency(client, db_session):
     }
 
     # First attempt -> applied
-    res1 = client.post("/api/sync", json=sync_payload)
+    res1 = client.post("/api/sync", json=sync_payload, headers=driver_auth)
     assert res1.status_code == 200
     assert res1.json()["results"][0]["status"] == "applied"
 
     # Second identical attempt -> duplicate, ignored
-    res2 = client.post("/api/sync", json=sync_payload)
+    res2 = client.post("/api/sync", json=sync_payload, headers=driver_auth)
     assert res2.status_code == 200
     assert res2.json()["results"][0]["status"] == "duplicate"
 
@@ -242,7 +244,7 @@ def test_legacy_base64_migration(client, db_session):
     legacy_id = f"DEL-LEGACY-{uuid.uuid4().hex[:6]}"
     legacy_rec = DeliveryRecord(
         id=legacy_id,
-        vehicle_id="PEL-R04",
+        vehicle_id="VEH036",
         stop_id="OUT001",
         stop_name="Colpetty Retailer",
         outcome="full",

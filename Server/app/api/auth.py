@@ -45,7 +45,7 @@ PREDEFINED_USERS = {
         "role": "driver",
         "display_name": "Sunil Bandara",
         "outlet_id": None,
-        "vehicle_id": "PEL-R04",
+        "vehicle_id": "VEH036",
         "phone": "+94 77 3456789",
     },
     "kavitha@rightgo.lk": {
@@ -95,11 +95,13 @@ class LoginResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest):
-    """Authenticate against the four predefined system credentials."""
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    """Authenticate against the four predefined system credentials and issue a
+    bearer token backed by a real server-side session row - the token is
+    meaningless on its own; every protected endpoint looks it up via
+    get_current_user/require_role in app.core.deps."""
     login_id = (req.email or req.username or "").strip().lower()
-    
-    # Match by email or username
+
     user = None
     for u in PREDEFINED_USERS.values():
         if u["email"].lower() == login_id or u["username"].lower() == login_id:
@@ -107,31 +109,7 @@ def login(req: LoginRequest):
             break
 
     req_pass = req.password.strip()
-    if not user or (user["password"] != req_pass and req_pass != "password123"):
-def login(req: LoginRequest, db: Session = Depends(get_db)):
-    """Authenticate against the four predefined system credentials and issue a
-    bearer token backed by a real server-side session row - the token is
-    meaningless on its own; every protected endpoint looks it up via
-    get_current_user/require_role in app.core.deps."""
-    email_lower = req.email.strip().lower()
-    user = PREDEFINED_USERS.get(email_lower)
-def login(req: LoginRequest):
-    """Authenticate against the four predefined system credentials."""
-    identifier = (req.email or req.username or "").strip().lower()
-    user = None
-    
-    # Check by email key
-    if identifier in PREDEFINED_USERS:
-        user = PREDEFINED_USERS[identifier]
-    else:
-        # Check by username
-        for u in PREDEFINED_USERS.values():
-            if u["username"].lower() == identifier:
-                user = u
-                break
-
-    pwd = req.password.strip()
-    if not user or (user["password"] != pwd and pwd != "password123"):
+    if not user or user["password"] != req_pass:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email/username or password.",

@@ -11,20 +11,21 @@ import DegradationView from './DegradationView';
 import OrderConfirmationModal from './OrderConfirmationModal';
 import { MOCK_OUTLETS } from '../../data/mockData';
 import { getInitialStoreOrders } from '@/hooks/useStoreManagerOrders';
-import { 
-  fetchStoreOrdersApi, 
-  cancelStoreOrderApi, 
-  confirmStoreReceiptApi, 
-  acknowledgeDeferralApi,
-  BackendOrder 
-} from '@/lib/storeManagerApi';
+import { useAuth } from '@/context/AuthContext';
+import { getOrders, cancelOrder, confirmReceipt, acknowledgeDeferral } from '@/lib/api/dispatcher';
+import { ApiError } from '@/lib/api/client';
 
 export interface StoreManagerContentProps {
   initialView?: string;
 }
 
 export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
-  const [selectedOutlet, setSelectedOutlet] = useState(MOCK_OUTLETS[0]);
+  const { user } = useAuth();
+  // Never a free client-side pick: a store manager only ever sees/acts on
+  // their own authenticated outlet_id, derived from the session - not a
+  // locally selectable one (the backend itself also enforces this, but the
+  // UI must not even offer a different outlet's data as if it were real).
+  const selectedOutlet = MOCK_OUTLETS.find((o) => o.outlet_id === user?.outlet_id) ?? MOCK_OUTLETS[0];
 
   // Master Interactive State with LocalStorage Persistence
   const [orders, setOrders] = useState<any[]>(getInitialStoreOrders);
@@ -43,8 +44,10 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       }
     } catch {}
 
-    // Live sync from FastAPI backend
-    fetchStoreOrdersApi(selectedOutlet.outlet_id).then(serverOrders => {
+    // Live sync from FastAPI backend - the server already scopes this to the
+    // authenticated store manager's own outlet_id, regardless of what's
+    // requested, so no outlet_id param is passed from here.
+    getOrders().then(serverOrders => {
       if (serverOrders && serverOrders.length > 0) {
         setOrders(prev => {
           const mapStatus = (st: string) => {
@@ -68,24 +71,22 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
 
           const updated = [...prev];
           serverOrders.forEach(so => {
-            const existingIdx = updated.findIndex(o => o.delivery_id === so.order_ref);
+            const existingIdx = updated.findIndex(o => o.delivery_id === so.orderRef);
             const mappedOrder = {
-              delivery_id: so.order_ref,
+              delivery_id: so.orderRef,
               brand: so.brand,
               brand_code: so.brand === 'Fresh' ? 'FR' : 'ST',
-              order_type: `Brand ${so.brand} · ${so.temp_requirement === 'chilled' ? 'Chilled' : 'Ambient'}`,
-              order_date: so.created_at ? new Date(so.created_at).toLocaleDateString() : 'Today',
+              order_type: `Brand ${so.brand} · ${so.tempRequirement === 'chilled' ? 'Chilled' : 'Ambient'}`,
+              order_date: so.createdAt ? new Date(so.createdAt).toLocaleDateString() : 'Today',
               status: mapStatus(so.status),
               section: mapSection(so.status),
-              order_units: so.order_units,
-              weight_kg: so.order_weight_kg,
-              volume_cbm: so.order_volume_m3,
-              vehicle_id: 'VEH003 (Reefer Van)',
-              driver_name: 'Chaminda Vithanage',
-              items: existingIdx >= 0 && updated[existingIdx].items?.length > 0 
-                ? updated[existingIdx].items 
+              order_units: so.orderUnits,
+              weight_kg: so.orderWeightKg,
+              volume_cbm: so.orderVolumeM3,
+              items: existingIdx >= 0 && updated[existingIdx].items?.length > 0
+                ? updated[existingIdx].items
                 : [
-                    { name: `${so.brand} Assorted Stock Pack`, qty: so.order_units, unit: 'crates', expected: so.order_units, loaded: so.order_units, temp: so.temp_requirement === 'chilled' ? 'Chilled (+4°C)' : 'Ambient' }
+                    { name: `${so.brand} Assorted Stock Pack`, qty: so.orderUnits, unit: 'crates', expected: so.orderUnits, loaded: so.orderUnits, temp: so.tempRequirement === 'chilled' ? 'Chilled' : 'Ambient' }
                   ]
             };
 
@@ -99,8 +100,10 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
           return updated;
         });
       }
+    }).catch((err) => {
+      console.warn('Failed to sync orders from server:', err);
     });
-  }, [selectedOutlet.outlet_id]);
+  }, []);
 
   // Keep localStorage synced across tabs and route navigations
   useEffect(() => {
@@ -209,11 +212,13 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
     navigateTo('place-order');
   };
 
-  const handleCancelOrder = (orderId: string) => {
-    cancelStoreOrderApi(orderId, {
-      reason: 'Cancelled by Store Manager before dispatch loading',
-      cancelled_by: selectedOutlet.manager_name || 'Store Manager'
-    }).catch(() => {});
+  const handleCancelOrder = async (orderId: string) => {
+    try {
+      await cancelOrder(orderId, 'Cancelled by Store Manager before dispatch loading');
+    } catch (err) {
+      alert('Could not cancel order #' + orderId + ': ' + (err instanceof ApiError ? err.message : 'the server is unreachable') + '. Nothing was changed.');
+      return;
+    }
 
     setOrders(prev => {
       const updated = prev.filter(o => o.delivery_id !== orderId);
@@ -230,16 +235,20 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
     navigateTo('dashboard');
   };
 
-  const handleReceiptConfirmed = (deliveryId: string, receiptData: any) => {
-    confirmStoreReceiptApi({
-      order_ref: deliveryId,
-      outlet_id: selectedOutlet.outlet_id,
-      confirmed_units: receiptData.confirmedUnits || 12,
-      has_issue: !receiptData.isFullMatch,
-      issue_type: receiptData.disputes?.[0]?.type || undefined,
-      notes: receiptData.disputes?.[0]?.note || 'Store receipt confirmed with electronic signature',
-      confirmed_by: receiptData.receiverName || selectedOutlet.manager_name || 'Store Manager'
-    }).catch(() => {});
+  const handleReceiptConfirmed = async (deliveryId: string, receiptData: any) => {
+    try {
+      await confirmReceipt({
+        orderRef: deliveryId,
+        outletId: selectedOutlet.outlet_id,
+        confirmedUnits: receiptData.confirmedUnits || 12,
+        hasIssue: !receiptData.isFullMatch,
+        issueType: receiptData.disputes?.[0]?.type || undefined,
+        notes: receiptData.disputes?.[0]?.note || 'Store receipt confirmed with electronic signature',
+      });
+    } catch (err) {
+      alert('Could not confirm receipt for #' + deliveryId + ': ' + (err instanceof ApiError ? err.message : 'the server is unreachable') + '. Nothing was recorded - please try again.');
+      return;
+    }
 
     setOrders(prev => {
       const updated = prev.map(ord => {
@@ -265,14 +274,18 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
     navigateTo('dashboard');
   };
 
-  const handleAcknowledgeDeferral = (deliveryId: string, slot?: string) => {
-    acknowledgeDeferralApi({
-      outlet_id: selectedOutlet.outlet_id,
-      order_ref: deliveryId,
-      manifest_version: 1,
-      notes: 'Store acknowledged deferral and confirmed slot: ' + (slot || 'Tomorrow Wave 1'),
-      acknowledged_by: selectedOutlet.manager_name || 'Store Manager'
-    }).catch(() => {});
+  const handleAcknowledgeDeferral = async (deliveryId: string, slot?: string) => {
+    try {
+      await acknowledgeDeferral(
+        selectedOutlet.outlet_id,
+        deliveryId,
+        1,
+        'Store acknowledged deferral and confirmed slot: ' + (slot || 'Tomorrow Wave 1'),
+      );
+    } catch (err) {
+      alert('Could not acknowledge deferral for #' + deliveryId + ': ' + (err instanceof ApiError ? err.message : 'the server is unreachable') + '. Nothing was recorded - please try again.');
+      return;
+    }
 
     setOrders(prev => prev.map(ord => {
       if (ord.delivery_id === deliveryId) {
@@ -431,11 +444,7 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
       {/* Main Content Area */}
       <main className="main-content-viewport">
         {/* Top Header Bar & Profile */}
-        <TopNavbar
-          selectedOutlet={selectedOutlet}
-          onSelectOutlet={setSelectedOutlet}
-          outlets={MOCK_OUTLETS}
-        />
+        <TopNavbar selectedOutlet={selectedOutlet} />
 
         {renderContent()}
       </main>

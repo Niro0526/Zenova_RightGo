@@ -594,7 +594,6 @@ class ValidationEngine:
 
         for k, ords in trip_groups.items():
             vid, tno_str = k.rsplit("-", 1)
-            vid, tno_str = k.split("-")
             tno = int(tno_str)
             vehicle_trip_nos.setdefault(vid, set()).add(tno)
             if tno not in (1, 2):

@@ -3,7 +3,15 @@
 import pytest
 from app.models.reference import Outlet
 from app.services.reference_service import resolve_outlet_coordinates, seed_reference_data
-from app.services.planning_service import suggest_plan_greedy, release_plan
+from app.services.planning_service import suggest_plan_greedy, release_plan, set_vehicle_fuel_input
+
+def confirm_fuel_for_used_vehicles(db_session, draft, scenario="S1"):
+    """Fuel is never auto-confirmed by the greedy planner - tests that release a
+    greedy-suggested plan must confirm it first, the same as a real dispatcher would."""
+    vehicle_ids = {a["vehicleId"] for a in draft["assignments"].values() if a.get("vehicleId")}
+    for vid in vehicle_ids:
+        suggested = set_vehicle_fuel_input(db_session, vid, 0.0, scenario=scenario)
+    return suggested if vehicle_ids else draft
 from app.models.plan import ReleasedTrip
 
 def test_outlet_coordinates_persistence(db_session):
@@ -52,18 +60,23 @@ def test_resolve_outlet_coordinates_known_and_fallback():
     assert 5.0 <= lat <= 10.0
     assert 79.0 <= lng <= 82.0
 
-def test_driver_my_run_includes_coordinates(client, db_session):
+def test_driver_my_run_includes_coordinates(client, db_session, driver_auth):
     """Test that driver my-run stops return outlet destination coordinates."""
-    # Ensure seed reference data exists
-    seed_reference_data(db_session)
-
     # Create and release a plan
     draft = suggest_plan_greedy(db_session, "S1")
+    # Fuel must be dispatcher-confirmed before release - the greedy planner
+    # deliberately leaves it unverified rather than fabricating a figure.
+    draft = confirm_fuel_for_used_vehicles(db_session, draft)
     manifest = release_plan(db_session, draft["draftRevision"], scenario="S1")
-    trip = db_session.query(ReleasedTrip).filter(ReleasedTrip.manifest_id == manifest.id).first()
+    trip = db_session.query(ReleasedTrip).filter(
+        ReleasedTrip.manifest_id == manifest.id,
+        ReleasedTrip.vehicle_id == "VEH036",
+    ).first()
+    assert trip is not None, "Expected driver Sunil's own vehicle (VEH036) to have a released trip"
 
-    # Query /api/driver/my-run
-    response = client.get(f"/api/driver/my-run?trip_id={trip.trip_id_str}")
+    # /api/driver/my-run always resolves via the authenticated driver's own
+    # assigned vehicle, never a client-supplied trip id.
+    response = client.get("/api/driver/my-run", headers=driver_auth)
     assert response.status_code == 200
     data = response.json()
 

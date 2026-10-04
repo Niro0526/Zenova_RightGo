@@ -5,6 +5,7 @@ from typing import List, Optional, Any, Dict
 from pydantic import BaseModel
 
 class ManifestTripSnapshotSchema(BaseModel):
+    id: int  # ReleasedTrip.id - the actual key used by /trips/{id}/* endpoints
     vehicleId: str
     tripNo: int
     tripId: Optional[str] = None

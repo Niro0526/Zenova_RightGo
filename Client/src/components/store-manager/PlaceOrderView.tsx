@@ -30,8 +30,7 @@ import {
   List
 } from 'lucide-react';
 import { PRODUCT_CATALOG } from '../../data/mockData';
-import { formatColomboDate, formatShortDate, formatTimeColombo } from '@/lib/dateUtils';
-import { placeReplenishmentOrderApi } from '@/lib/storeManagerApi';
+import { formatColomboDate, formatShortDate, formatTimeColombo, getSecondsUntilCutoff } from '@/lib/dateUtils';
 
 interface PlaceOrderViewProps {
   selectedOutlet?: any;
@@ -171,8 +170,14 @@ export default function PlaceOrderView({
   const estimatedWeightKg = orderItems.reduce((acc: number, itm: any) => acc + ((Number(itm.unitWeight) || 5.0) * (Number(itm.qty) || 1)), 0);
   const estimatedVolumeCbm = orderItems.reduce((acc: number, itm: any) => acc + ((Number(itm.unitVol) || 0.01) * (Number(itm.qty) || 1)), 0);
 
-  const targetDeliveryLabel = storeClosureNotice ? formatColomboDate(2, true) : formatColomboDate(1, true);
-  const targetDeliveryShort = storeClosureNotice ? formatShortDate(2) : formatShortDate(1);
+  // Pre-submission estimate only, matching the backend's 4 PM Asia/Colombo
+  // cutoff (scheduling_service.compute_run_date): an order placed before the
+  // cutoff is eligible from the next operating day, one more day if placed
+  // at/after it. The authoritative date is whatever the server returns after
+  // the order is actually placed - this is a preview, not that value.
+  const baseOffset = (getSecondsUntilCutoff().isPastToday ? 2 : 1) + (storeClosureNotice ? 1 : 0);
+  const targetDeliveryLabel = formatColomboDate(baseOffset, true);
+  const targetDeliveryShort = formatShortDate(baseOffset);
 
   const handlePlaceOrderSubmit = async () => {
     if (orderItems.length === 0) {
@@ -214,20 +219,36 @@ export default function PlaceOrderView({
     };
 
     // Real backend call - success is only claimed once the server confirms
-    // it. The backend's CreateOrderRequest models one order as a single
-    // brand + unit count (no itemized SKUs), so the line-item detail this
-    // view collects is preserved in `notes` rather than silently dropped.
+    // it, and the server's response is the one and only authoritative order
+    // object passed on. The backend's CreateOrderRequest models one order as
+    // a single brand + unit count (no itemized SKUs), so the line-item
+    // detail this view collects is preserved in `notes` rather than silently
+    // dropped.
     const itemsSummary = orderItems
       .map((i: any) => `${i.name ?? i.sku} x${Number(i.qty) || 1}`)
       .join(', ');
     try {
-      await createOrder({
+      const serverOrder = await createOrder({
         outletId: newOrder.outlet_id,
         brand: 'Fresh',
         units: totalUnits,
         notes: itemsSummary,
       });
-      onOrderCreated(newOrder);
+      // The server's run_date is the authoritative eligible planning date -
+      // it reflects the real 4 PM cutoff and operating calendar, which this
+      // view's pre-submission estimate (targetDeliveryLabel) cannot know
+      // for certain in advance.
+      const deliveryLabel = serverOrder.runDate
+        ? new Date(serverOrder.runDate + 'T00:00:00').toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+        : targetDeliveryLabel;
+      onOrderCreated({
+        ...newOrder,
+        delivery_id: serverOrder.orderRef,
+        weight_kg: serverOrder.orderWeightKg,
+        volume_cbm: serverOrder.orderVolumeM3,
+        requested_for: deliveryLabel,
+        status: serverOrder.status,
+      });
       setShowReviewModal(false);
     } catch (err) {
       setSubmitError(err instanceof ApiError ? err.message : 'Could not place order - check your connection and try again.');
@@ -235,24 +256,6 @@ export default function PlaceOrderView({
     } finally {
       setIsSubmitting(false);
     }
-    // Forward to FastAPI backend API with proper schema
-    const tempReq = chilledUnits > 0 ? 'chilled' : 'ambient';
-    placeReplenishmentOrderApi({
-      outlet_id: newOrder.outlet_id,
-      brand: 'Fresh',
-      units: totalUnits,
-      temp_requirement: tempReq,
-      notes: `Requisition of ${totalUnits} units for ${selectedOutlet.name || 'store'}.`,
-      placed_by: selectedOutlet.manager_name || 'Store Manager'
-    }).then(apiRes => {
-      if (apiRes) {
-        newOrder.delivery_id = apiRes.order_ref;
-        newOrder.weight_kg = apiRes.order_weight_kg;
-        newOrder.volume_cbm = apiRes.order_volume_m3;
-      }
-    }).catch(() => { /* Silent fallback for offline simulation */ });
-
-    onOrderCreated(newOrder);
   };
 
   return (
