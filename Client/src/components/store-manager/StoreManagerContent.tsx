@@ -20,22 +20,24 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   const [selectedOutlet, setSelectedOutlet] = useState(MOCK_OUTLETS[0]);
 
   // Master Interactive State with LocalStorage Persistence
-  const [orders, setOrders] = useState<any[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const cached = localStorage.getItem('rightgo_store_manager_orders');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+  const [orders, setOrders] = useState<any[]>(getInitialStoreOrders);
+
+  // Sync from localStorage after client mount to prevent SSR hydration mismatch
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('rightgo_store_manager_orders');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setOrders(parsed);
         }
-      } catch {}
-    }
-    return getInitialStoreOrders();
-  });
+      }
+    } catch {}
+  }, []);
 
   // Keep localStorage synced across tabs and route navigations
   useEffect(() => {
-    if (typeof window !== 'undefined' && orders && orders.length > 0) {
+    if (orders && orders.length > 0) {
       try {
         localStorage.setItem('rightgo_store_manager_orders', JSON.stringify(orders));
       } catch {}

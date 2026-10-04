@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { AuthProvider } from '@/context/AuthContext';
 
 export const metadata: Metadata = {
-  title: 'RightGo Pulse - Store Operations',
-  description: 'RightGo Store Manager and Logistics Operations Console',
+  title: 'RightGo Pulse - Logistics Operations',
+  description: 'RightGo Multi-Role Logistics Operations Console & Pulse Platform',
 };
 
 export default function RootLayout({
@@ -18,7 +19,11 @@ export default function RootLayout({
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
       </head>
-      <body suppressHydrationWarning>{children}</body>
+      <body suppressHydrationWarning>
+        <AuthProvider>
+          {children}
+        </AuthProvider>
+      </body>
     </html>
   );
 }

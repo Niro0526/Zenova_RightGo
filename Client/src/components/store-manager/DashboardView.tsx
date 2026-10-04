@@ -42,9 +42,9 @@ export default function DashboardView({
   const outletName = selectedOutlet.name || 'Colpetty Retailer';
   const outletCode = selectedOutlet.outlet_id || 'OUT001';
 
-  // Live Cutoff Countdown Timer (Calculated dynamically for Asia/Colombo 16:00 cutoff)
-  const [cutoffState, setCutoffState] = useState(() => getSecondsUntilCutoff(16, 0));
-  const [secondsRemaining, setSecondsRemaining] = useState(cutoffState.seconds);
+  // Live Cutoff Countdown Timer — client-only to avoid SSR/hydration mismatch
+  const [cutoffState, setCutoffState] = useState<ReturnType<typeof getSecondsUntilCutoff> | null>(null);
+  const [secondsRemaining, setSecondsRemaining] = useState<number | null>(null);
 
   useEffect(() => {
     const initial = getSecondsUntilCutoff(16, 0);
@@ -53,7 +53,7 @@ export default function DashboardView({
 
     const timer = setInterval(() => {
       setSecondsRemaining(prev => {
-        if (prev <= 1) {
+        if (prev === null || prev <= 1) {
           const updated = getSecondsUntilCutoff(16, 0);
           setCutoffState(updated);
           return updated.seconds;
@@ -64,9 +64,9 @@ export default function DashboardView({
     return () => clearInterval(timer);
   }, []);
 
-  const hoursLeft = Math.floor(secondsRemaining / 3600);
-  const minutesLeft = Math.floor((secondsRemaining % 3600) / 60);
-  const secondsLeft = secondsRemaining % 60;
+  const hoursLeft   = secondsRemaining !== null ? Math.floor(secondsRemaining / 3600) : '--';
+  const minutesLeft = secondsRemaining !== null ? Math.floor((secondsRemaining % 3600) / 60) : '--';
+  const secondsLeft = secondsRemaining !== null ? secondsRemaining % 60 : '--';
 
   // Modal State for Store Closure
   const [showClosureModal, setShowClosureModal] = useState(false);
@@ -254,13 +254,15 @@ export default function DashboardView({
         {/* Order Cutoff Countdown Card */}
         <div className="cutoff-hero-card">
           <div className="cutoff-title-text">
-            ORDER CUTOFF: 16:00 {cutoffState.isPastToday ? 'TOMORROW' : 'TODAY'}
+            ORDER CUTOFF: 16:00 {cutoffState?.isPastToday ? 'TOMORROW' : 'TODAY'}
           </div>
-          <div className="cutoff-timer-countdown">
-            {hoursLeft}h {String(minutesLeft).padStart(2, '0')}m {String(secondsLeft).padStart(2, '0')}s remaining
+          <div className="cutoff-timer-countdown" suppressHydrationWarning>
+            {secondsRemaining === null
+              ? '…'
+              : `${hoursLeft}h ${String(minutesLeft).padStart(2, '0')}m ${String(secondsLeft).padStart(2, '0')}s remaining`}
           </div>
           <div className="cutoff-sub-desc">
-            For guaranteed delivery on {formatShortDate(cutoffState.isPastToday ? 2 : 1)}
+            For guaranteed delivery on {formatShortDate(cutoffState?.isPastToday ? 2 : 1)}
           </div>
 
           <button 

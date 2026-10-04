@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Route, Navigation, History } from "lucide-react";
+import { Route, Navigation, History, LogOut } from "lucide-react";
 import Logo from "@/components/common/Logo";
 import NavItem from "@/components/common/NavItem";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
+import { useAuth } from "@/context/AuthContext";
 
 /* ─── Nav item definition ─────────────────────────────────── */
 export const DRIVER_NAV_ITEMS = [
@@ -31,6 +32,7 @@ export const DRIVER_NAV_ITEMS = [
 /* ─── Sidebar (desktop / tablet) ─────────────────────────── */
 export function DriverSidebar({ pathname }: { pathname: string }) {
   const { connectionState } = useConnectivity();
+  const { logout } = useAuth();
 
   return (
     <aside
@@ -76,6 +78,15 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
           <span className="text-white font-bold text-sm">S1-T001</span>
           <span className="text-gray-400 text-[11px]">Vehicle: PEL-R04 · Wave 1</span>
         </div>
+
+        <button
+          type="button"
+          onClick={logout}
+          className="flex items-center gap-3 w-full px-3 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+        >
+          <LogOut size={16} />
+          <span>Sign Out</span>
+        </button>
       </div>
     </aside>
   );
@@ -83,6 +94,8 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
 
 /* ─── Fixed Bottom Bar (mobile only) ─────────────────────── */
 export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
+  const { logout } = useAuth();
+
   return (
     <nav
       id="bottom-nav"
@@ -132,6 +145,16 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
           </Link>
         );
       })}
+
+      <button
+        type="button"
+        onClick={logout}
+        aria-label="Sign Out"
+        className="flex flex-col justify-center items-center gap-1 flex-1 h-full text-slate-500 hover:text-red-600"
+      >
+        <LogOut className="w-[20px] h-[20px]" />
+        <span className="font-semibold text-[11px] leading-4">Exit</span>
+      </button>
     </nav>
   );
 }
