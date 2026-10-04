@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
+from app.core.deps import require_role, CurrentUser
 from app.models.plan import ReleasedTrip, ReleasedManifest
 from app.models.operations import DeliveryRecord, DriverIssue
 from app.models.order import Order
@@ -24,38 +25,73 @@ from app.services.driver_service import (
     record_driver_delivery,
     record_driver_issue,
 )
+from app.services.storage_service import storage_service
 
 router = APIRouter(prefix="/driver", tags=["Driver Portal"])
 
 @router.get("/my-run")
-def get_my_run(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_db)):
-    """Fetch assigned driver run manifest, stops, and unlock status."""
-    trip = get_driver_active_trip(db, vehicle_id=vehicle_id)
+def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Fetch assigned driver run manifest, stops, and unlock status - for the
+    authenticated driver's own assigned vehicle, never a client-supplied one."""
+    trip = get_driver_active_trip(db, vehicle_id=user.vehicle_id)
     if not trip:
         return {"hasRun": False, "message": "No active released run found"}
 
     # Get outlet details for each stop
     stops_data = []
-    outlets = {o.outlet_id: o for o in db.query(Outlet).filter(Outlet.outlet_id.in_(trip.stop_outlet_ids or [])).all()}
-    deliveries = {d.stop_id: d for d in db.query(DeliveryRecord).filter(DeliveryRecord.stop_id.in_(trip.stop_outlet_ids or [])).all()}
+    stop_ids = list(trip.stop_outlet_ids or [])
+    outlets = {o.outlet_id: o for o in db.query(Outlet).filter(Outlet.outlet_id.in_(stop_ids)).all()}
+    deliveries = {d.stop_id: d for d in db.query(DeliveryRecord).filter(DeliveryRecord.stop_id.in_(stop_ids)).all()}
+    
+    # Query orders associated with this trip or outlets
+    trip_orders = db.query(Order).filter(Order.outlet_id.in_(stop_ids)).all()
+    orders_by_outlet = {}
+    for o in trip_orders:
+        if trip.order_refs and o.order_ref in trip.order_refs:
+            orders_by_outlet.setdefault(o.outlet_id, []).append(o)
+        elif not trip.order_refs:
+            orders_by_outlet.setdefault(o.outlet_id, []).append(o)
 
-    for rank, out_id in enumerate(trip.stop_outlet_ids or [], 1):
+    for rank, out_id in enumerate(stop_ids, 1):
         outlet = outlets.get(out_id)
         del_rec = deliveries.get(out_id)
+        outlet_orders = orders_by_outlet.get(out_id, [])
+        order_refs = [o.order_ref for o in outlet_orders] if outlet_orders else [f"S1-{out_id[-3:]}"]
+        temp_reqs = list(set(o.temp_requirement for o in outlet_orders)) if outlet_orders else ["ambient"]
+        total_units = sum(o.order_units for o in outlet_orders) if outlet_orders else 40
+        total_weight = sum(o.order_weight_kg for o in outlet_orders) if outlet_orders else 250.0
+        total_volume = sum(o.order_volume_m3 for o in outlet_orders) if outlet_orders else 1.5
+
+        win_open = outlet.window_open_time if outlet else "05:00"
+        win_close = outlet.window_close_time if outlet else "07:30"
+
         stops_data.append({
+            "id": rank,
             "stopId": out_id,
             "stopNumber": rank,
-            "name": outlet.name if outlet else out_id,
-            "address": outlet.address if outlet else "Commercial Ave",
+            "code": out_id,
+            "name": outlet.name if outlet else f"{out_id} Outlet",
+            "address": outlet.address if outlet else f"Commercial Ave, {trip.district}",
             "district": outlet.district if outlet else trip.district,
+            "depot": outlet.depot if outlet else trip.depot,
             "dockType": outlet.dock_type if outlet else "street",
             "parkingConstraint": outlet.parking_constraint if outlet else "normal",
-            "windowOpen": outlet.window_open_time if outlet else "05:00",
-            "windowClose": outlet.window_close_time if outlet else "08:00",
-            "managerName": outlet.manager_name if outlet else "Manager",
-            "managerPhone": outlet.phone if outlet else "+94 77 0000000",
+            "mallWindow": outlet.mall_window if outlet else None,
+            "windowOpen": win_open,
+            "windowClose": win_close,
+            "timeWindow": f"{win_open} – {win_close}",
+            "managerName": outlet.manager_name if outlet else f"Manager {out_id}",
+            "managerPhone": outlet.phone if outlet else "+94 77 100000",
+            "latitude": outlet.latitude if outlet else None,
+            "longitude": outlet.longitude if outlet else None,
             "isCompleted": del_rec is not None,
             "outcome": del_rec.outcome if del_rec else None,
+            "orders": order_refs,
+            "outlets": 1,
+            "tempRequirement": ", ".join(temp_reqs),
+            "units": total_units,
+            "weightKg": round(total_weight, 2),
+            "volumeM3": round(total_volume, 3),
         })
 
     return {
@@ -65,7 +101,8 @@ def get_my_run(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_
         "tripNo": trip.trip_no,
         "brand": trip.brand,
         "district": trip.district,
-        "manifestVersion": trip.manifest_version,
+        "depot": trip.depot,
+        "manifestVersion": f"Plan v{trip.manifest_version}",
         "plannedDepartureTime": trip.planned_departure_time,
         "isUnlocked": trip.otp_unlocked,
         "otpAttempts": trip.otp_attempts,
@@ -74,30 +111,39 @@ def get_my_run(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_
     }
 
 @router.post("/otp/verify")
-def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db)):
-    """Verify 6-digit cryptographic OTP to unlock driver run."""
+def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Verify 6-digit cryptographic OTP to unlock driver run - rejects a
+    driver trying to unlock a trip assigned to a different vehicle."""
+    if user.vehicle_id and req.vehicle_id != user.vehicle_id:
+        raise HTTPException(status_code=403, detail="You can only unlock a trip assigned to your own vehicle.")
     return verify_driver_otp(db, req.trip_id, req.vehicle_id, req.otp_code)
 
 @router.get("/progress", response_model=DriverRunProgressResponse)
-def api_get_driver_progress(trip_id: str, db: Session = Depends(get_db)):
+def api_get_driver_progress(trip_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
     """Get calculated progress (% completed, stops remaining)."""
     return get_driver_run_progress(db, trip_id)
 
 @router.post("/deliveries")
-def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends(get_db)):
-    """Record delivery outcome and POD metadata."""
+def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Record delivery outcome and POD metadata - rejects a delivery recorded
+    against a trip/vehicle the authenticated driver doesn't own."""
+    if user.vehicle_id and record.vehicleId != user.vehicle_id:
+        raise HTTPException(status_code=403, detail="You can only record deliveries for your own vehicle's trip.")
     rec = record_driver_delivery(db, record)
     return {"success": True, "deliveryId": rec.id, "status": rec.status}
 
 @router.get("/history", response_model=List[LocalDeliveryRecordSchema])
-def api_get_driver_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_db)):
-    """Get completed deliveries history for driver."""
+def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Get completed deliveries history for the authenticated driver's own vehicle."""
     deliveries = db.query(DeliveryRecord).filter(
-        DeliveryRecord.vehicle_id == vehicle_id
+        DeliveryRecord.vehicle_id == user.vehicle_id
     ).order_by(DeliveryRecord.recorded_at.desc()).all()
 
     results = []
     for d in deliveries:
+        signed_pod_photo = storage_service.get_signed_url(d.pod_photo_url)
+        signed_pod_sig = storage_service.get_signed_url(d.pod_signature_url)
+
         disc = None
         if d.discrepancy_type:
             disc = DiscrepancyDetails(
@@ -106,6 +152,7 @@ def api_get_driver_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = 
                 deliveredQty=d.delivered_qty,
                 notes=d.discrepancy_notes or "",
                 photoName=d.pod_photo_name,
+                photoUrl=signed_pod_photo,
             )
         not_del = None
         if d.not_delivered_reason:
@@ -113,13 +160,14 @@ def api_get_driver_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = 
                 reason=d.not_delivered_reason,
                 notes=d.not_delivered_notes or "",
                 photoName=d.pod_photo_name,
+                photoUrl=signed_pod_photo,
             )
         pod = PodDetails(
             photoName=d.pod_photo_name,
-            photoUrl=d.pod_photo_url,
+            photoUrl=signed_pod_photo,
             signerName=d.pod_signer_name,
             hasSignature=d.pod_has_signature,
-            signatureUrl=d.pod_signature_url,
+            signatureUrl=signed_pod_sig,
         )
         results.append(LocalDeliveryRecordSchema(
             id=d.id,
@@ -138,16 +186,18 @@ def api_get_driver_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = 
     return results
 
 @router.post("/issues")
-def api_record_driver_issue(report: IssueReportRecordSchema, db: Session = Depends(get_db)):
+def api_record_driver_issue(report: IssueReportRecordSchema, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
     """Report road or delivery issue after vehicle departure."""
+    if user.vehicle_id and report.vehicleId != user.vehicle_id:
+        raise HTTPException(status_code=403, detail="You can only report issues for your own vehicle's trip.")
     issue = record_driver_issue(db, report)
     return {"success": True, "issueId": issue.id, "status": issue.status}
 
 @router.get("/issues/history", response_model=List[IssueReportRecordSchema])
-def api_get_driver_issues_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_db)):
-    """Get driver-submitted road issues only."""
+def api_get_driver_issues_history(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Get driver-submitted road issues for the authenticated driver's own vehicle."""
     issues = db.query(DriverIssue).filter(
-        DriverIssue.vehicle_id == vehicle_id
+        DriverIssue.vehicle_id == user.vehicle_id
     ).order_by(DriverIssue.recorded_at.desc()).all()
 
     return [
@@ -164,7 +214,7 @@ def api_get_driver_issues_history(vehicle_id: Optional[str] = "PEL-R04", db: Ses
             stopCode=i.stop_code,
             outletName=i.outlet_name,
             description=i.description,
-            photo={"name": i.photo_name, "url": i.photo_url} if i.photo_name else None,
+            photo={"name": i.photo_name, "url": storage_service.get_signed_url(i.photo_url) or ""} if i.photo_name else None,
             status=i.status,
             offlineCreated=i.offline_created,
             createdAt=i.recorded_at.isoformat(),

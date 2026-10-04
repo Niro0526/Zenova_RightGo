@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Integer, Boolean, Text, DateTime, Date, ForeignKey, JSON
 from app.database.base import Base
 
 class DeferralMemory(Base):
@@ -14,6 +14,10 @@ class DeferralMemory(Base):
     last_reason_code = Column(String(64), nullable=True)
     last_reason_note = Column(Text, nullable=True)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    # Planning run (Asia/Colombo operating day) this outlet's skip count was last adjusted for.
+    # Prevents re-releasing multiple manifest revisions on the same run from incrementing
+    # consecutive_skips more than once per eligible run.
+    last_counted_run_date = Column(Date, nullable=True)
 
 class DeferralAcknowledgement(Base):
     __tablename__ = "deferral_acknowledgements"

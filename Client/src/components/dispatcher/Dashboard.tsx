@@ -32,8 +32,17 @@ const ArrowRight = ({ className }: { className?: string }) => (
 );
 
 export default function Dashboard() {
-  const { counts, draftRevision, releasedManifests } = useDispatcherPlan();
-  const lastManifest = releasedManifests[releasedManifests.length - 1];
+  const { counts, draftRevision, manifests, orders, fleetVehicles, isLoading, error } = useDispatcherPlan();
+  const lastManifest = manifests[manifests.length - 1];
+
+  const chilledOrders = orders.filter(o => o.tempRequirement === 'chilled').length;
+  const reeferVehicles = fleetVehicles.filter(v => v.temp === 'reefer');
+
+  if (isLoading) {
+    return (
+      <div className="flex flex-col flex-1 items-center justify-center p-10 text-sm text-gray-400">Loading dashboard…</div>
+    );
+  }
 
   return (
     <div className="flex flex-col flex-1 p-6 md:p-10 gap-8 w-full max-w-[1160px] mx-auto bg-[#F9FAFB]">
@@ -48,7 +57,11 @@ export default function Dashboard() {
         }
       />
 
-      {/* Plan Readiness Row (4 Metrics) — all four derive from shared session-local plan state */}
+      {error && (
+        <div className="py-2.5 px-4 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-600">{error}</div>
+      )}
+
+      {/* Plan Readiness Row (4 Metrics) — queried live from the backend's current draft */}
       <div className="flex flex-col sm:flex-row gap-5 w-full">
         <div className="flex flex-col p-5 gap-2 bg-white border border-gray-200 shadow-sm rounded-xl flex-1">
           <span className="font-semibold text-[13px] text-[#485563] uppercase">Confirmed</span>
@@ -71,7 +84,7 @@ export default function Dashboard() {
           <span className="font-normal text-xs text-[#485563]">Unallocated backlog</span>
         </div>
       </div>
-      <p className="text-xs text-[#94A3B8] italic -mt-4">* Session-local counts from the live Planning workspace state — not a server-computed run. All orders start unresolved on page load.</p>
+      <p className="text-xs text-[#94A3B8] italic -mt-4">Draft revision {draftRevision} — counts reflect the current server-side draft for scenario S1, queried live.</p>
 
       {/* Needs Attention Now Section */}
       <div className="flex flex-col gap-4 w-full">
@@ -91,56 +104,37 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row sm:items-center p-5 gap-4 bg-[#FFFBEB] border border-amber-400 shadow-sm rounded-lg">
-            <Snowflake className="text-amber-500 flex-shrink-0" />
-            <div className="flex flex-col gap-1 flex-1">
-              <span className="font-semibold text-[15px] text-[#202D2D]">Refrigerated capacity check — 26 of 85 S1 orders require a reefer vehicle</span>
-              <span className="font-normal text-[13px] text-[#485563]">Only 2 of 38 S1 fleet vehicles (VEH035/036) are reefer vans; the rest are reefer trucks or ambient. Check Future Capacity before assigning.</span>
+          {chilledOrders > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center p-5 gap-4 bg-[#FFFBEB] border border-amber-400 shadow-sm rounded-lg">
+              <Snowflake className="text-amber-500 flex-shrink-0" />
+              <div className="flex flex-col gap-1 flex-1">
+                <span className="font-semibold text-[15px] text-[#202D2D]">Refrigerated capacity check — {chilledOrders} of {orders.length} S1 orders require a reefer vehicle</span>
+                <span className="font-normal text-[13px] text-[#485563]">{reeferVehicles.length} of {fleetVehicles.length} S1 fleet vehicles are reefer-capable. Check Future Capacity before assigning.</span>
+              </div>
+              <Link href="/dispatcher/future-capacity" className="flex flex-row items-center gap-2 cursor-pointer no-underline group hover:opacity-80 transition-opacity flex-shrink-0">
+                <span className="font-semibold text-sm text-amber-600">View Future Capacity</span>
+                <ArrowRight className="text-amber-600 transition-transform group-hover:translate-x-1" />
+              </Link>
             </div>
-            <Link href="/dispatcher/future-capacity" className="flex flex-row items-center gap-2 cursor-pointer no-underline group hover:opacity-80 transition-opacity flex-shrink-0">
-              <span className="font-semibold text-sm text-amber-600">View Future Capacity</span>
-              <ArrowRight className="text-amber-600 transition-transform group-hover:translate-x-1" />
-            </Link>
-          </div>
+          )}
         </div>
       </div>
 
-      {/* Live Execution Status — clearly simulated, no live telemetry backend exists */}
+      {/* Live Execution Status — no live telemetry/GPS backend exists in this system,
+          so this section honestly reports that instead of inventing trip-status numbers. */}
       <div className="flex flex-col gap-4 w-full pb-10">
         <h2 className="font-bold text-[18px] text-[#202D2D] m-0">Live Execution Status</h2>
-        <div className="flex flex-col sm:flex-row gap-5 w-full">
-          <div className="flex flex-row items-center p-4 gap-4 bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
-            <div className="w-2.5 h-2.5 bg-amber-500 rounded-full flex-shrink-0"></div>
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-[20px] text-[#202D2D] leading-[30px]">{counts.served > 0 ? 1 : 0}</span>
-                <span className="py-0.5 px-1.5 bg-gray-100 text-gray-500 rounded text-[9px] font-semibold uppercase">Simulated</span>
-              </div>
-              <span className="font-medium text-[13px] text-[#485563]">Trips Loading</span>
-            </div>
-          </div>
-          <div className="flex flex-row items-center p-4 gap-4 bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
-            <div className="w-2.5 h-2.5 bg-blue-500 rounded-full flex-shrink-0"></div>
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-[20px] text-[#202D2D] leading-[30px]">0</span>
-                <span className="py-0.5 px-1.5 bg-gray-100 text-gray-500 rounded text-[9px] font-semibold uppercase">Simulated</span>
-              </div>
-              <span className="font-medium text-[13px] text-[#485563]">Out for Delivery</span>
-            </div>
-          </div>
-          <div className="flex flex-row items-center p-4 gap-4 bg-white border border-gray-200 shadow-sm rounded-lg flex-1">
-            <div className="w-2.5 h-2.5 bg-green-500 rounded-full flex-shrink-0"></div>
-            <div className="flex flex-col gap-0.5">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-[20px] text-[#202D2D] leading-[30px]">0</span>
-                <span className="py-0.5 px-1.5 bg-gray-100 text-gray-500 rounded text-[9px] font-semibold uppercase">Simulated</span>
-              </div>
-              <span className="font-medium text-[13px] text-[#485563]">Completed Today</span>
-            </div>
+        <div className="flex flex-row items-center p-5 gap-3 bg-gray-50 border border-gray-200 rounded-lg">
+          <div className="w-2.5 h-2.5 bg-gray-400 rounded-full flex-shrink-0"></div>
+          <div className="flex flex-col gap-0.5">
+            <span className="font-semibold text-sm text-[#202D2D]">Live vehicle/trip telemetry is not available</span>
+            <span className="text-xs text-[#485563]">
+              Real loading/departure/delivery status by trip is tracked once a plan is released — see{' '}
+              <Link href="/dispatcher/live-operations" className="text-orange-600 font-semibold hover:underline">Live Operations</Link>
+              {' '}for persisted manifest and loading-issue status. GPS/vehicle-position tracking does not exist anywhere in this system.
+            </span>
           </div>
         </div>
-        <p className="text-xs text-[#94A3B8] italic">No live telemetry backend exists — these figures are illustrative placeholders, not real vehicle tracking.</p>
       </div>
 
       {/* Bottom Action Row */}

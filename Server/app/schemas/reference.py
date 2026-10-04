@@ -20,6 +20,8 @@ class OutletSchema(BaseModel):
     manager_name: Optional[str] = None
     phone: Optional[str] = None
     operating_days: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 class VehicleSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)

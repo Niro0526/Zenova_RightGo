@@ -1,6 +1,6 @@
 """Order schemas for intake, placement, cancellation, and list responses."""
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -28,6 +28,9 @@ class OrderSchema(BaseModel):
     placed_by: Optional[str] = None
     notes: Optional[str] = None
     created_at: Optional[datetime] = None
+    # Operating day this order is eligible for planning on (4 PM Asia/Colombo cutoff
+    # + operating calendar). None = legacy/seed row, always eligible for the current run.
+    run_date: Optional[date] = None
 
     # camelCase aliases for frontend compatibility if needed
     @property
@@ -69,6 +72,9 @@ class OrderSchema(BaseModel):
     @property
     def daysSinceLastServed(self) -> int:
         return self.days_since_last_served
+    @property
+    def runDate(self) -> Optional[date]:
+        return self.run_date
 
 class CreateOrderRequest(BaseModel):
     outlet_id: str

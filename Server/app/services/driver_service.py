@@ -15,20 +15,27 @@ from app.schemas.driver import (
 )
 from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
+from app.services.storage_service import storage_service
+from app.core.config import settings
 
-def get_driver_active_trip(db: Session, vehicle_id: Optional[str] = "PEL-R04") -> Optional[ReleasedTrip]:
-    """Fetch the active released trip for the driver/vehicle."""
-    query = db.query(ReleasedTrip).join(
+def get_driver_active_trip(db: Session, vehicle_id: Optional[str]) -> Optional[ReleasedTrip]:
+    """Fetch the active released trip for the driver's own vehicle.
+
+    Deliberately does NOT fall back to "any active trip" when the vehicle
+    has none - a driver with no run today must see "no active run," not a
+    different vehicle's trip (stops, OTP, delivery instructions). The old
+    fallback here was a real wrong-trip-delivery bug: it made every driver
+    land on whichever trip happened to be queried first, regardless of
+    whose vehicle it actually was.
+    """
+    if not vehicle_id:
+        return None
+    return db.query(ReleasedTrip).join(
         ReleasedManifest, ReleasedTrip.manifest_id == ReleasedManifest.id
     ).filter(
         ReleasedManifest.is_active == True,
-    )
-    if vehicle_id:
-        trip = query.filter(ReleasedTrip.vehicle_id == vehicle_id).first()
-        if trip:
-            return trip
-    # Fallback to first active trip in demo
-    return query.first()
+        ReleasedTrip.vehicle_id == vehicle_id,
+    ).first()
 
 def verify_driver_otp(
     db: Session,
@@ -37,9 +44,15 @@ def verify_driver_otp(
     otp_code: str,
 ) -> Dict[str, Any]:
     """Verify 6-digit OTP to unlock driver run."""
-    trip = db.query(ReleasedTrip).filter(
-        (ReleasedTrip.trip_id_str == trip_id_str) | (ReleasedTrip.vehicle_id == vehicle_id)
-    ).first()
+    trip = None
+    if trip_id_str:
+        trip = db.query(ReleasedTrip).filter(ReleasedTrip.trip_id_str == trip_id_str).order_by(ReleasedTrip.id.desc()).first()
+    if not trip and vehicle_id:
+        trip = db.query(ReleasedTrip).filter(ReleasedTrip.vehicle_id == vehicle_id).order_by(ReleasedTrip.id.desc()).first()
+    if not trip:
+        trip = db.query(ReleasedTrip).filter(
+            (ReleasedTrip.trip_id_str == trip_id_str) | (ReleasedTrip.vehicle_id == vehicle_id)
+        ).first()
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
 
@@ -187,6 +200,32 @@ def record_driver_delivery(
         pod_has_sig = bool(record.podDetails.hasSignature)
         pod_sig_url = record.podDetails.signatureUrl
 
+    if not pod_photo_url and record.discrepancyDetails and record.discrepancyDetails.photoUrl:
+        pod_photo_url = record.discrepancyDetails.photoUrl
+        pod_photo_name = record.discrepancyDetails.photoName
+
+    if not pod_photo_url and record.notDeliveredDetails and record.notDeliveredDetails.photoUrl:
+        pod_photo_url = record.notDeliveredDetails.photoUrl
+        pod_photo_name = record.notDeliveredDetails.photoName
+
+    # Upload and convert Base64 payloads to Supabase Storage references
+    if pod_sig_url:
+        pod_sig_url = storage_service.upload_evidence(
+            bucket=settings.BUCKET_POD_SIGNATURES,
+            data_payload=pod_sig_url,
+            identifier=f"{record.id}_sig",
+            filename_hint=f"{record.id}_signature.png"
+        )
+        pod_has_sig = True
+
+    if pod_photo_url:
+        pod_photo_url = storage_service.upload_evidence(
+            bucket=settings.BUCKET_POD_PHOTOS,
+            data_payload=pod_photo_url,
+            identifier=f"{record.id}_photo",
+            filename_hint=pod_photo_name or f"{record.id}_evidence.jpg"
+        )
+
     now_utc = datetime.now(timezone.utc)
     rec_time = now_utc
     if record.createdAt:
@@ -277,6 +316,14 @@ def record_driver_issue(
 
     photo_name = report.photo.get("name") if report.photo else None
     photo_url = report.photo.get("url") if report.photo else None
+
+    if photo_url:
+        photo_url = storage_service.upload_evidence(
+            bucket=settings.BUCKET_DRIVER_ISSUE_EVIDENCE,
+            data_payload=photo_url,
+            identifier=f"{report.id}_photo",
+            filename_hint=photo_name or f"{report.id}_issue.jpg"
+        )
 
     cats = [c.model_dump() for c in report.categories] if report.categories else None
 

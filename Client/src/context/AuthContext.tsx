@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { apiPost, apiGet, setAuthToken, ApiError } from '@/lib/api/client';
 
 export interface UserProfile {
   id: string;
@@ -16,7 +17,6 @@ export interface UserProfile {
 
 interface AuthContextType {
   user: UserProfile | null;
-  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; homeRoute?: string }>;
@@ -41,41 +41,43 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const router = useRouter();
   const [user, setUser] = useState<UserProfile | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const storedUser = sessionStorage.getItem('rightgo_user');
-      const storedToken = sessionStorage.getItem('rightgo_token');
-      if (storedUser && storedToken) {
-        setUser(JSON.parse(storedUser));
-        setToken(storedToken);
+    // Restore the session from the server, not from whatever a stored
+    // profile object claims - a stale/tampered sessionStorage profile must
+    // never be trusted as an authenticated identity.
+    (async () => {
+      try {
+        const storedUser = sessionStorage.getItem('rightgo_user');
+        const storedToken = sessionStorage.getItem('rightgo_token');
+        if (storedUser && storedToken) {
+          setAuthToken(storedToken);
+          const profile = await apiGet<UserProfile>('/auth/me');
+          setUser(profile);
+          sessionStorage.setItem('rightgo_user', JSON.stringify(profile));
+        }
+      } catch {
+        // Expired/invalid session - clear it rather than leaving a stale, unverified profile in place.
+        setAuthToken(null);
+        try {
+          sessionStorage.removeItem('rightgo_user');
+          sessionStorage.removeItem('rightgo_token');
+        } catch {}
+      } finally {
+        setIsLoading(false);
       }
-    } catch {}
-    finally { setIsLoading(false); }
+    })();
   }, []);
 
   const login = async (email: string, password: string) => {
     try {
-      const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), password }),
+      const data = await apiPost<{ access_token: string; home_route: string; profile: UserProfile }>('/auth/login', {
+        email: email.trim().toLowerCase(),
+        password,
       });
-      const data = await res.json();
-      if (!res.ok) {
-        const detail = data.detail;
-        const errorMsg =
-          typeof detail === 'string'
-            ? detail
-            : Array.isArray(detail)
-            ? detail.map((e: any) => e.msg ?? JSON.stringify(e)).join(', ')
-            : 'Invalid credentials.';
-        return { success: false, error: errorMsg };
-      }
       setUser(data.profile);
-      setToken(data.access_token);
+      setAuthToken(data.access_token);
       sessionStorage.setItem('rightgo_user', JSON.stringify(data.profile));
       sessionStorage.setItem('rightgo_token', data.access_token);
       const homeRoute = getRoleHomeRoute(data.profile?.role);
@@ -88,20 +90,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
       return { success: true, homeRoute };
     } catch {
+      return { success: true, homeRoute: data.home_route };
+    } catch (err) {
+      if (err instanceof ApiError) return { success: false, error: err.message };
       return { success: false, error: 'Cannot reach server. Make sure the backend is running on port 8000.' };
     }
   };
 
   const logout = () => {
+    // Best-effort server-side session invalidation - the client state clears
+    // regardless of whether this call succeeds (e.g. backend unreachable).
+    apiPost('/auth/logout').catch(() => {});
     setUser(null);
-    setToken(null);
-    sessionStorage.removeItem('rightgo_user');
-    sessionStorage.removeItem('rightgo_token');
+    setAuthToken(null);
+    try {
+      sessionStorage.removeItem('rightgo_user');
+      sessionStorage.removeItem('rightgo_token');
+    } catch {}
     router.push('/');
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isAuthenticated: !!user, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isLoading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

@@ -27,6 +27,8 @@ from app.api.ledger import router as ledger_router
 from app.api.sync import router as sync_router
 from app.api.health import router as health_router
 from app.api.state import router as state_router
+from app.api.storage import router as storage_router
+from app.services.storage_service import storage_service
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,9 +39,10 @@ async def lifespan(app: FastAPI):
         db = SessionLocal()
         try:
             seed_reference_data(db)
+            storage_service.migrate_all_legacy_base64_records(db)
         finally:
             db.close()
-        print("[RightGo] Database initialization complete.")
+        print("[RightGo] Database initialization and storage sync complete.")
     except Exception as e:
         print(f"[RightGo] Database startup notice: {e}")
     yield
@@ -81,6 +84,7 @@ app.include_router(notifications_router, prefix="/api")
 app.include_router(ledger_router, prefix="/api")
 app.include_router(sync_router, prefix="/api")
 app.include_router(state_router, prefix="/api")
+app.include_router(storage_router, prefix="/api")
 
 @app.get("/")
 def root():

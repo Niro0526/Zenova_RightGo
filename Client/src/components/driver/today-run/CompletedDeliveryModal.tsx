@@ -174,12 +174,23 @@ export function CompletedDeliveryModal({
                 </p>
               </div>
               {record.discrepancyDetails.photoName && (
-                <div className="flex items-center gap-2 text-xs text-amber-800 font-semibold bg-white p-2.5 rounded-lg border border-amber-200">
-                  <span>📷 Discrepancy Photo:</span>
-                  <span className="font-mono text-slate-700">
-                    {record.discrepancyDetails.photoName}
-                  </span>
-                  <span className="ml-auto text-[11px] text-green-700 font-bold">Attached ✓</span>
+                <div className="flex flex-col gap-2 bg-white p-2.5 rounded-lg border border-amber-200">
+                  <div className="flex items-center gap-2 text-xs text-amber-800 font-semibold">
+                    <span>📷 Discrepancy Photo:</span>
+                    <span className="font-mono text-slate-700 truncate max-w-[180px]">
+                      {record.discrepancyDetails.photoName}
+                    </span>
+                    <span className="ml-auto text-[11px] text-green-700 font-bold">Attached ✓</span>
+                  </div>
+                  {record.discrepancyDetails.photoUrl && (
+                    <div className="flex items-center justify-center max-h-40 overflow-hidden bg-slate-50 rounded border border-amber-100 p-1">
+                      <img
+                        src={record.discrepancyDetails.photoUrl}
+                        alt="Discrepancy Evidence"
+                        className="max-h-36 max-w-full object-contain rounded"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -204,12 +215,23 @@ export function CompletedDeliveryModal({
                 </p>
               </div>
               {record.notDeliveredDetails.photoName && (
-                <div className="flex items-center gap-2 text-xs text-red-800 font-semibold bg-white p-2.5 rounded-lg border border-red-200">
-                  <span>📷 Proof of Non-Delivery:</span>
-                  <span className="font-mono text-slate-700">
-                    {record.notDeliveredDetails.photoName}
-                  </span>
-                  <span className="ml-auto text-[11px] text-green-700 font-bold">Attached ✓</span>
+                <div className="flex flex-col gap-2 bg-white p-2.5 rounded-lg border border-red-200">
+                  <div className="flex items-center gap-2 text-xs text-red-800 font-semibold">
+                    <span>📷 Proof of Non-Delivery:</span>
+                    <span className="font-mono text-slate-700 truncate max-w-[180px]">
+                      {record.notDeliveredDetails.photoName}
+                    </span>
+                    <span className="ml-auto text-[11px] text-green-700 font-bold">Attached ✓</span>
+                  </div>
+                  {record.notDeliveredDetails.photoUrl && (
+                    <div className="flex items-center justify-center max-h-40 overflow-hidden bg-slate-50 rounded border border-red-100 p-1">
+                      <img
+                        src={record.notDeliveredDetails.photoUrl}
+                        alt="Non-Delivery Evidence"
+                        className="max-h-36 max-w-full object-contain rounded"
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -262,6 +284,42 @@ export function CompletedDeliveryModal({
                   </div>
                 </div>
               </div>
+
+              {/* Signature Image Preview */}
+              {record.podDetails?.signatureUrl && (
+                <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-blue-50/50 border border-blue-200">
+                  <span className="text-[11px] font-bold text-blue-900 flex items-center gap-1.5">
+                    <span>✍️</span> Store Manager Signature Preview
+                  </span>
+                  <div className="bg-white p-2.5 rounded-lg border border-blue-200 flex items-center justify-center min-h-[90px] max-h-36 overflow-hidden">
+                    <img
+                      src={record.podDetails.signatureUrl}
+                      alt="Recipient Signature"
+                      className="max-h-28 max-w-full object-contain"
+                    />
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-blue-700 font-semibold px-1">
+                    <span>Signer: {record.podDetails.signerName || "Store Manager"}</span>
+                    <span>Digitally Captured ✓</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Goods Photo Preview */}
+              {record.podDetails?.photoUrl && (
+                <div className="flex flex-col gap-1.5 p-3 rounded-xl bg-green-50/50 border border-green-200">
+                  <span className="text-[11px] font-bold text-green-900 flex items-center gap-1.5">
+                    <span>📷</span> Goods Delivery Photo Evidence
+                  </span>
+                  <div className="bg-white p-2 rounded-lg border border-green-200 flex items-center justify-center max-h-48 overflow-hidden">
+                    <img
+                      src={record.podDetails.photoUrl}
+                      alt="Goods Photo Evidence"
+                      className="max-h-44 max-w-full object-contain rounded"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

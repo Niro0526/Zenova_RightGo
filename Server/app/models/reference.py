@@ -1,6 +1,6 @@
 """Reference dataset models representing competition domains."""
 
-from sqlalchemy import Column, String, Float, Integer, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, Boolean, Date, ForeignKey
 from app.database.base import Base
 
 class Outlet(Base):
@@ -20,6 +20,8 @@ class Outlet(Base):
     manager_name = Column(String(128), nullable=True)
     phone = Column(String(32), nullable=True)
     operating_days = Column(String(128), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
 class Vehicle(Base):
     __tablename__ = "vehicles"
@@ -62,3 +64,13 @@ class DistrictTravel(Base):
     depot_to_district_freeflow_min = Column(Float, nullable=False)
     inter_stop_km = Column(Float, nullable=False)
     inter_stop_freeflow_min = Column(Float, nullable=False)
+
+class OperatingCalendarDay(Base):
+    """Operating calendar from calendar.csv - used to roll a confirmation past the
+    4 PM cutoff forward to the next real operating day (Waypoint operates Mon-Sat)."""
+    __tablename__ = "operating_calendar_days"
+
+    date = Column(Date, primary_key=True)
+    is_operating = Column(Boolean, nullable=False)
+    is_weekend = Column(Boolean, nullable=False, default=False)
+    is_holiday = Column(Boolean, nullable=False, default=False)

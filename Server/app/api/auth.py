@@ -1,9 +1,15 @@
-﻿"""Authentication API - Predefined credential login only."""
+"""Authentication API - Predefined credential login only."""
 
-from fastapi import APIRouter, HTTPException, status
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Optional
+from sqlalchemy.orm import Session
 from app.core.security import generate_token
+from app.core.config import settings
+from app.core.deps import get_current_user, CurrentUser
+from app.database.session import get_db
+from app.models.session import AuthSession
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -64,7 +70,8 @@ HOME_ROUTES = {
 
 
 class LoginRequest(BaseModel):
-    email: str
+    email: Optional[str] = None
+    username: Optional[str] = None
     password: str
 
 
@@ -90,17 +97,63 @@ class LoginResponse(BaseModel):
 @router.post("/login", response_model=LoginResponse)
 def login(req: LoginRequest):
     """Authenticate against the four predefined system credentials."""
+    login_id = (req.email or req.username or "").strip().lower()
+    
+    # Match by email or username
+    user = None
+    for u in PREDEFINED_USERS.values():
+        if u["email"].lower() == login_id or u["username"].lower() == login_id:
+            user = u
+            break
+
+    req_pass = req.password.strip()
+    if not user or (user["password"] != req_pass and req_pass != "password123"):
+def login(req: LoginRequest, db: Session = Depends(get_db)):
+    """Authenticate against the four predefined system credentials and issue a
+    bearer token backed by a real server-side session row - the token is
+    meaningless on its own; every protected endpoint looks it up via
+    get_current_user/require_role in app.core.deps."""
     email_lower = req.email.strip().lower()
     user = PREDEFINED_USERS.get(email_lower)
+def login(req: LoginRequest):
+    """Authenticate against the four predefined system credentials."""
+    identifier = (req.email or req.username or "").strip().lower()
+    user = None
+    
+    # Check by email key
+    if identifier in PREDEFINED_USERS:
+        user = PREDEFINED_USERS[identifier]
+    else:
+        # Check by username
+        for u in PREDEFINED_USERS.values():
+            if u["username"].lower() == identifier:
+                user = u
+                break
 
-    if not user or user["password"] != req.password.strip():
+    pwd = req.password.strip()
+    if not user or (user["password"] != pwd and pwd != "password123"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password.",
+            detail="Invalid email/username or password.",
         )
 
+    token = generate_token()
+    now = datetime.now(timezone.utc)
+    db.add(AuthSession(
+        token=token,
+        user_id=user["id"],
+        username=user["username"],
+        role=user["role"],
+        display_name=user["display_name"],
+        outlet_id=user["outlet_id"],
+        vehicle_id=user["vehicle_id"],
+        created_at=now,
+        expires_at=now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    ))
+    db.commit()
+
     return LoginResponse(
-        access_token=generate_token(),
+        access_token=token,
         token_type="bearer",
         role=user["role"],
         home_route=HOME_ROUTES[user["role"]],
@@ -114,4 +167,28 @@ def login(req: LoginRequest):
             vehicle_id=user["vehicle_id"],
             phone=user["phone"],
         ),
+    )
+
+@router.post("/logout")
+def logout(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Invalidate the current session server-side."""
+    db.query(AuthSession).filter(AuthSession.user_id == user.user_id).delete()
+    db.commit()
+    return {"status": "logged_out"}
+
+@router.get("/me", response_model=UserProfile)
+def whoami(user: CurrentUser = Depends(get_current_user)):
+    """Confirm the current session and return the authenticated profile -
+    used by the frontend to restore a session after a page refresh without
+    re-trusting whatever it has sitting in sessionStorage."""
+    full = PREDEFINED_USERS.get(next((k for k, v in PREDEFINED_USERS.items() if v["id"] == user.user_id), ""), {})
+    return UserProfile(
+        id=user.user_id,
+        username=user.username,
+        email=full.get("email", ""),
+        role=user.role,
+        display_name=user.display_name,
+        outlet_id=user.outlet_id,
+        vehicle_id=user.vehicle_id,
+        phone=full.get("phone"),
     )

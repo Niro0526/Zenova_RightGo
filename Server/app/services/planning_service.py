@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any, Tuple
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from app.models.reference import Outlet, Vehicle, ScenarioFleetEntry, ServiceAllowance, DistrictTravel
 from app.models.order import Order
@@ -20,10 +21,22 @@ from app.models.memory import DeferralMemory
 from app.services.validation_service import ValidationEngine, compute_trip_duration, format_hhmm, parse_hhmm
 from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
+from app.services.scheduling_service import current_run_date
 from app.core.security import generate_otp_code
 
+def planning_eligible_orders_query(db: Session, scenario: str = "S1"):
+    """Orders eligible for ordinary planning: not cancelled, and either a
+    legacy/seed row (run_date is NULL) or due on/before the current run."""
+    run_date = current_run_date(db)
+    return db.query(Order).filter(
+        Order.scenario == scenario,
+        Order.status != "cancelled",
+    ).filter(
+        (Order.run_date.is_(None)) | (Order.run_date <= run_date)
+    )
+
 def get_validation_engine(db: Session, scenario: str = "S1") -> ValidationEngine:
-    orders = db.query(Order).filter(Order.scenario == scenario).all()
+    orders = planning_eligible_orders_query(db, scenario).all()
     vehicles = db.query(Vehicle).all()
     fleet_rows = db.query(ScenarioFleetEntry).filter(ScenarioFleetEntry.scenario == scenario).all()
     fleet_status = {f.vehicle_id: f.status for f in fleet_rows}
@@ -46,12 +59,13 @@ def get_draft_state(db: Session, scenario: str = "S1") -> Dict[str, Any]:
             "tripNo": a.trip_no,
             "reasonCode": a.reason_code,
             "reasonNote": a.reason_note,
+            "locked": a.locked,
         }
         for a in assignments_rows
     }
 
     # Ensure all scenario orders are in assignments
-    orders = db.query(Order).filter(Order.scenario == scenario).all()
+    orders = planning_eligible_orders_query(db, scenario).all()
     for o in orders:
         if o.order_ref not in assignments:
             assignments[o.order_ref] = {
@@ -60,19 +74,22 @@ def get_draft_state(db: Session, scenario: str = "S1") -> Dict[str, Any]:
                 "tripNo": None,
                 "reasonCode": None,
                 "reasonNote": None,
+                "locked": False,
             }
 
     stop_seq_rows = db.query(DraftStopSequence).filter(DraftStopSequence.scenario == scenario).all()
     stop_sequences = {f"{s.vehicle_id}-{s.trip_no}": s.stop_outlet_ids for s in stop_seq_rows}
+    stop_sequence_locks = {f"{s.vehicle_id}-{s.trip_no}": s.locked for s in stop_seq_rows}
 
     trip_meta_rows = db.query(DraftTripMeta).filter(DraftTripMeta.scenario == scenario).all()
     trip_meta = {
-        f"{m.vehicle_id}-{m.trip_no}": {"plannedDepartureTime": m.planned_departure_time}
+        f"{m.vehicle_id}-{m.trip_no}": {"plannedDepartureTime": m.planned_departure_time, "locked": m.locked}
         for m in trip_meta_rows
     }
 
     fuel_input_rows = db.query(DraftVehicleFuelInput).filter(DraftVehicleFuelInput.scenario == scenario).all()
     vehicle_fuel_inputs = {f.vehicle_id: f.prior_weekly_fuel_usage_l for f in fuel_input_rows}
+    vehicle_fuel_locks = {f.vehicle_id: f.locked for f in fuel_input_rows}
 
     served = sum(1 for a in assignments.values() if a["decision"] == "served")
     deferred = sum(1 for a in assignments.values() if a["decision"] == "deferred")
@@ -83,8 +100,10 @@ def get_draft_state(db: Session, scenario: str = "S1") -> Dict[str, Any]:
         "draftRevision": draft.draft_revision,
         "assignments": assignments,
         "stopSequences": stop_sequences,
+        "stopSequenceLocks": stop_sequence_locks,
         "tripMeta": trip_meta,
         "vehicleFuelInputs": vehicle_fuel_inputs,
+        "vehicleFuelLocks": vehicle_fuel_locks,
         "counts": {
             "total": len(orders),
             "served": served,
@@ -136,6 +155,7 @@ def assign_order(
     da.trip_no = trip_no
     da.reason_code = None
     da.reason_note = None
+    da.locked = True  # manual dispatcher decision - "Suggest Plan" must preserve it
 
     # Update stop sequence
     key = f"{vehicle_id}-{trip_no}"
@@ -204,6 +224,7 @@ def defer_order(
     da.trip_no = None
     da.reason_code = reason_code
     da.reason_note = reason_note
+    da.locked = True  # manual dispatcher decision - "Suggest Plan" must preserve it
 
     draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
     draft.draft_revision += 1
@@ -246,6 +267,7 @@ def reorder_trip_stops(
 
     old_seq = list(dseq.stop_outlet_ids or [])
     dseq.stop_outlet_ids = new_outlet_order
+    dseq.locked = True  # manual stop order - "Suggest Plan" must preserve it
 
     draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
     draft.draft_revision += 1
@@ -288,6 +310,7 @@ def set_trip_departure(
         db.add(meta)
 
     meta.planned_departure_time = departure_time
+    meta.locked = True  # manual departure decision - "Suggest Plan" must preserve it
 
     draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
     draft.draft_revision += 1
@@ -313,6 +336,7 @@ def set_vehicle_fuel_input(
         db.add(fuel)
 
     fuel.prior_weekly_fuel_usage_l = prior_weekly_fuel_usage_l
+    fuel.locked = True  # dispatcher-confirmed - "Suggest Plan" must preserve it
 
     draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
     draft.draft_revision += 1
@@ -321,6 +345,46 @@ def set_vehicle_fuel_input(
 
     db.commit()
     return get_draft_state(db, scenario)
+
+def _structural_deferral_reason(engine: ValidationEngine, order: Order) -> Tuple[str, str]:
+    """Distinguish *why* the greedy planner could not place an order, instead of
+    labeling every failure 'capacity'. Checked in order of how fundamental the
+    blocker is: no vehicle of the right type at this depot at all, vs. the
+    right type exists but every one is in_workshop today, vs. eligible
+    available vehicles exist but were already filled by higher-priority
+    orders this run (a heuristic-ordering artifact, not true infeasibility)."""
+    needs_reefer = order.temp_requirement == "chilled"
+    needs_van = order.parking_constraint == "van_only"
+    type_matches = [
+        v for v in engine.vehicles
+        if v.depot == order.depot
+        and (v.temp == "reefer" if needs_reefer else True)
+        and (v.type == "van" if needs_van else True)
+    ]
+    if not type_matches:
+        need_desc = []
+        if needs_reefer:
+            need_desc.append("reefer")
+        if needs_van:
+            need_desc.append("van")
+        return (
+            "no_matching_vehicle_type",
+            f"No {'/'.join(need_desc) or 'matching'} vehicle exists at depot {order.depot} for this order - "
+            f"not resolvable by re-running Suggest Plan; requires a fleet/depot change.",
+        )
+    available_matches = [v for v in type_matches if engine.fleet_status.get(v.vehicle_id, "available") == "available"]
+    if not available_matches:
+        return (
+            "vehicle_unavailable",
+            f"{len(type_matches)} matching vehicle(s) at depot {order.depot} exist but all are in_workshop today "
+            f"({', '.join(v.vehicle_id for v in type_matches)}).",
+        )
+    return (
+        "capacity",
+        f"{len(available_matches)} structurally-eligible available vehicle(s) existed "
+        f"({', '.join(v.vehicle_id for v in available_matches)}) but had no remaining weight/volume/time budget "
+        f"after higher-priority orders were allocated this run.",
+    )
 
 def suggest_plan_greedy(
     db: Session,
@@ -335,10 +399,53 @@ def suggest_plan_greedy(
     3. Chilled orders
     4. Order reference
     Consolidates into active compatible trips first, respecting capacity and constraints.
+
+    Manual dispatcher decisions (locked assignments, stop sequences, departure
+    times, and confirmed fuel inputs) are preserved as fixed inputs - this
+    function only re-plans the unlocked remainder. Locks never override hard
+    constraints: a locked assignment that no longer passes the checker is left
+    in place but will surface as a release-blocking failure, not silently
+    dropped or silently forced through.
     """
     engine = get_validation_engine(db, scenario)
     draft_state = get_draft_state(db, scenario)
-    orders = list(engine.orders)
+
+    # Seed working state from whatever is currently LOCKED (manual dispatcher
+    # edits) - these are preserved verbatim and excluded from re-planning.
+    assignments: Dict[str, Dict[str, Any]] = {}
+    stop_seqs: Dict[str, List[str]] = {}
+    trip_meta: Dict[str, str] = {}
+    fuel_inputs: Dict[str, Optional[float]] = {}
+    locked_order_refs: set = set()
+    locked_stop_keys: set = set()
+    locked_trip_meta_keys: set = set()
+    locked_fuel_vehicle_ids: set = set()
+
+    for ref, a in draft_state["assignments"].items():
+        if a.get("locked"):
+            assignments[ref] = {
+                "decision": a["decision"],
+                "vehicle_id": a.get("vehicleId"),
+                "trip_no": a.get("tripNo"),
+                "reason_code": a.get("reasonCode"),
+                "reason_note": a.get("reasonNote"),
+            }
+            locked_order_refs.add(ref)
+    for key, locked in draft_state["stopSequenceLocks"].items():
+        if locked:
+            stop_seqs[key] = list(draft_state["stopSequences"].get(key, []))
+            locked_stop_keys.add(key)
+    for key, meta in draft_state["tripMeta"].items():
+        if meta.get("locked"):
+            trip_meta[key] = meta.get("plannedDepartureTime")
+            locked_trip_meta_keys.add(key)
+    for vid, locked in draft_state["vehicleFuelLocks"].items():
+        if locked:
+            fuel_inputs[vid] = draft_state["vehicleFuelInputs"].get(vid)
+            locked_fuel_vehicle_ids.add(vid)
+
+    # Only orders that are not themselves locked get re-planned.
+    orders = [o for o in engine.orders if o.order_ref not in locked_order_refs]
 
     # Sort orders by heuristic priority
     def order_sort_key(o: Order):
@@ -356,23 +463,15 @@ def suggest_plan_greedy(
 
     orders.sort(key=order_sort_key)
 
-    # Get available fleet
-    avail_vehicles = [
-        v for v in engine.vehicles
-        if engine.fleet_status.get(v.vehicle_id, "available") == "available"
-    ]
-
-    assignments = {}
-    stop_seqs = {}
-    trip_meta = {}
-    fuel_inputs = {v.vehicle_id: 0.0 for v in avail_vehicles} # seed default 0 for planner verification
-
     for o in orders:
         assigned = False
         candidates = engine.rank_candidates_for_order(
             o.order_ref, assignments, stop_seqs, trip_meta, fuel_inputs
         )
         for cand in candidates:
+            key = f"{cand.vehicle.vehicle_id}-{cand.tripNo}"
+            if key in locked_stop_keys:
+                continue  # never append onto a manually-locked trip's stop sequence
             if cand.passport.checkerFeasible:
                 vid = cand.vehicle.vehicle_id
                 tno = cand.tripNo
@@ -383,28 +482,35 @@ def suggest_plan_greedy(
                     "reason_code": None,
                     "reason_note": None,
                 }
-                key = f"{vid}-{tno}"
                 curr_seq = stop_seqs.get(key, [])
                 if o.outlet_id not in curr_seq:
                     curr_seq.append(o.outlet_id)
                 stop_seqs[key] = curr_seq
-                if key not in trip_meta:
+                if key not in trip_meta and key not in locked_trip_meta_keys:
                     trip_meta[key] = "03:30" if o.brand == "Fresh" else "08:00"
                 assigned = True
                 break
 
         if not assigned:
+            reason_code, reason_note = _structural_deferral_reason(engine, o)
             assignments[o.order_ref] = {
                 "decision": "deferred",
                 "vehicle_id": None,
                 "trip_no": None,
-                "reason_code": "capacity",
-                "reason_note": "Capacity limit reached during automated allocation",
+                "reason_code": reason_code,
+                "reason_note": reason_note,
             }
 
-    # Persist all suggestions to database
-    db.query(DraftAssignment).filter(DraftAssignment.scenario == scenario).delete()
+    # Persist suggestions - only replace rows that are not locked; locked rows
+    # (filtered out of `assignments`/`stop_seqs`/`trip_meta`/`fuel_inputs` above
+    # because they were never re-planned) must survive untouched.
+    db.query(DraftAssignment).filter(
+        DraftAssignment.scenario == scenario,
+        DraftAssignment.locked == False,  # noqa: E712
+    ).delete(synchronize_session=False)
     for ref, a in assignments.items():
+        if ref in locked_order_refs:
+            continue
         db.add(DraftAssignment(
             scenario=scenario,
             order_ref=ref,
@@ -413,38 +519,47 @@ def suggest_plan_greedy(
             trip_no=a["trip_no"],
             reason_code=a["reason_code"],
             reason_note=a["reason_note"],
+            locked=False,
         ))
 
-    db.query(DraftStopSequence).filter(DraftStopSequence.scenario == scenario).delete()
+    db.query(DraftStopSequence).filter(
+        DraftStopSequence.scenario == scenario,
+        DraftStopSequence.locked == False,  # noqa: E712
+    ).delete(synchronize_session=False)
     for key, seq in stop_seqs.items():
+        vid, tno_str = key.rsplit("-", 1)
+        if key in locked_stop_keys:
+            continue
         vid, tno_str = key.split("-")
         db.add(DraftStopSequence(
             scenario=scenario,
             vehicle_id=vid,
             trip_no=int(tno_str),
             stop_outlet_ids=seq,
+            locked=False,
         ))
 
-    db.query(DraftTripMeta).filter(DraftTripMeta.scenario == scenario).delete()
+    db.query(DraftTripMeta).filter(
+        DraftTripMeta.scenario == scenario,
+        DraftTripMeta.locked == False,  # noqa: E712
+    ).delete(synchronize_session=False)
     for key, dep_time in trip_meta.items():
+        vid, tno_str = key.rsplit("-", 1)
+        if key in locked_trip_meta_keys:
+            continue
         vid, tno_str = key.split("-")
         db.add(DraftTripMeta(
             scenario=scenario,
             vehicle_id=vid,
             trip_no=int(tno_str),
             planned_departure_time=dep_time,
+            locked=False,
         ))
 
-    for vid, val in fuel_inputs.items():
-        f_row = db.query(DraftVehicleFuelInput).filter(
-            DraftVehicleFuelInput.scenario == scenario,
-            DraftVehicleFuelInput.vehicle_id == vid,
-        ).first()
-        if not f_row:
-            db.add(DraftVehicleFuelInput(scenario=scenario, vehicle_id=vid, prior_weekly_fuel_usage_l=val))
-        else:
-            f_row.prior_weekly_fuel_usage_l = val
-
+    # Fuel inputs are never fabricated: a vehicle used by this run that has no
+    # dispatcher-confirmed (locked) fuel figure is left unconfirmed (None),
+    # which validate_full_plan correctly reports as "unverified" rather than a
+    # false "0 L prior usage" claim, and blocks release until confirmed.
     draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
     draft.draft_revision += 1
     draft.updated_at = datetime.now(timezone.utc)
@@ -541,7 +656,7 @@ def release_plan(
 
     trip_counter = 1
     for key, trip_orders in trip_map.items():
-        vid, tno_str = key.split("-")
+        vid, tno_str = key.rsplit("-", 1)
         tno = int(tno_str)
         outlet_seq = draft_state["stopSequences"].get(key, list(dict.fromkeys(o.outlet_id for o in trip_orders)))
         dep_time = draft_state["tripMeta"].get(key, {}).get("plannedDepartureTime")
@@ -591,26 +706,79 @@ def release_plan(
             ))
 
     # Update Deferral Memory & Orders
+    existing_mems = {m.outlet_id: m for m in db.query(DeferralMemory).all()}
     for o in engine.orders:
         a = draft_state["assignments"].get(o.order_ref, {})
-        mem = db.query(DeferralMemory).filter(DeferralMemory.outlet_id == o.outlet_id).first()
-        if not mem:
-            mem = DeferralMemory(outlet_id=o.outlet_id, consecutive_skips=0, updated_at=now_utc)
-            db.add(mem)
-
-        if a.get("decision") == "served":
-            mem.consecutive_skips = 0
-            mem.updated_at = now_utc
+        mem = existing_mems.get(o.outlet_id)
+    # Update order status (per order) and Deferral Memory (per outlet).
+    # Deferral memory is aggregated per outlet - not per order - because one
+    # release can carry both a served and a deferred order for the same
+    # outlet (e.g. a Fresh outlet with two same-day orders), and upserting
+    # per order would both double-insert the outlet's single-row primary key
+    # and double-count its deferral streak.
+    run_date = current_run_date(db)
+    outlet_decisions: Dict[str, Dict[str, Any]] = {}
+    for o in engine.orders:
+        a = draft_state["assignments"].get(o.order_ref, {})
+        dec = a.get("decision")
+        if dec == "served":
             o.status = "planned"
-        elif a.get("decision") == "deferred":
-            mem.consecutive_skips += 1
-            mem.last_deferred_scenario = scenario
-            mem.last_reason_code = a.get("reason_code")
-            mem.last_reason_note = a.get("reason_note")
-            mem.updated_at = now_utc
+        elif dec == "deferred":
             o.status = "deferred"
+        entry = outlet_decisions.setdefault(o.outlet_id, {"served": False, "deferred": False, "reason_code": None, "reason_note": None})
+        if dec == "served":
+            entry["served"] = True
+        elif dec == "deferred":
+            entry["deferred"] = True
+            entry["reason_code"] = a.get("reason_code")
+            entry["reason_note"] = a.get("reason_note")
 
-    db.commit()
+    for outlet_id, decision in outlet_decisions.items():
+        mem = db.query(DeferralMemory).filter(DeferralMemory.outlet_id == outlet_id).first()
+        if not mem:
+            mem = DeferralMemory(outlet_id=outlet_id, consecutive_skips=0)
+            db.add(mem)
+            existing_mems[o.outlet_id] = mem
+
+        if decision["served"]:
+            # Any order served for this outlet this run resets its skip streak,
+            # even if another order for the same outlet was deferred.
+            mem.consecutive_skips = 0
+            mem.last_counted_run_date = run_date
+            mem.updated_at = now_utc
+        elif decision["deferred"]:
+            # Count at most once per eligible planning run: if this outlet's
+            # streak was already bumped for this run_date (e.g. the dispatcher
+            # released a corrective v2/v3 the same day), do not bump it again.
+            if mem.last_counted_run_date != run_date:
+                mem.consecutive_skips += 1
+                mem.last_counted_run_date = run_date
+            mem.last_deferred_scenario = scenario
+            mem.last_reason_code = decision["reason_code"]
+            mem.last_reason_note = decision["reason_note"]
+            mem.updated_at = now_utc
+
+    # Close the double-release gap: bump the draft revision past what was just
+    # released, so a repeat publish call with the same expected_revision (a
+    # double-click, or a second tab that hasn't refreshed) is rejected by the
+    # revision check at the top of this function instead of silently creating
+    # a second identical manifest version.
+    draft.draft_revision += 1
+    draft.updated_at = now_utc
+    draft.updated_by = decision_maker
+
+    try:
+        db.commit()
+    except IntegrityError:
+        # A concurrent request released the same (scenario, version) first -
+        # the uq_released_manifest_scenario_version constraint caught the
+        # race the revision check alone cannot close. No partial state is
+        # left behind: get_db() rolls back on the exception it re-raises.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Plan was released concurrently by another request. Refresh and retry.",
+        )
     db.refresh(manifest)
 
     # Ledger and Notifications

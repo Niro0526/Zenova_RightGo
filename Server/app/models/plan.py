@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, ForeignKey, JSON, UniqueConstraint
 from app.database.base import Base
 
 class DraftPlan(Base):
@@ -25,6 +25,7 @@ class DraftAssignment(Base):
     trip_no = Column(Integer, nullable=True) # 1 or 2
     reason_code = Column(String(64), nullable=True) # capacity, vehicle_unavailable, etc.
     reason_note = Column(Text, nullable=True)
+    locked = Column(Boolean, default=False, nullable=False) # manual decision - greedy re-suggest must not overwrite
 
 class DraftStopSequence(Base):
     __tablename__ = "draft_stop_sequences"
@@ -34,6 +35,7 @@ class DraftStopSequence(Base):
     vehicle_id = Column(String(32), nullable=False)
     trip_no = Column(Integer, nullable=False)
     stop_outlet_ids = Column(JSON, default=list, nullable=False) # Ordered list of outletId strings
+    locked = Column(Boolean, default=False, nullable=False) # manual stop order - greedy re-suggest must not overwrite
 
 class DraftTripMeta(Base):
     __tablename__ = "draft_trip_meta"
@@ -43,6 +45,7 @@ class DraftTripMeta(Base):
     vehicle_id = Column(String(32), nullable=False)
     trip_no = Column(Integer, nullable=False)
     planned_departure_time = Column(String(16), nullable=True) # e.g. "03:30"
+    locked = Column(Boolean, default=False, nullable=False) # manual departure - greedy re-suggest must not overwrite
 
 class DraftVehicleFuelInput(Base):
     __tablename__ = "draft_vehicle_fuel_inputs"
@@ -51,9 +54,11 @@ class DraftVehicleFuelInput(Base):
     scenario = Column(String(32), nullable=False, default="S1", index=True)
     vehicle_id = Column(String(32), nullable=False)
     prior_weekly_fuel_usage_l = Column(Float, nullable=True) # null = unconfirmed
+    locked = Column(Boolean, default=False, nullable=False) # dispatcher-confirmed - greedy re-suggest must not overwrite
 
 class ReleasedManifest(Base):
     __tablename__ = "released_manifests"
+    __table_args__ = (UniqueConstraint("scenario", "version", name="uq_released_manifest_scenario_version"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     version = Column(Integer, nullable=False, index=True) # 1, 2, 3...

@@ -18,11 +18,30 @@ import { CameraModal } from "@/components/driver/today-run/CameraModal";
 import { Toast, ToastState } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { saveLocalIssueReport } from "@/lib/driver/driver-offline-db";
+import { postDriverIssue } from "@/lib/driver/driver-api";
 import {
   ReportDetailsModal,
   type IssueReportRecord,
   type IssueCategoryItem,
 } from "@/components/driver/today-run/ReportDetailsModal";
+import { DriverReportMobileView } from "@/components/driver/report/DriverReportMobileView";
+
+export const FIGMA_TO_ID_MAP: Record<string, string> = {
+  "Store Closed": "access",
+  "Access Blocked": "access",
+  "Delivery Quantity Issue": "shortfall",
+  "Damaged Goods": "damaged",
+  "Vehicle Issue": "vehicle",
+  "Other": "other",
+};
+
+export const ID_TO_FIGMA_MAP: Record<string, string> = {
+  shortfall: "Delivery Quantity Issue",
+  damaged: "Damaged Goods",
+  access: "Store Closed",
+  vehicle: "Vehicle Issue",
+  other: "Other",
+};
 
 export const ISSUE_TYPES = [
   {
@@ -65,13 +84,13 @@ export const ISSUE_TYPES = [
 export const CURRENT_TRIP_INFO = {
   tripId: "S1-T001",
   vehicleId: "PEL-R04",
-  driverName: "Driver D. Perera",
+  driverName: "Sunil (Senior Driver)",
   planVersion: "Plan v2",
   stops: [
     {
       stopId: 1,
       stopCode: "OUT001",
-      stopName: "Colpetty Retailer",
+      stopName: "OUT001 / Colombo Fresh Outlet",
       orders: [
         { orderId: "S1-000", details: "12 ambient units • 97.8 kg" },
         { orderId: "S1-001", details: "80 chilled units • 448.6 kg" },
@@ -80,25 +99,28 @@ export const CURRENT_TRIP_INFO = {
     {
       stopId: 2,
       stopCode: "OUT002",
-      stopName: "Nugegoda Corner Store",
+      stopName: "OUT002 / Colombo Fresh Outlet",
       orders: [
-        { orderId: "S2-000", details: "45 ambient units • 180.2 kg" },
+        { orderId: "S1-002", details: "18 ambient units • 130.9 kg" },
+        { orderId: "S1-003", details: "38 chilled units • 329.0 kg" },
       ],
     },
     {
       stopId: 3,
       stopCode: "OUT003",
-      stopName: "Mount Lavinia Super",
+      stopName: "OUT003 / Colombo Fresh Outlet",
       orders: [
-        { orderId: "S3-000", details: "60 ambient units • 240.0 kg" },
+        { orderId: "S1-004", details: "28 ambient units • 160.6 kg" },
+        { orderId: "S1-005", details: "42 chilled units • 318.1 kg" },
       ],
     },
     {
       stopId: 4,
       stopCode: "OUT004",
-      stopName: "Dehiwala Co-op",
+      stopName: "OUT004 / Colombo Fresh Outlet",
       orders: [
-        { orderId: "S4-000", details: "30 chilled units • 150.5 kg" },
+        { orderId: "S1-006", details: "40 ambient units • 305.6 kg" },
+        { orderId: "S1-007", details: "74 chilled units • 567.7 kg" },
       ],
     },
   ],
@@ -115,12 +137,12 @@ const BASELINE_REPORTS: IssueReportRecord[] = [
     categories: [
       { id: "shortfall", label: "Shortfall / Stock Discrepancy", icon: "📦" },
     ],
-    relatedScope: "Order S1-001 (Stop 1 – OUT001 / Colpetty Retailer)",
+    relatedScope: "Order S1-001 (Stop 1 – OUT001 / Colombo Fresh Outlet)",
     orderId: "S1-001",
     stopCode: "OUT001",
-    outletName: "OUT001 / Colpetty Retailer",
+    outletName: "OUT001 / Colombo Fresh Outlet",
     description:
-      "8 damaged ambient units identified during morning vehicle load. Replaced before depot departure with verified replacement stock (Plan v2).",
+      "8 damaged chilled units identified during morning vehicle load. Replaced before depot departure with verified replacement stock (Plan v2).",
     photo: null,
     status: "Synced",
     offlineCreated: false,
@@ -136,9 +158,9 @@ const BASELINE_REPORTS: IssueReportRecord[] = [
     categories: [
       { id: "access", label: "Outlet Closed / Access Restricted", icon: "🚪" },
     ],
-    relatedScope: "Entire Stop 1 (OUT001 / Colpetty Retailer)",
+    relatedScope: "Entire Stop 1 (OUT001 / Colombo Fresh Outlet)",
     stopCode: "OUT001",
-    outletName: "OUT001 / Colpetty Retailer",
+    outletName: "OUT001 / Colombo Fresh Outlet",
     description:
       "Delivery street dock entrance was blocked by market utility van. Driver contacted store lead and dock access cleared by 05:20 AM.",
     photo: null,
@@ -375,12 +397,19 @@ export function DriverReportWorkflow() {
       createdAt: new Date().toISOString(),
     };
 
-    setTimeout(() => {
+    setTimeout(async () => {
       const updatedReports = [newRecord, ...reports];
       setReports(updatedReports);
       saveLocalIssueReport(newRecord).catch((err: unknown) =>
         console.error("Failed to save issue report to IndexedDB:", err)
       );
+      if (connectionState !== "offline") {
+        try {
+          await postDriverIssue(newRecord);
+        } catch (postErr) {
+          console.warn("Direct postDriverIssue notice:", postErr);
+        }
+      }
       try {
         localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(updatedReports));
       } catch (err) {
@@ -1141,541 +1170,44 @@ export function DriverReportWorkflow() {
       </div>
 
       {/* ══════════════════════════════════════════
-          MOBILE layout  (< md) — Full Responsive
+          MOBILE layout  (< md) — Full Responsive Figma Spec
           ══════════════════════════════════════════ */}
-      <div className="md:hidden flex items-start justify-center min-h-full bg-[#E2E8F0] py-4">
-        <MobileReportCanvas
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-          selectedIssues={selectedIssues}
-          onToggleCategory={handleToggleCategory}
+      <div className="md:hidden flex items-start justify-center min-h-full bg-[#F6F8FB] py-0">
+        <DriverReportMobileView
+          outletCode="OUT001"
+          outletName="Colpetty Retailer"
+          tripId="Trip A"
+          stopSequence="Stop 1 of 4"
+          vehicleId="PEL-R04"
+          selectedIssueType={ID_TO_FIGMA_MAP[selectedIssues[0]] || "Delivery Quantity Issue"}
+          onSelectIssueType={(label: string) => {
+            const mappedId = FIGMA_TO_ID_MAP[label] || "shortfall";
+            setSelectedIssues([mappedId]);
+            if (mappedId === "vehicle") {
+              setSelectedOrder("VEHICLE_PEL_R04");
+            } else if (mappedId === "shortfall" || mappedId === "damaged") {
+              if (!selectedOrder || selectedOrder.startsWith("STOP_") || selectedOrder.startsWith("VEHICLE_")) {
+                setSelectedOrder("S1-001");
+              }
+            }
+          }}
           selectedOrder={selectedOrder}
-          onSelectOrder={(ord) => setSelectedOrder(ord)}
-          selectedCategoryObjects={selectedCategoryObjects}
-          requiresOrderAny={requiresOrderAny}
+          onSelectOrder={(ord: string) => setSelectedOrder(ord)}
           description={description}
-          onChangeDescription={(val) => setDescription(val)}
+          onChangeDescription={(desc: string) => setDescription(desc)}
           photo={photo}
-          onOpenCamera={() => setShowCameraModal(true)}
-          onOpenUpload={() => fileInputRef.current?.click()}
+          onTriggerPhotoCapture={() => setShowCameraModal(true)}
+          onTriggerFileUpload={() => fileInputRef.current?.click()}
           onRemovePhoto={() => setPhoto(null)}
           isSubmitting={isSubmitting}
+          onSubmit={handleSubmit}
           isSubmitted={isSubmitted}
           submittedReportId={submittedReportId}
-          getSelectedScopeDisplay={getSelectedScopeDisplay}
-          onSubmit={handleSubmit}
-          onResetForNew={handleResetForNewReport}
-          onProceedNextStop={handleProceedNextStop}
-          reports={reports}
-          onSelectReport={(r) => setSelectedHistoryReport(r)}
+          submittedIssueTypeLabel={ID_TO_FIGMA_MAP[selectedIssues[0]] || "Delivery Quantity Issue"}
+          onViewHistory={() => router.push("/driver/history")}
+          onReturnToStop={() => router.push("/driver/current-stop")}
         />
       </div>
     </>
-  );
-}
-
-/* ─── Mobile Report Canvas Component ─── */
-function MobileReportCanvas({
-  activeTab,
-  onTabChange,
-  selectedIssues,
-  onToggleCategory,
-  selectedOrder,
-  onSelectOrder,
-  selectedCategoryObjects,
-  requiresOrderAny,
-  description,
-  onChangeDescription,
-  photo,
-  onOpenCamera,
-  onOpenUpload,
-  onRemovePhoto,
-  isSubmitting,
-  isSubmitted,
-  submittedReportId,
-  getSelectedScopeDisplay,
-  onSubmit,
-  onResetForNew,
-  onProceedNextStop,
-  reports,
-  onSelectReport,
-}: {
-  activeTab: "new" | "history";
-  onTabChange: (tab: "new" | "history") => void;
-  selectedIssues: string[];
-  onToggleCategory: (id: string) => void;
-  selectedOrder: string;
-  onSelectOrder: (val: string) => void;
-  selectedCategoryObjects: (typeof ISSUE_TYPES)[number][];
-  requiresOrderAny: boolean;
-  description: string;
-  onChangeDescription: (val: string) => void;
-  photo: { name: string; url: string } | null;
-  onOpenCamera: () => void;
-  onOpenUpload: () => void;
-  onRemovePhoto: () => void;
-  isSubmitting: boolean;
-  isSubmitted: boolean;
-  submittedReportId: string;
-  getSelectedScopeDisplay: () => string;
-  onSubmit: (e: React.FormEvent) => void;
-  onResetForNew: () => void;
-  onProceedNextStop: () => void;
-  reports: IssueReportRecord[];
-  onSelectReport: (r: IssueReportRecord) => void;
-}) {
-  const { connectionState } = useConnectivity();
-  const mobileOrderSelectId = useId();
-
-  return (
-    <div
-      id="driver-report-mobile-canvas"
-      className="relative bg-white overflow-y-auto shadow-2xl transition-all duration-300 min-h-[917px] pb-24"
-      style={{
-        width: 390,
-        fontFamily: "'Poppins', sans-serif",
-        flexShrink: 0,
-      }}
-    >
-      {/* Header */}
-      <header
-        id="screen-header"
-        className="sticky top-0 z-20 flex flex-row justify-between items-center bg-[#202D2D] px-4 py-3.5"
-      >
-        <div className="flex flex-row items-center gap-2">
-          {!isSubmitted && (
-            <Link
-              href="/driver/current-stop"
-              className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-white/10"
-              aria-label="Back to Current Stop"
-            >
-              <ArrowLeftIcon className="w-5 h-5 text-white" />
-            </Link>
-          )}
-          <span className="text-white font-bold text-base">
-            {activeTab === "new" ? (isSubmitted ? "Report Logged" : "Report Issue") : "Report History"}
-          </span>
-        </div>
-
-        <div
-          id="connectivity-pill"
-          className={`flex flex-row items-center border rounded-full px-2 py-1 gap-1.5 ${
-            connectionState === "offline"
-              ? "bg-orange-50 border-orange-200"
-              : "bg-white border-[#CBD5E1]"
-          }`}
-        >
-          <span
-            className={`w-2 h-2 rounded-full ${
-              connectionState === "offline" ? "bg-[#F97316]" : "bg-[#22C55E]"
-            }`}
-          />
-          <span
-            className={`font-semibold text-[10px] ${
-              connectionState === "offline" ? "text-[#F97316]" : "text-[#22C55E]"
-            }`}
-          >
-            {connectionState === "offline" ? "Offline" : "Online"}
-          </span>
-        </div>
-      </header>
-
-      {/* Mobile Tab Switcher */}
-      <div className="p-3 bg-slate-100 border-b border-slate-200 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={() => onTabChange("new")}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer text-center ${
-            activeTab === "new"
-              ? "bg-[#202D2D] text-white border-[#202D2D] shadow-sm"
-              : "bg-white text-[#485563] border-[#CBD5E1]"
-          }`}
-        >
-          New Report
-        </button>
-        <button
-          type="button"
-          onClick={() => onTabChange("history")}
-          className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer text-center ${
-            activeTab === "history"
-              ? "bg-[#F97316] text-white border-[#F97316] shadow-sm"
-              : "bg-white text-[#485563] border-[#CBD5E1]"
-          }`}
-        >
-          Report History ({reports.length})
-        </button>
-      </div>
-
-      {/* ── TAB 1: NEW REPORT ── */}
-      {activeTab === "new" && (
-        <>
-          {isSubmitted ? (
-            <div className="p-5 flex flex-col items-center gap-4 text-center">
-              <div className="w-16 h-16 rounded-full bg-[#ECFDF5] border-2 border-[#22C55E] flex items-center justify-center shadow-md mt-4">
-                <CheckIcon className="w-8 h-8 text-[#22C55E]" />
-              </div>
-
-              <div className="bg-green-50/80 border border-green-300 rounded-2xl p-4 w-full text-left flex flex-col gap-2.5">
-                <div className="flex items-center justify-between border-b border-green-200 pb-2">
-                  <span className="text-[11px] font-bold text-green-800 uppercase">
-                    Report Confirmed ({selectedCategoryObjects.length} Categories)
-                  </span>
-                  <span className="text-[11px] font-mono font-bold bg-white px-2 py-0.5 rounded border border-green-300">
-                    {submittedReportId}
-                  </span>
-                </div>
-
-                <div className="text-xs flex flex-col gap-1.5">
-                  <div>
-                    <span className="text-slate-500 font-medium block">Issue Categories:</span>
-                    <div className="flex flex-wrap gap-1 mt-0.5">
-                      {selectedCategoryObjects.map((cat) => (
-                        <span
-                          key={cat.id}
-                          className="font-bold text-[#F97316] bg-white px-2 py-0.5 rounded border border-orange-200 text-[11px]"
-                        >
-                          {cat.icon} {cat.label}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-medium block">Assigned Scope:</span>
-                    <span className="font-bold text-slate-900">
-                      {getSelectedScopeDisplay()}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500 font-medium block">Trip / Vehicle:</span>
-                    <span className="font-bold text-slate-900">
-                      {CURRENT_TRIP_INFO.tripId} • {CURRENT_TRIP_INFO.vehicleId}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-2 w-full mt-2">
-                <button
-                  type="button"
-                  onClick={() => onTabChange("history")}
-                  className="w-full py-3 bg-[#202D2D] hover:bg-slate-800 text-white font-bold text-xs rounded-xl shadow-sm cursor-pointer border-none"
-                >
-                  View in Report History
-                </button>
-                <button
-                  type="button"
-                  onClick={onResetForNew}
-                  className="w-full py-3 bg-[#F97316] hover:bg-[#ea6c0a] text-white font-bold text-xs rounded-xl shadow-md cursor-pointer border-none"
-                >
-                  + Create Another Report
-                </button>
-                <button
-                  type="button"
-                  onClick={onProceedNextStop}
-                  className="w-full py-2.5 border border-slate-300 text-slate-700 font-semibold text-xs rounded-xl cursor-pointer bg-white"
-                >
-                  Return to Today&apos;s Run
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={onSubmit} className="p-4 flex flex-col gap-4">
-              {/* Trip banner */}
-              <div className="bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl p-3 flex items-center justify-between">
-                <div className="flex flex-col">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Assigned Trip</span>
-                  <span className="text-sm font-extrabold text-[#202D2D]">{CURRENT_TRIP_INFO.tripId}</span>
-                </div>
-                <div className="text-right flex flex-col">
-                  <span className="text-[10px] font-bold text-slate-400 uppercase">Vehicle</span>
-                  <span className="text-xs font-bold text-[#F97316] bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
-                    {CURRENT_TRIP_INFO.vehicleId}
-                  </span>
-                </div>
-              </div>
-
-              {/* 1. Multiple Categories */}
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#485563] uppercase">
-                    1. Issue Categories <span className="text-red-500">*</span>
-                  </span>
-                  <span className="text-[10px] font-bold text-[#F97316] bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
-                    {selectedIssues.length} Selected
-                  </span>
-                </div>
-                <div className="flex flex-col gap-2">
-                  {ISSUE_TYPES.map((issue) => {
-                    const isSelected = selectedIssues.includes(issue.id);
-                    return (
-                      <button
-                        key={issue.id}
-                        type="button"
-                        onClick={() => onToggleCategory(issue.id)}
-                        className={`flex items-center justify-between p-3 rounded-xl border text-left cursor-pointer transition-all ${
-                          isSelected
-                            ? "bg-[#FFF4ED] border-[#F97316] ring-1 ring-[#F97316]/20"
-                            : "bg-white border-[#CBD5E1]"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span className="text-base">{issue.icon}</span>
-                          <span
-                            className={`font-bold text-xs ${
-                              isSelected ? "text-[#202D2D]" : "text-[#485563]"
-                            }`}
-                          >
-                            {issue.label}
-                          </span>
-                        </div>
-                        {/* Checkbox */}
-                        <div
-                          className={`w-4 h-4 rounded-md border-2 flex items-center justify-center shrink-0 ${
-                            isSelected
-                              ? "border-[#F97316] bg-[#F97316] text-white"
-                              : "border-[#CBD5E1] bg-white"
-                          }`}
-                        >
-                          {isSelected && <CheckIcon className="w-3 h-3 text-white" />}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* 2. Related Order Dropdown */}
-              <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <label htmlFor={mobileOrderSelectId} className="text-xs font-bold text-[#485563] uppercase">
-                    2. Related Order <span className="text-red-500">*</span>
-                  </label>
-                  {requiresOrderAny && (
-                    <span className="text-[10px] font-bold text-[#F97316] bg-orange-50 px-1.5 py-0.5 rounded border border-orange-200">
-                      Required
-                    </span>
-                  )}
-                </div>
-
-                <select
-                  id={mobileOrderSelectId}
-                  value={selectedOrder}
-                  onChange={(e) => onSelectOrder(e.target.value)}
-                  className="w-full p-2.5 bg-white rounded-xl text-xs font-semibold text-[#202D2D] border border-[#CBD5E1] focus:border-[#F97316] focus:outline-none"
-                >
-                  <option value="" disabled>
-                    [ Select Order from Current Stop 1 ▼ ]
-                  </option>
-
-                  {/* CURRENT STOP 1 (OUT001) ORDERS ONLY */}
-                  <optgroup label="📍 Stop 1 (OUT001 / Colpetty Retailer) Orders">
-                    <option value="S1-000">
-                      📦 Order S1-000 (12 ambient units • 97.8 kg)
-                    </option>
-                    <option value="S1-001">
-                      📦 Order S1-001 (80 chilled units • 448.6 kg)
-                    </option>
-                  </optgroup>
-
-                  {/* GENERAL / VEHICLE SCOPE */}
-                  {!requiresOrderAny && (
-                    <optgroup label="🚚 Stop / Vehicle Level">
-                      <option value="STOP_1_ENTIRE">
-                        🚪 Entire Stop 1 (Colpetty Retailer)
-                      </option>
-                      <option value="VEHICLE_PEL_R04">
-                        🚚 Vehicle PEL-R04 / Trip S1-T001 General Delay
-                      </option>
-                    </optgroup>
-                  )}
-                </select>
-              </div>
-
-              {/* 3. Description */}
-              <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-[#485563] uppercase">
-                    3. Description
-                  </span>
-                  {selectedIssues.includes("other") && (
-                    <span className="text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded border border-red-200">
-                      * Required
-                    </span>
-                  )}
-                </div>
-
-                <textarea
-                  rows={2}
-                  value={description}
-                  onChange={(e) => onChangeDescription(e.target.value)}
-                  placeholder={
-                    selectedIssues.includes("other")
-                      ? "Describe the issue in detail (Required)..."
-                      : "Add specific observations or notes..."
-                  }
-                  className={`w-full p-2.5 bg-[#F9FAFB] rounded-xl text-xs text-[#202D2D] focus:outline-none ${
-                    selectedIssues.includes("other") && !description.trim()
-                      ? "border-2 border-orange-400"
-                      : "border border-[#CBD5E1] focus:border-[#F97316]"
-                  }`}
-                />
-              </div>
-
-              {/* 4. Photo Evidence */}
-              <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100">
-                <span className="text-xs font-bold text-[#485563] uppercase">
-                  4. Photo Evidence
-                </span>
-
-                {photo ? (
-                  <div className="flex items-center justify-between p-2.5 bg-orange-50 border border-orange-300 rounded-xl">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <img
-                        src={photo.url}
-                        alt="Preview"
-                        className="w-8 h-8 rounded object-cover border border-orange-300 shrink-0"
-                      />
-                      <span className="text-xs font-bold text-orange-950 truncate max-w-[150px]">
-                        {photo.name}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        onClick={onOpenCamera}
-                        className="text-[10px] font-bold text-orange-700 bg-white border border-orange-200 rounded px-2 py-1 cursor-pointer"
-                      >
-                        Retake
-                      </button>
-                      <button
-                        type="button"
-                        onClick={onRemovePhoto}
-                        className="text-[10px] font-bold text-red-600 bg-white border border-red-200 rounded px-2 py-1 cursor-pointer"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={onOpenCamera}
-                      className="flex items-center justify-center gap-1.5 py-2.5 px-2 bg-orange-50 border border-dashed border-[#F97316] text-[#F97316] rounded-xl text-xs font-bold cursor-pointer"
-                    >
-                      <CameraIcon className="w-3.5 h-3.5" />
-                      <span>Camera</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={onOpenUpload}
-                      className="flex items-center justify-center py-2.5 px-2 bg-white border border-[#CBD5E1] text-[#485563] rounded-xl text-xs font-semibold cursor-pointer"
-                    >
-                      <span>Upload File</span>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex flex-col gap-2 pt-3">
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-3.5 bg-[#F97316] hover:bg-[#ea6c0a] text-white font-bold text-sm rounded-xl shadow-md transition-all border-none cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <AlertTriangleIcon className="w-4 h-4 text-white" />
-                  <span>{isSubmitting ? "Submitting..." : "Submit Issue Report"}</span>
-                </button>
-                <Link
-                  href="/driver/current-stop"
-                  className="w-full py-2.5 border border-slate-300 text-slate-700 font-bold text-xs rounded-xl text-center no-underline"
-                >
-                  Cancel
-                </Link>
-              </div>
-            </form>
-          )}
-        </>
-      )}
-
-      {/* ── TAB 2: REPORT HISTORY (MOBILE) ── */}
-      {activeTab === "history" && (
-        <div className="p-4 flex flex-col gap-3">
-          <div className="flex items-center justify-between pb-1">
-            <span className="text-xs font-bold text-[#202D2D] uppercase tracking-wide">
-              Logged Reports ({reports.length})
-            </span>
-            <button
-              type="button"
-              onClick={() => onTabChange("new")}
-              className="text-xs font-bold text-[#F97316] bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200 cursor-pointer"
-            >
-              + New Report
-            </button>
-          </div>
-
-          {reports.map((rep) => {
-            const formattedTime = new Date(rep.createdAt).toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            });
-            const formattedDate = new Date(rep.createdAt).toLocaleDateString([], {
-              month: "short",
-              day: "numeric",
-            });
-
-            return (
-              <div
-                key={rep.id}
-                className="bg-white rounded-xl p-3.5 border border-[#CBD5E1] shadow-sm flex flex-col gap-2"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
-                    {rep.id}
-                  </span>
-                  <span className="text-[11px] text-slate-400">
-                    {formattedDate} • {formattedTime}
-                  </span>
-                </div>
-
-                <div className="flex items-start gap-2.5">
-                  <span className="text-lg shrink-0">{rep.categoryIcon.split(" ")[0]}</span>
-                  <div className="flex flex-col min-w-0">
-                    <span className="font-bold text-xs text-[#202D2D] truncate">
-                      {rep.outletName}
-                    </span>
-                    <span className="text-[11px] text-slate-500 truncate">
-                      {rep.relatedScope}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between pt-1 border-t border-slate-100">
-                  {rep.status === "Synced" ? (
-                    <span className="text-[10px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
-                      Synced ✓
-                    </span>
-                  ) : (
-                    <span className="text-[10px] font-semibold text-orange-700 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">
-                      Pending Sync
-                    </span>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => onSelectReport(rep)}
-                    className="px-3 py-1.5 rounded-lg bg-[#F97316] hover:bg-[#ea6c0a] text-white font-bold text-[11px] cursor-pointer border-none shadow-sm flex items-center gap-1"
-                  >
-                    <span>View Details</span>
-                    <ArrowRightIcon className="w-3 h-3 text-white" />
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
   );
 }

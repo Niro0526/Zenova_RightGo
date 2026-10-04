@@ -8,8 +8,19 @@ from app.services.planning_service import (
     defer_order,
     reorder_trip_stops,
     suggest_plan_greedy,
+    set_vehicle_fuel_input,
     release_plan,
 )
+
+def confirm_fuel_for_used_vehicles(db_session, draft, scenario="S1"):
+    """Fuel is never auto-confirmed by the greedy planner (a vehicle used by a
+    run with no dispatcher-confirmed prior usage is left unverified, which
+    correctly blocks release) - tests that release a greedy-suggested plan
+    must confirm it first, the same as a real dispatcher would."""
+    vehicle_ids = {a["vehicleId"] for a in draft["assignments"].values() if a.get("vehicleId")}
+    for vid in vehicle_ids:
+        suggested = set_vehicle_fuel_input(db_session, vid, 0.0, scenario=scenario)
+    return suggested if vehicle_ids else draft
 
 def test_draft_lifecycle_and_greedy_suggest(db_session):
     state = get_draft_state(db_session, "S1")
@@ -37,6 +48,9 @@ def test_draft_lifecycle_and_greedy_suggest(db_session):
 def test_atomic_release(db_session):
     # Run greedy suggest to populate feasible plan
     draft = suggest_plan_greedy(db_session, scenario="S1")
+    # Fuel must be dispatcher-confirmed before release - the greedy planner
+    # deliberately leaves it unverified rather than fabricating a figure.
+    draft = confirm_fuel_for_used_vehicles(db_session, draft)
     rev = draft["draftRevision"]
 
     # Release Plan v1

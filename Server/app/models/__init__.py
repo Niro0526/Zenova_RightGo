@@ -2,12 +2,14 @@
 
 from app.database.base import Base
 from app.models.user import User
+from app.models.session import AuthSession
 from app.models.reference import (
     Outlet,
     Vehicle,
     ScenarioFleetEntry,
     ServiceAllowance,
     DistrictTravel,
+    OperatingCalendarDay,
 )
 from app.models.order import Order
 from app.models.plan import (
@@ -37,11 +39,13 @@ from app.models.memory import (
 __all__ = [
     "Base",
     "User",
+    "AuthSession",
     "Outlet",
     "Vehicle",
     "ScenarioFleetEntry",
     "ServiceAllowance",
     "DistrictTravel",
+    "OperatingCalendarDay",
     "Order",
     "DraftPlan",
     "DraftAssignment",

@@ -4,18 +4,19 @@ from typing import List
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database.session import get_db
+from app.core.deps import get_current_user, CurrentUser
 from app.models.reference import Outlet, Vehicle, ScenarioFleetEntry, ServiceAllowance, DistrictTravel
 from app.schemas.reference import OutletSchema, VehicleSchema, FleetStatusSchema, ServiceAllowanceSchema, DistrictTravelSchema
 
 router = APIRouter(prefix="/reference", tags=["Reference Data"])
 
 @router.get("/outlets", response_model=List[OutletSchema])
-def list_outlets(db: Session = Depends(get_db)):
+def list_outlets(db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """List all registered retail outlets."""
     return db.query(Outlet).order_by(Outlet.outlet_id).all()
 
 @router.get("/vehicles", response_model=List[VehicleSchema])
-def list_vehicles(scenario: str = "S1", db: Session = Depends(get_db)):
+def list_vehicles(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """List all vehicles with their scenario fleet availability."""
     vehicles = db.query(Vehicle).order_by(Vehicle.vehicle_id).all()
     fleet_rows = db.query(ScenarioFleetEntry).filter(ScenarioFleetEntry.scenario == scenario).all()
@@ -29,16 +30,16 @@ def list_vehicles(scenario: str = "S1", db: Session = Depends(get_db)):
     return results
 
 @router.get("/fleet", response_model=List[FleetStatusSchema])
-def list_fleet_status(scenario: str = "S1", db: Session = Depends(get_db)):
+def list_fleet_status(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """List fleet availability entries for a scenario."""
     return db.query(ScenarioFleetEntry).filter(ScenarioFleetEntry.scenario == scenario).all()
 
 @router.get("/allowances", response_model=List[ServiceAllowanceSchema])
-def list_service_allowances(db: Session = Depends(get_db)):
+def list_service_allowances(db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """List standard service dock allowances."""
     return db.query(ServiceAllowance).all()
 
 @router.get("/travel", response_model=List[DistrictTravelSchema])
-def list_district_travel(db: Session = Depends(get_db)):
+def list_district_travel(db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """List district travel distance and time matrix."""
     return db.query(DistrictTravel).all()
