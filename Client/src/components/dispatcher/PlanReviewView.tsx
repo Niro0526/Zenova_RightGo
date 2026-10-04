@@ -19,9 +19,9 @@ function ResultIcon({ kind }: { kind: 'checker_pass' | 'checker_fail' | 'unverif
 
 export default function PlanReview() {
   const {
-    orders, assignments, counts, planChecklist, draftRevision, releasedManifests, publishPlan, acknowledgeManifest,
+    orders, assignments, counts, planChecklist, draftRevision, manifests, publishPlan,
     fleetVehicles, getTripDeparture, setTripDeparture, getVehicleFuelInput, setVehicleFuelInput,
-    getTripStops, getTripSchedule, getVehicleDistanceKm, reorderTrip, deferOrder,
+    getTripStops, getTripSchedule, getVehicleDistanceKm, reorderTrip, deferOrder, isSaving, error,
   } = useDispatcherPlan();
 
   const [reassignRef, setReassignRef] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export default function PlanReview() {
   const anyCheckerFail = planChecklist.some(r => r.kind === 'checker_fail');
   const anyUnverified = planChecklist.some(r => r.kind === 'unverified');
   const canRelease = counts.unresolved === 0 && !anyCheckerFail && !anyUnverified;
-  const lastManifest = releasedManifests[releasedManifests.length - 1];
+  const lastManifest = manifests[manifests.length - 1];
   const unchangedSinceRelease = lastManifest?.revision === draftRevision;
 
   const deferredOrders = orders.filter(o => assignments[o.orderRef]?.decision === 'deferred');
@@ -105,12 +105,15 @@ export default function PlanReview() {
           ))}
 
           <button
-            disabled={!canRelease || unchangedSinceRelease}
+            disabled={!canRelease || unchangedSinceRelease || isSaving}
             onClick={handleRelease}
-            className={`mt-4 py-3 px-6 rounded-lg font-semibold text-sm text-white transition-colors ${canRelease && !unchangedSinceRelease ? 'bg-orange-500 hover:bg-orange-600 cursor-pointer' : 'bg-[#94A3B8] cursor-not-allowed'}`}
+            className={`mt-4 py-3 px-6 rounded-lg font-semibold text-sm text-white transition-colors ${canRelease && !unchangedSinceRelease && !isSaving ? 'bg-orange-500 hover:bg-orange-600 cursor-pointer' : 'bg-[#94A3B8] cursor-not-allowed'}`}
           >
-            {lastManifest ? `Release (revision ${draftRevision})` : 'Release Plan (Local Demo)'}
+            {isSaving ? 'Releasing…' : lastManifest ? `Release (revision ${draftRevision})` : 'Release Plan'}
           </button>
+          {error && (
+            <div className="py-2.5 px-4 bg-[#FEF2F2] border border-red-200 rounded-lg text-xs font-semibold text-red-600">{error}</div>
+          )}
           {!canRelease && (
             <div className="py-2.5 px-4 bg-[#FEF2F2] border border-red-200 rounded-lg text-xs font-semibold text-red-600">
               {counts.unresolved > 0 && <div>{counts.unresolved} unresolved orders must be assigned or deferred.</div>}
@@ -121,7 +124,7 @@ export default function PlanReview() {
           {canRelease && unchangedSinceRelease && (
             <div className="py-2.5 px-4 bg-gray-50 border border-gray-200 rounded-lg text-xs text-gray-500">No changes since revision {lastManifest!.revision} was released.</div>
           )}
-          <p className="text-[11px] text-gray-400 italic">No server-side release exists — this only updates session-local plan state and appends a Decision Ledger entry. A stale or duplicate release request is rejected inside the reducer itself, not only by this button.</p>
+          <p className="text-[11px] text-gray-400 italic">Releasing creates an immutable manifest version on the server; the backend re-validates the entire plan and rejects a stale or duplicate release.</p>
         </div>
 
         {/* Deferred orders reflect real deferrals made in Planning this session */}
@@ -225,24 +228,19 @@ export default function PlanReview() {
       </div>
 
       {/* Released manifest history */}
-      {releasedManifests.length > 0 && (
+      {manifests.length > 0 && (
         <div className="flex flex-col gap-3">
           <h2 className="font-bold text-[18px] text-[#202D2D] m-0">Manifest Release History</h2>
-          {[...releasedManifests].reverse().map(m => (
+          {[...manifests].reverse().map(m => (
             <div key={m.revision} className={`p-4 rounded-xl border flex flex-wrap items-center justify-between gap-3 ${m.revision === lastManifest?.revision ? 'bg-white border-orange-300' : 'bg-gray-50 border-gray-200'}`}>
               <div>
                 <span className="font-bold text-sm text-[#202D2D]">Revision {m.revision}</span>
                 <span className="text-xs text-gray-500 ml-2">published {m.publishedAt} · {m.trips.length} trip(s) · {m.revision === lastManifest?.revision ? 'current' : 'superseded'}</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`py-1 px-2 rounded text-[10px] font-bold uppercase ${m.acknowledgement === 'acknowledged-simulated' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
-                  {m.acknowledgement === 'acknowledged-simulated' ? 'Acknowledged (simulated)' : 'Pending acknowledgement'}
+                <span className={`py-1 px-2 rounded text-[10px] font-bold uppercase ${m.acknowledgement === 'acknowledged' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {m.acknowledgement === 'acknowledged' ? 'Acknowledged by Loader' : 'Awaiting Loader acknowledgement'}
                 </span>
-                {m.acknowledgement === 'pending' && (
-                  <button onClick={() => acknowledgeManifest(m.revision)} className="text-xs font-semibold text-orange-600 hover:underline">
-                    Mark acknowledged (simulated)
-                  </button>
-                )}
               </div>
             </div>
           ))}
@@ -254,7 +252,10 @@ export default function PlanReview() {
         <DeferDialog
           orderRef={deferRef}
           onCancel={() => setDeferRef(null)}
-          onConfirm={(reasonCode: DeferReasonCode, note: string) => { deferOrder(deferRef, reasonCode, note); setDeferRef(null); }}
+          onConfirm={async (reasonCode: DeferReasonCode, note: string) => {
+            const ok = await deferOrder(deferRef, reasonCode, note);
+            if (ok) setDeferRef(null); // keep the dialog open on failure so `error` above is visible and the reason/note aren't lost
+          }}
         />
       )}
     </div>

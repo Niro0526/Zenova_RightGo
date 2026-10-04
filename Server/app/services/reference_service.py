@@ -14,6 +14,7 @@ from app.models.reference import (
     ScenarioFleetEntry,
     ServiceAllowance,
     DistrictTravel,
+    OperatingCalendarDay,
 )
 from app.models.order import Order
 from app.models.plan import DraftPlan, DraftAssignment, ReleasedManifest, ReleasedTrip
@@ -84,9 +85,30 @@ def seed_users(db: Session):
             db.add(user)
     db.commit()
 
+def seed_calendar(db: Session, force_reload: bool = False):
+    """Seed the operating calendar independently of the rest of reference data,
+    so an existing (already-seeded) database picks it up additively on next
+    startup instead of needing a full reseed."""
+    if not force_reload and db.query(OperatingCalendarDay).count() > 0:
+        return
+    calendar_path = find_csv_file("calendar.csv")
+    if calendar_path and calendar_path.exists():
+        df_cal = pd.read_csv(calendar_path)
+        db.query(OperatingCalendarDay).delete()
+        for _, row in df_cal.iterrows():
+            db.add(OperatingCalendarDay(
+                date=pd.to_datetime(row["date"]).date(),
+                is_operating=bool(row["is_operating"]),
+                is_weekend=bool(row.get("is_weekend", False)),
+                is_holiday=bool(row.get("is_holiday", False)),
+            ))
+        db.commit()
+        print("[RightGo] Operating calendar seeded.")
+
 def seed_reference_data(db: Session, force_reload: bool = False):
     """Load competition CSVs and seed database tables."""
     seed_users(db)
+    seed_calendar(db, force_reload=force_reload)
 
     # 1. Check if already seeded
     if not force_reload and db.query(Vehicle).count() > 0:

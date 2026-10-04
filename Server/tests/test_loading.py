@@ -2,7 +2,7 @@
 
 import pytest
 from fastapi import HTTPException
-from app.services.planning_service import suggest_plan_greedy, release_plan
+from app.services.planning_service import suggest_plan_greedy, release_plan, set_vehicle_fuel_input
 from app.services.loading_service import (
     acknowledge_manifest,
     get_trip_loading_sequence,
@@ -17,6 +17,10 @@ from app.models.plan import ReleasedTrip
 def test_loading_workflow(db_session):
     # Release plan v1
     draft = suggest_plan_greedy(db_session, "S1")
+    # Fuel must be dispatcher-confirmed before release (greedy leaves it
+    # unverified rather than fabricating a figure - see planning_service).
+    for vid in {a["vehicleId"] for a in draft["assignments"].values() if a.get("vehicleId")}:
+        draft = set_vehicle_fuel_input(db_session, vid, 0.0, scenario="S1")
     manifest = release_plan(db_session, draft["draftRevision"], scenario="S1")
 
     # Acknowledge manifest

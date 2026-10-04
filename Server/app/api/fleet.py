@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database.session import get_db
+from app.core.deps import get_current_user, require_role, CurrentUser
 from app.models.reference import Vehicle, ScenarioFleetEntry
 from app.models.plan import DraftVehicleFuelInput
 from app.schemas.reference import VehicleSchema
@@ -17,7 +18,7 @@ class VehicleStatusUpdateRequest(BaseModel):
     status: str # available, in_workshop
 
 @router.get("", response_model=List[VehicleSchema])
-def get_fleet(scenario: str = "S1", db: Session = Depends(get_db)):
+def get_fleet(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """Get active scenario fleet with status and fuel details."""
     vehicles = db.query(Vehicle).order_by(Vehicle.vehicle_id).all()
     fleet_rows = db.query(ScenarioFleetEntry).filter(ScenarioFleetEntry.scenario == scenario).all()
@@ -31,7 +32,7 @@ def get_fleet(scenario: str = "S1", db: Session = Depends(get_db)):
     return results
 
 @router.post("/status")
-def update_vehicle_status(req: VehicleStatusUpdateRequest, db: Session = Depends(get_db)):
+def update_vehicle_status(req: VehicleStatusUpdateRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher"))):
     """Update vehicle operational status (available vs in_workshop)."""
     entry = db.query(ScenarioFleetEntry).filter(
         ScenarioFleetEntry.scenario == req.scenario,
