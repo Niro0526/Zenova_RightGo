@@ -6,8 +6,10 @@ import {
   Store, 
   Phone, 
   X,
-  CheckCircle2
+  CheckCircle2,
+  LogOut
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 interface TopNavbarProps {
   selectedOutlet: any;
@@ -18,6 +20,7 @@ interface TopNavbarProps {
 export default function TopNavbar({ 
   selectedOutlet = {} 
 }: TopNavbarProps) {
+  const { logout, user } = useAuth();
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
 
@@ -100,13 +103,23 @@ export default function TopNavbar({
             title="View Store Dock & Manager Profile"
           >
             <div className="profile-avatar-circle">
-              {selectedOutlet.manager_name ? selectedOutlet.manager_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2) : 'KP'}
+              {user?.display_name ? user.display_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2) : (selectedOutlet.manager_name ? selectedOutlet.manager_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2) : 'KJ')}
             </div>
             <div className="profile-info-text">
-              <span className="profile-name-label">{selectedOutlet.manager_name || 'Kasun Perera'}</span>
+              <span className="profile-name-label">{user?.display_name || selectedOutlet.manager_name || 'Kavitha Jayasinghe'}</span>
               <span className="profile-role-sub">Store Manager</span>
             </div>
             <ChevronDown size={14} color="#94A3B8" />
+          </button>
+
+          {/* Direct Logout Button */}
+          <button
+            type="button"
+            className="nav-icon-btn flex items-center justify-center p-2 rounded-xl text-[#64748B] hover:text-[#DC2626] hover:bg-[#FEF2F2] transition-colors"
+            onClick={logout}
+            title="Sign Out / Logout"
+          >
+            <LogOut size={16} />
           </button>
         </div>
       </header>
@@ -181,14 +194,37 @@ export default function TopNavbar({
               </div>
             </div>
 
-            <div className="profile-modal-footer">
+            <div className="profile-modal-footer" style={{ display: 'flex', gap: '8px' }}>
               <button 
                 type="button" 
                 className="figma-btn-primary"
-                style={{ width: '100%', padding: '10px' }}
+                style={{ flex: 1, padding: '10px' }}
                 onClick={() => setShowProfileModal(false)}
               >
                 Close Profile
+              </button>
+              <button 
+                type="button" 
+                style={{
+                  padding: '10px 16px',
+                  borderRadius: '8px',
+                  backgroundColor: '#FEF2F2',
+                  color: '#DC2626',
+                  border: '1px solid #FEE2E2',
+                  fontWeight: 600,
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+                onClick={() => {
+                  setShowProfileModal(false);
+                  logout();
+                }}
+              >
+                <LogOut size={14} />
+                Sign Out
               </button>
             </div>
           </div>
