@@ -34,6 +34,24 @@ interface WireDistrictTravel {
   district: string; depot: string; road_class: string; free_flow_kmh: number; depot_to_district_km: number;
   depot_to_district_freeflow_min: number; inter_stop_km: number; inter_stop_freeflow_min: number;
 }
+export interface OutletRecord {
+  outlet_id: string;
+  name: string;
+  brand: string;
+  district: string;
+  depot: string;
+  dock_type: string;
+  parking_constraint: string;
+  mall_window: string | null;
+  window_open_time: string;
+  window_close_time: string;
+  address: string | null;
+  manager_name: string | null;
+  phone: string | null;
+  operating_days: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
 
 export interface DispatcherOrder extends S1Order {
   status: string;
@@ -80,6 +98,7 @@ function mapTravel(w: WireDistrictTravel): DistrictTravel {
 // --- Reference data ---------------------------------------------------------
 
 export const getOrders = (scenario = 'S1') => apiGet<WireOrder[]>('/orders', { scenario }).then((rows) => rows.map(mapOrder));
+export const getOutlets = () => apiGet<OutletRecord[]>('/reference/outlets');
 export const getFleetVehicles = (scenario = 'S1') => apiGet<WireVehicle[]>('/fleet', { scenario }).then((rows) => rows.map(mapVehicle));
 export const getServiceAllowances = () => apiGet<WireServiceAllowance[]>('/reference/allowances').then((rows) => rows.map(mapAllowance));
 export const getDistrictTravel = () => apiGet<WireDistrictTravel[]>('/reference/travel').then((rows) => rows.map(mapTravel));
@@ -240,4 +259,3 @@ export const acknowledgeDeferral = (outletId: string, orderRef: string, manifest
   apiPost<{ success: boolean; ackId: string; acknowledgedAt: string }>('/deferrals/ack', {
     outlet_id: outletId, order_ref: orderRef, manifest_version: manifestVersion, notes,
   });
-

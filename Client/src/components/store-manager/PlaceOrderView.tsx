@@ -29,7 +29,6 @@ import {
   LayoutGrid,
   List
 } from 'lucide-react';
-import { PRODUCT_CATALOG } from '../../data/mockData';
 import { formatColomboDate, formatShortDate, formatTimeColombo, getSecondsUntilCutoff } from '@/lib/dateUtils';
 
 interface PlaceOrderViewProps {
@@ -49,7 +48,7 @@ export default function PlaceOrderView({
   editingOrder,
   onCancelEdit
 }: PlaceOrderViewProps) {
-  const brand = selectedOutlet.brand || 'Fresh';
+  const brand = selectedOutlet.brand;
   const [searchQuery, setSearchQuery] = useState('');
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [inStockOnly, setInStockOnly] = useState<boolean>(false);
@@ -60,11 +59,9 @@ export default function PlaceOrderView({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // Default seed items for Fresh store replenishment or editingOrder items
+  // Backend-backed generic replenishment units. No mock product catalog or fake item images are used here.
   const [orderItems, setOrderItems] = useState<any[]>(editingOrder?.items || [
-    { id: 'FC-03', name: 'Organic Chicken Breast (Fresh Cut)', qty: 4, unit: 'cases (5kg)', unitWeight: 5.0, unitVol: 0.008, temp: 'Chilled (+4°C)', isChilled: true, sku: 'SKU-FR-PL-103', image: 'https://images.unsplash.com/photo-1604503468506-a8da13d82791?w=300&auto=format&fit=crop&q=80' },
-    { id: 'FC-01', name: 'Farm Fresh Pasteurised Milk (1L Bottles)', qty: 8, unit: 'crates (12 btls)', unitWeight: 1.05, unitVol: 0.0015, temp: 'Chilled (+4°C)', isChilled: true, sku: 'SKU-FR-ML-101', image: 'https://images.unsplash.com/photo-1563636619-e9143da7973b?w=300&auto=format&fit=crop&q=80' },
-    { id: 'FD-01', name: 'Keeri Samba Rice (10kg Bags)', qty: 3, unit: 'bags (10kg)', unitWeight: 10.0, unitVol: 0.015, temp: 'Ambient', isChilled: false, sku: 'SKU-FR-GR-001', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=300&auto=format&fit=crop&q=80' }
+    { id: 'backend-units', name: `${selectedOutlet.brand} replenishment units`, qty: 1, unit: 'units', temp: 'Ambient', isChilled: false }
   ]);
 
   useEffect(() => {
@@ -73,10 +70,9 @@ export default function PlaceOrderView({
     }
   }, [editingOrder]);
 
-  // Build Master Fresh Catalog
-  const allDryItems = PRODUCT_CATALOG?.Fresh?.dry?.map((i: any) => ({ ...i, isChilled: false, tempDisplay: 'Ambient Dry' })) || [];
-  const allChilledItems = PRODUCT_CATALOG?.Fresh?.chilled?.map((i: any) => ({ ...i, isChilled: true, tempDisplay: 'Chilled (+4°C)' })) || [];
-  const masterCatalog = [...allDryItems, ...allChilledItems];
+  const allDryItems: any[] = [];
+  const allChilledItems: any[] = [];
+  const masterCatalog: any[] = [];
 
   // Filter Catalog
   const filteredCatalog = masterCatalog.filter((item: any) => {
@@ -189,13 +185,13 @@ export default function PlaceOrderView({
     setSubmitError(null);
 
     const newOrder = {
-      delivery_id: editingOrder ? editingOrder.delivery_id : `RG-F-${Math.floor(3000 + Math.random() * 7000)}`,
-      outlet_id: selectedOutlet.outlet_id || 'OUT001',
-      brand: `Fresh`,
-      brand_code: 'FR',
-      order_type: chilledUnits > 0 
-        ? (ambientUnits > 0 ? 'Brand Fresh · Chilled + Ambient' : 'Brand Fresh · Chilled Only') 
-        : 'Brand Fresh · Ambient Dry',
+      delivery_id: editingOrder ? editingOrder.delivery_id : '',
+      outlet_id: selectedOutlet.outlet_id,
+      brand,
+      brand_code: brand === 'Fresh' ? 'FR' : brand === 'Style' ? 'ST' : 'TC',
+      order_type: chilledUnits > 0
+        ? (ambientUnits > 0 ? `Brand ${brand} - Chilled + Ambient` : `Brand ${brand} - Chilled Only`)
+        : `Brand ${brand} - Ambient`,
       order_date: formatColomboDate(0, true),
       requested_for: targetDeliveryLabel,
       planned_dispatch: targetDeliveryShort,
@@ -230,7 +226,7 @@ export default function PlaceOrderView({
     try {
       const serverOrder = await createOrder({
         outletId: newOrder.outlet_id,
-        brand: 'Fresh',
+        brand,
         units: totalUnits,
         notes: itemsSummary,
       });
@@ -491,15 +487,81 @@ export default function PlaceOrderView({
           {filteredCatalog.length === 0 ? (
             <div style={{
               background: '#FFFFFF',
-              border: '1px dashed #CBD5E1',
+              border: '1px solid #CBD5E1',
               borderRadius: '10px',
-              padding: '40px 20px',
-              textAlign: 'center',
+              padding: '24px',
               color: '#64748B'
             }}>
-              <Package size={32} color="#94A3B8" style={{ margin: '0 auto 10px' }} />
-              <div style={{ fontSize: '14px', fontWeight: 600, color: '#334155' }}>No products match your filter</div>
-              <div style={{ fontSize: '12px', marginTop: '4px' }}>Try adjusting your search keywords or switching category filters.</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+                <div style={{
+                  width: '40px',
+                  height: '40px',
+                  borderRadius: '10px',
+                  background: '#FFF7ED',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#EA580C'
+                }}>
+                  <Package size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '15px', fontWeight: 700, color: '#1E293B' }}>Replenishment request</div>
+                  <div style={{ fontSize: '12px', marginTop: '3px' }}>
+                    Product catalog is not stored in the database yet. Submit real backend orders by unit count for this outlet.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 160px',
+                gap: '16px',
+                alignItems: 'end'
+              }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>Order description</span>
+                  <input
+                    type="text"
+                    value={orderItems[0]?.name ?? ''}
+                    onChange={(e) => setOrderItems((prev: any[]) => [{
+                      ...(prev[0] ?? { id: 'backend-units', unit: 'units', temp: 'Ambient', isChilled: false }),
+                      name: e.target.value,
+                    }])}
+                    style={{
+                      width: '100%',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      fontSize: '13px',
+                      color: '#1E293B',
+                      outline: 'none'
+                    }}
+                  />
+                </label>
+
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: '#475569' }}>Units</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={Number(orderItems[0]?.qty) || 1}
+                    onChange={(e) => setOrderItems((prev: any[]) => [{
+                      ...(prev[0] ?? { id: 'backend-units', name: `${brand} replenishment units`, unit: 'units', temp: 'Ambient', isChilled: false }),
+                      qty: Math.max(1, Number(e.target.value) || 1),
+                    }])}
+                    style={{
+                      width: '100%',
+                      border: '1px solid #CBD5E1',
+                      borderRadius: '8px',
+                      padding: '10px 12px',
+                      fontSize: '13px',
+                      color: '#1E293B',
+                      outline: 'none'
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           ) : viewMode === 'grid' ? (
             /* COMPACT GRID VIEW (High density, smaller images, 4 cards per row) */

@@ -97,20 +97,13 @@ export default function DegradationView({
     setIsSubmitting(true);
     setTimeout(() => {
       setIsSubmitting(false);
-      const ticket = {
-        ticketId: 'ESC-' + Math.floor(10000 + Math.random() * 90000),
-        reason: escalationReason,
-        mitigation: requestedMitigation === 'priority-fleet' ? 'Priority Allocation in Next Fleet Wave' :
-                    requestedMitigation === 'express-shuttle' ? 'Request Dedicated Express Van' : 'Split Partial Dispatch',
-        notes: escalationNotes,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      };
-      setEscalationDetails(ticket);
-      setCurrentStatus('Escalated');
       setShowEscalateModal(false);
-      triggerToast(`⚡ Priority escalation #${ticket.ticketId} logged with Peliyagoda Planning Desk!`);
       if (onEscalate) {
-        onEscalate(activeOrder.delivery_id, ticket);
+        onEscalate(activeOrder.delivery_id, {
+          reason: escalationReason,
+          mitigation: requestedMitigation,
+          notes: escalationNotes,
+        });
       }
     }, 500);
   };
