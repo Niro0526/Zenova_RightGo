@@ -11,6 +11,13 @@ FRESH_BUDGET_MIN = 270.0
 OTHER_BUDGET_MIN = 480.0
 ASSUMED_TURNAROUND_MIN = 20
 
+
+class MissingReferenceDataError(Exception):
+    """Raised when a calculation needs a reference-data row (district travel,
+    service allowance) that does not exist. Callers must surface this as an
+    explicit failed/unverified result - never swallow it into a numeric
+    default that could make an invalid plan look like it passed."""
+
 def parse_hhmm(val: str) -> int:
     """Parse 'HH:MM' string to minutes since midnight."""
     try:
@@ -40,9 +47,14 @@ def compute_trip_duration(
     key = (first.district, first.depot)
     travel = travel_map.get(key)
     if not travel:
-        return 0.0
+        raise MissingReferenceDataError(f"No district_travel row for district={key[0]!r} depot={key[1]!r}")
     base = travel.depot_to_district_freeflow_min + (len(orders) - 1) * travel.inter_stop_freeflow_min
-    service = sum(allowances_map.get((o.brand, o.dock_type), 15.0) for o in orders)
+    service = 0.0
+    for o in orders:
+        allow_key = (o.brand, o.dock_type)
+        if allow_key not in allowances_map:
+            raise MissingReferenceDataError(f"No service_allowance row for brand={o.brand!r} dock_type={o.dock_type!r}")
+        service += allowances_map[allow_key]
     return base + service
 
 def build_trip_stops(
@@ -80,9 +92,10 @@ def compute_stop_schedule(
     first_order = orders_map.get(stops[0].orderRefs[0])
     if not first_order:
         return []
-    travel = travel_map.get((first_order.district, first_order.depot))
+    travel_key = (first_order.district, first_order.depot)
+    travel = travel_map.get(travel_key)
     if not travel:
-        return []
+        raise MissingReferenceDataError(f"No district_travel row for district={travel_key[0]!r} depot={travel_key[1]!r}")
 
     t = parse_hhmm(departure_time)
     schedules = []
@@ -98,7 +111,12 @@ def compute_stop_schedule(
         window_close = parse_hhmm(stop_orders[0].window_close_time)
         service_start = max(arrival, window_open)
         wait = service_start - arrival
-        service_dur = sum(int(round(allowances_map.get((o.brand, o.dock_type), 15.0))) for o in stop_orders)
+        service_dur = 0
+        for o in stop_orders:
+            allow_key = (o.brand, o.dock_type)
+            if allow_key not in allowances_map:
+                raise MissingReferenceDataError(f"No service_allowance row for brand={o.brand!r} dock_type={o.dock_type!r}")
+            service_dur += int(round(allowances_map[allow_key]))
         service_end = service_start + service_dur
         late = arrival > window_close
 
@@ -141,9 +159,10 @@ def compute_trip_distance_km(
     """Operational distance with return leg: depot_to_district + (n-1)*inter_stop + depot_to_district."""
     if not stops:
         return 0.0
-    travel = travel_map.get((district, depot))
+    travel_key = (district, depot)
+    travel = travel_map.get(travel_key)
     if not travel:
-        return 0.0
+        raise MissingReferenceDataError(f"No district_travel row for district={travel_key[0]!r} depot={travel_key[1]!r}")
     return travel.depot_to_district_km + travel.inter_stop_km * (len(stops) - 1) + travel.depot_to_district_km
 
 class ValidationEngine:
@@ -310,13 +329,14 @@ class ValidationEngine:
                 orderRef=order_ref,
             ))
 
-        # 8. TRIP_LIMIT
+        # 8. TRIP_LIMIT - a vehicle may run at most 2 trips/day, numbered 1 and 2.
+        trip_limit_pass = trip_no in (1, 2)
         results.append(ValidationResultSchema(
-            kind="checker_pass",
+            kind="checker_pass" if trip_limit_pass else "checker_fail",
             group="checker",
             rule="TRIP_LIMIT",
             label="Trip Limit",
-            detail=f"Pass - Trip {trip_no} of 2",
+            detail=f"Pass - Trip {trip_no} of 2" if trip_limit_pass else f"Fail - trip_no {trip_no} is not a valid trip (max 2 trips/vehicle)",
             orderRef=order_ref,
             tripNo=trip_no,
         ))
@@ -327,26 +347,35 @@ class ValidationEngine:
             self.orders_map[r] for r, a in assignments.items()
             if a.get("decision") == "served" and a.get("vehicle_id") == vehicle_id and a.get("trip_no") == other_trip_no and r in self.orders_map
         ]
-        candidate_duration = compute_trip_duration(all_candidate_orders, self.allowances_map, self.travel_map)
-        other_duration = compute_trip_duration(other_trip_orders, self.allowances_map, self.travel_map) if other_trip_orders else 0.0
-
         is_fresh = order.brand == "Fresh"
         budget_limit = FRESH_BUDGET_MIN if is_fresh else OTHER_BUDGET_MIN
-        other_matches = other_trip_orders and ((other_trip_orders[0].brand == "Fresh") == is_fresh)
-        cumulative_time = candidate_duration + (other_duration if other_matches else 0.0)
-        time_pass = cumulative_time <= budget_limit + TOLERANCE
-
         budget_rule = "FRESH_BUDGET" if is_fresh else "DAYTIME_BUDGET"
         budget_label = "Fresh cumulative budget" if is_fresh else "Style/Tech cumulative budget"
-        results.append(ValidationResultSchema(
-            kind="checker_pass" if time_pass else "checker_fail",
-            group="checker",
-            rule=budget_rule,
-            label=budget_label,
-            detail=f"{'Pass' if time_pass else 'Fail'} - {cumulative_time:.1f} min cumulative / {budget_limit:.0f} min max",
-            orderRef=order_ref,
-            tripNo=trip_no,
-        ))
+        try:
+            candidate_duration = compute_trip_duration(all_candidate_orders, self.allowances_map, self.travel_map)
+            other_duration = compute_trip_duration(other_trip_orders, self.allowances_map, self.travel_map) if other_trip_orders else 0.0
+            other_matches = other_trip_orders and ((other_trip_orders[0].brand == "Fresh") == is_fresh)
+            cumulative_time = candidate_duration + (other_duration if other_matches else 0.0)
+            time_pass = cumulative_time <= budget_limit + TOLERANCE
+            results.append(ValidationResultSchema(
+                kind="checker_pass" if time_pass else "checker_fail",
+                group="checker",
+                rule=budget_rule,
+                label=budget_label,
+                detail=f"{'Pass' if time_pass else 'Fail'} - {cumulative_time:.1f} min cumulative / {budget_limit:.0f} min max",
+                orderRef=order_ref,
+                tripNo=trip_no,
+            ))
+        except MissingReferenceDataError as e:
+            results.append(ValidationResultSchema(
+                kind="checker_fail",
+                group="checker",
+                rule=budget_rule,
+                label=budget_label,
+                detail=f"Fail - cannot compute trip duration: {e}",
+                orderRef=order_ref,
+                tripNo=trip_no,
+            ))
 
         # 10. Operational Check: DELIVERY_WINDOW
         dep_time = trip_meta.get(key)
@@ -362,34 +391,46 @@ class ValidationEngine:
                 orderRef=order_ref,
             ))
         else:
-            scheds = compute_stop_schedule(candidate_stops, dep_time, self.orders_map, self.allowances_map, self.travel_map)
-            target_stop = next((s for s in scheds if order_ref in s.orderRefs), None)
-            if not target_stop:
+            try:
+                scheds = compute_stop_schedule(candidate_stops, dep_time, self.orders_map, self.allowances_map, self.travel_map)
+            except MissingReferenceDataError as e:
+                scheds = None
                 results.append(ValidationResultSchema(
-                    kind="unverified",
+                    kind="checker_fail",
                     group="operational",
                     rule="DELIVERY_WINDOW",
                     label="Delivery / Mall Window",
-                    detail="Unverified - order not in trip stop sequence.",
+                    detail=f"Fail - cannot compute delivery schedule: {e}",
                     orderRef=order_ref,
                 ))
-            else:
-                mall_violated = target_stop.mallWindow.get("violated", False) if target_stop.mallWindow else False
-                win_pass = not target_stop.late and not mall_violated
-                if win_pass:
-                    win_detail = f"Pass - arrival {format_hhmm(target_stop.arrival)}, service {format_hhmm(target_stop.serviceStart)}-{format_hhmm(target_stop.serviceEnd)}"
-                elif target_stop.late:
-                    win_detail = f"Fail - arrival {format_hhmm(target_stop.arrival)} is after window close at {format_hhmm(target_stop.windowClose)}"
+            if scheds is not None:
+                target_stop = next((s for s in scheds if order_ref in s.orderRefs), None)
+                if not target_stop:
+                    results.append(ValidationResultSchema(
+                        kind="unverified",
+                        group="operational",
+                        rule="DELIVERY_WINDOW",
+                        label="Delivery / Mall Window",
+                        detail="Unverified - order not in trip stop sequence.",
+                        orderRef=order_ref,
+                    ))
                 else:
-                    win_detail = "Fail - violates mall access window"
-                results.append(ValidationResultSchema(
-                    kind="checker_pass" if win_pass else "checker_fail",
-                    group="operational",
-                    rule="DELIVERY_WINDOW",
-                    label="Delivery / Mall Window",
-                    detail=win_detail,
-                    orderRef=order_ref,
-                ))
+                    mall_violated = target_stop.mallWindow.get("violated", False) if target_stop.mallWindow else False
+                    win_pass = not target_stop.late and not mall_violated
+                    if win_pass:
+                        win_detail = f"Pass - arrival {format_hhmm(target_stop.arrival)}, service {format_hhmm(target_stop.serviceStart)}-{format_hhmm(target_stop.serviceEnd)}"
+                    elif target_stop.late:
+                        win_detail = f"Fail - arrival {format_hhmm(target_stop.arrival)} is after window close at {format_hhmm(target_stop.windowClose)}"
+                    else:
+                        win_detail = "Fail - violates mall access window"
+                    results.append(ValidationResultSchema(
+                        kind="checker_pass" if win_pass else "checker_fail",
+                        group="operational",
+                        rule="DELIVERY_WINDOW",
+                        label="Delivery / Mall Window",
+                        detail=win_detail,
+                        orderRef=order_ref,
+                    ))
 
         # 11. Operational Check: FUEL_QUOTA
         prior_fuel = vehicle_fuel_inputs.get(vehicle_id)
@@ -403,23 +444,33 @@ class ValidationEngine:
                 vehicleId=vehicle_id,
             ))
         else:
-            other_key = f"{vehicle_id}-{other_trip_no}"
-            other_outlet_seq = stop_sequences.get(other_key, [])
-            other_stops = build_trip_stops(other_outlet_seq, other_trip_orders) if other_trip_orders else []
-            dist1 = compute_trip_distance_km(candidate_stops, order.district, order.depot, self.travel_map)
-            dist2 = compute_trip_distance_km(other_stops, other_trip_orders[0].district, other_trip_orders[0].depot, self.travel_map) if other_stops else 0.0
-            today_dist = dist1 + dist2
-            today_litres = today_dist / vehicle.km_per_l
-            total_litres = prior_fuel + today_litres
-            fuel_pass = total_litres <= vehicle.weekly_fuel_quota_l + TOLERANCE
-            results.append(ValidationResultSchema(
-                kind="checker_pass" if fuel_pass else "checker_fail",
-                group="operational",
-                rule="FUEL_QUOTA",
-                label="Fuel Reservation",
-                detail=f"{'Pass' if fuel_pass else 'Fail'} - {total_litres:.1f} L / {vehicle.weekly_fuel_quota_l:.0f} L quota",
-                vehicleId=vehicle_id,
-            ))
+            try:
+                other_key = f"{vehicle_id}-{other_trip_no}"
+                other_outlet_seq = stop_sequences.get(other_key, [])
+                other_stops = build_trip_stops(other_outlet_seq, other_trip_orders) if other_trip_orders else []
+                dist1 = compute_trip_distance_km(candidate_stops, order.district, order.depot, self.travel_map)
+                dist2 = compute_trip_distance_km(other_stops, other_trip_orders[0].district, other_trip_orders[0].depot, self.travel_map) if other_stops else 0.0
+                today_dist = dist1 + dist2
+                today_litres = today_dist / vehicle.km_per_l
+                total_litres = prior_fuel + today_litres
+                fuel_pass = total_litres <= vehicle.weekly_fuel_quota_l + TOLERANCE
+                results.append(ValidationResultSchema(
+                    kind="checker_pass" if fuel_pass else "checker_fail",
+                    group="operational",
+                    rule="FUEL_QUOTA",
+                    label="Fuel Reservation",
+                    detail=f"{'Pass' if fuel_pass else 'Fail'} - {total_litres:.1f} L / {vehicle.weekly_fuel_quota_l:.0f} L quota",
+                    vehicleId=vehicle_id,
+                ))
+            except MissingReferenceDataError as e:
+                results.append(ValidationResultSchema(
+                    kind="checker_fail",
+                    group="operational",
+                    rule="FUEL_QUOTA",
+                    label="Fuel Reservation",
+                    detail=f"Fail - cannot compute fuel distance: {e}",
+                    vehicleId=vehicle_id,
+                ))
 
         # 12. Operational Check: TRIP_OVERLAP (if both trips present)
         if candidate_stops and other_trip_orders:
@@ -433,25 +484,44 @@ class ValidationEngine:
                     detail="Unverified - both trips need a planned departure time.",
                     vehicleId=vehicle_id,
                 ))
-            else:
-                trip1_stops = candidate_stops if trip_no == 1 else build_trip_stops(stop_sequences.get(f"{vehicle_id}-1", []), other_trip_orders)
-                trip1_dep = dep_time if trip_no == 1 else other_dep_time
-                trip2_dep = other_dep_time if trip_no == 1 else dep_time
-                sched1 = compute_stop_schedule(trip1_stops, trip1_dep, self.orders_map, self.allowances_map, self.travel_map)
-                last_end = sched1[-1].serviceEnd if sched1 else parse_hhmm(trip1_dep)
-                tr_info = self.travel_map.get((order.district, order.depot))
-                ret_min = tr_info.depot_to_district_freeflow_min if tr_info else 24.0
-                est_return = last_end + int(round(ret_min)) + ASSUMED_TURNAROUND_MIN
-                dep2_min = parse_hhmm(trip2_dep)
-                overlap_pass = dep2_min >= est_return
+            elif (order.district, order.depot) not in self.travel_map:
                 results.append(ValidationResultSchema(
-                    kind="checker_pass" if overlap_pass else "checker_fail",
+                    kind="checker_fail",
                     group="operational",
                     rule="TRIP_OVERLAP",
                     label="Trip Overlap",
-                    detail=f"{'Pass' if overlap_pass else 'Fail'} - Trip 1 est return {format_hhmm(est_return)}, Trip 2 departs {format_hhmm(dep2_min)}",
+                    detail=f"Fail - no district_travel row for {order.district}/{order.depot}, cannot estimate return leg.",
                     vehicleId=vehicle_id,
                 ))
+            else:
+                try:
+                    trip1_stops = candidate_stops if trip_no == 1 else build_trip_stops(stop_sequences.get(f"{vehicle_id}-1", []), other_trip_orders)
+                    trip1_dep = dep_time if trip_no == 1 else other_dep_time
+                    trip2_dep = other_dep_time if trip_no == 1 else dep_time
+                    sched1 = compute_stop_schedule(trip1_stops, trip1_dep, self.orders_map, self.allowances_map, self.travel_map)
+                    last_end = sched1[-1].serviceEnd if sched1 else parse_hhmm(trip1_dep)
+                    tr_info = self.travel_map[(order.district, order.depot)]
+                    ret_min = tr_info.depot_to_district_freeflow_min
+                    est_return = last_end + int(round(ret_min)) + ASSUMED_TURNAROUND_MIN
+                    dep2_min = parse_hhmm(trip2_dep)
+                    overlap_pass = dep2_min >= est_return
+                    results.append(ValidationResultSchema(
+                        kind="checker_pass" if overlap_pass else "checker_fail",
+                        group="operational",
+                        rule="TRIP_OVERLAP",
+                        label="Trip Overlap",
+                        detail=f"{'Pass' if overlap_pass else 'Fail'} - Trip 1 est return {format_hhmm(est_return)}, Trip 2 departs {format_hhmm(dep2_min)}",
+                        vehicleId=vehicle_id,
+                    ))
+                except MissingReferenceDataError as e:
+                    results.append(ValidationResultSchema(
+                        kind="checker_fail",
+                        group="operational",
+                        rule="TRIP_OVERLAP",
+                        label="Trip Overlap",
+                        detail=f"Fail - cannot estimate trip overlap: {e}",
+                        vehicleId=vehicle_id,
+                    ))
 
         checker_results = [r for r in results if r.group == "checker"]
         checker_feasible = all(r.kind == "checker_pass" for r in checker_results)
@@ -518,9 +588,17 @@ class ValidationEngine:
         all_volume_ok = True
         all_grouping_ok = True
         all_budgets_ok = True
+        all_trip_limit_ok = True
+        missing_ref_data: List[str] = []
+        vehicle_trip_nos: Dict[str, Set[int]] = {}
 
         for k, ords in trip_groups.items():
             vid, tno_str = k.rsplit("-", 1)
+            vid, tno_str = k.split("-")
+            tno = int(tno_str)
+            vehicle_trip_nos.setdefault(vid, set()).add(tno)
+            if tno not in (1, 2):
+                all_trip_limit_ok = False
             veh = self.vehicles_map.get(vid)
             if not veh:
                 continue
@@ -538,16 +616,23 @@ class ValidationEngine:
                 all_grouping_ok = False
 
             # Time budget
-            dur = compute_trip_duration(ords, self.allowances_map, self.travel_map)
-            other_k = f"{vid}-2" if tno_str == "1" else f"{vid}-1"
-            other_ords = trip_groups.get(other_k, [])
-            other_dur = compute_trip_duration(other_ords, self.allowances_map, self.travel_map) if other_ords else 0.0
-            is_fresh = ords[0].brand == "Fresh"
-            limit = FRESH_BUDGET_MIN if is_fresh else OTHER_BUDGET_MIN
-            same_cat = other_ords and ((other_ords[0].brand == "Fresh") == is_fresh)
-            cum_time = dur + (other_dur if same_cat else 0.0)
-            if cum_time > limit + TOLERANCE:
+            try:
+                dur = compute_trip_duration(ords, self.allowances_map, self.travel_map)
+                other_k = f"{vid}-2" if tno_str == "1" else f"{vid}-1"
+                other_ords = trip_groups.get(other_k, [])
+                other_dur = compute_trip_duration(other_ords, self.allowances_map, self.travel_map) if other_ords else 0.0
+                is_fresh = ords[0].brand == "Fresh"
+                limit = FRESH_BUDGET_MIN if is_fresh else OTHER_BUDGET_MIN
+                same_cat = other_ords and ((other_ords[0].brand == "Fresh") == is_fresh)
+                cum_time = dur + (other_dur if same_cat else 0.0)
+                if cum_time > limit + TOLERANCE:
+                    all_budgets_ok = False
+            except MissingReferenceDataError as e:
                 all_budgets_ok = False
+                missing_ref_data.append(f"{vid} Trip {tno_str}: {e}")
+
+        if any(len(nos) > 2 for nos in vehicle_trip_nos.values()):
+            all_trip_limit_ok = False
 
         checklist.append({"label": "Vehicle depot match", "kind": "checker_pass" if all_depot_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_depot_ok else "Depot mismatch detected"})
         checklist.append({"label": "Refrigeration requirements satisfied", "kind": "checker_pass" if all_reefer_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_reefer_ok else "Chilled order on non-reefer"})
@@ -555,9 +640,9 @@ class ValidationEngine:
         checklist.append({"label": "Weight limits within capacity", "kind": "checker_pass" if all_weight_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_weight_ok else "Weight limit exceeded"})
         checklist.append({"label": "Volume limits within capacity", "kind": "checker_pass" if all_volume_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_volume_ok else "Volume limit exceeded"})
         checklist.append({"label": "One brand and one district per trip", "kind": "checker_pass" if all_grouping_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_grouping_ok else "Mixed brand or district"})
-        checklist.append({"label": "Maximum 2 trips per vehicle", "kind": "checker_pass", "group": "checker", "detail": "Pass - max 2 trips allowed"})
-        checklist.append({"label": "Fresh trips <=270 cumulative minutes per vehicle", "kind": "checker_pass" if all_budgets_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_budgets_ok else "Time budget exceeded"})
-        checklist.append({"label": "Style + Tech trips <=480 cumulative minutes per vehicle", "kind": "checker_pass" if all_budgets_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_budgets_ok else "Time budget exceeded"})
+        checklist.append({"label": "Maximum 2 trips per vehicle", "kind": "checker_pass" if all_trip_limit_ok else "checker_fail", "group": "checker", "detail": "Pass - max 2 trips allowed" if all_trip_limit_ok else "A vehicle has more than 2 distinct trip numbers, or an invalid trip_no"})
+        checklist.append({"label": "Fresh trips <=270 cumulative minutes per vehicle", "kind": "checker_pass" if all_budgets_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_budgets_ok else ("Time budget exceeded" if not missing_ref_data else "Cannot verify: " + "; ".join(missing_ref_data))})
+        checklist.append({"label": "Style + Tech trips <=480 cumulative minutes per vehicle", "kind": "checker_pass" if all_budgets_ok else "checker_fail", "group": "checker", "detail": "Pass" if all_budgets_ok else ("Time budget exceeded" if not missing_ref_data else "Cannot verify: " + "; ".join(missing_ref_data))})
 
         # Operational items
         for k, ords in trip_groups.items():
@@ -566,11 +651,19 @@ class ValidationEngine:
             dep_time = trip_meta.get(k)
             outlet_seq = stop_sequences.get(k, [])
             stops = build_trip_stops(outlet_seq, ords)
+            sched_error: Optional[str] = None
+            sched = None
+            if dep_time is not None:
+                try:
+                    sched = compute_stop_schedule(stops, dep_time, self.orders_map, self.allowances_map, self.travel_map)
+                except MissingReferenceDataError as e:
+                    sched_error = str(e)
             for o in ords:
                 if dep_time is None:
                     checklist.append({"label": f"Delivery window - {o.order_ref} ({vid} Trip {tno})", "kind": "unverified", "group": "operational", "detail": "Planned departure time not yet set"})
+                elif sched_error:
+                    checklist.append({"label": f"Delivery window - {o.order_ref} ({vid} Trip {tno})", "kind": "checker_fail", "group": "operational", "detail": f"Cannot compute delivery schedule: {sched_error}"})
                 else:
-                    sched = compute_stop_schedule(stops, dep_time, self.orders_map, self.allowances_map, self.travel_map)
                     st = next((s for s in sched if o.order_ref in s.orderRefs), None)
                     pass_win = st and not st.late and not (st.mallWindow and st.mallWindow.get("violated"))
                     checklist.append({"label": f"Delivery window - {o.order_ref} ({vid} Trip {tno})", "kind": "checker_pass" if pass_win else "checker_fail", "group": "operational", "detail": "Pass" if pass_win else "Delivery window missed"})
@@ -582,12 +675,15 @@ class ValidationEngine:
                 if prior is None:
                     checklist.append({"label": f"Fuel reservation - {vid}", "kind": "unverified", "group": "operational", "detail": "Prior fuel usage unconfirmed"})
                 else:
-                    d1 = compute_trip_distance_km(stops, ords[0].district, ords[0].depot, self.travel_map)
-                    other_k = f"{vid}-2"
-                    other_ords = trip_groups.get(other_k, [])
-                    d2 = compute_trip_distance_km(build_trip_stops(stop_sequences.get(other_k, []), other_ords), other_ords[0].district, other_ords[0].depot, self.travel_map) if other_ords else 0.0
-                    tot_l = prior + (d1 + d2) / veh.km_per_l
-                    checklist.append({"label": f"Fuel reservation - {vid}", "kind": "checker_pass" if tot_l <= veh.weekly_fuel_quota_l + TOLERANCE else "checker_fail", "group": "operational", "detail": f"{tot_l:.1f} L / {veh.weekly_fuel_quota_l:.0f} L quota"})
+                    try:
+                        d1 = compute_trip_distance_km(stops, ords[0].district, ords[0].depot, self.travel_map)
+                        other_k = f"{vid}-2"
+                        other_ords = trip_groups.get(other_k, [])
+                        d2 = compute_trip_distance_km(build_trip_stops(stop_sequences.get(other_k, []), other_ords), other_ords[0].district, other_ords[0].depot, self.travel_map) if other_ords else 0.0
+                        tot_l = prior + (d1 + d2) / veh.km_per_l
+                        checklist.append({"label": f"Fuel reservation - {vid}", "kind": "checker_pass" if tot_l <= veh.weekly_fuel_quota_l + TOLERANCE else "checker_fail", "group": "operational", "detail": f"{tot_l:.1f} L / {veh.weekly_fuel_quota_l:.0f} L quota"})
+                    except MissingReferenceDataError as e:
+                        checklist.append({"label": f"Fuel reservation - {vid}", "kind": "checker_fail", "group": "operational", "detail": f"Cannot compute fuel distance: {e}"})
 
         return checklist
 

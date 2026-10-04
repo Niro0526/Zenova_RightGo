@@ -14,10 +14,12 @@ from app.schemas.order import CreateOrderRequest, CancelOrderRequest
 from app.schemas.store_manager import ReceiptConfirmRequest, DeferralAckRequest
 from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
+from app.services.scheduling_service import compute_run_date, load_operating_calendar
 
 def place_store_order(
     db: Session,
     req: CreateOrderRequest,
+    placed_by: Optional[str] = None,
 ) -> Order:
     outlet = db.query(Outlet).filter(Outlet.outlet_id == req.outlet_id).first()
     if not outlet:
@@ -29,6 +31,11 @@ def place_store_order(
     # Standard weight/volume estimation per unit for catalog replenishment
     weight_kg = round(req.units * (5.5 if req.brand == "Fresh" else (0.8 if req.brand == "Style" else 15.0)), 1)
     volume_m3 = round(req.units * (0.025 if req.brand == "Fresh" else (0.005 if req.brand == "Style" else 0.12)), 3)
+
+    confirmed_at = datetime.now(timezone.utc)
+    # 4 PM Asia/Colombo cutoff: an order confirmed at/after the cutoff (or on a
+    # non-operating day) rolls forward to the next real operating day's run.
+    run_date = compute_run_date(confirmed_at, load_operating_calendar(db))
 
     order = Order(
         scenario="S1",
@@ -49,9 +56,10 @@ def place_store_order(
         deferred_yesterday=False,
         days_since_last_served=1,
         status="awaiting_planning",
-        placed_by=req.placed_by or "Store Manager",
+        placed_by=placed_by or req.placed_by or "Store Manager",
         notes=req.notes,
-        created_at=datetime.now(timezone.utc),
+        created_at=confirmed_at,
+        run_date=run_date,
     )
     db.add(order)
     db.commit()
@@ -60,7 +68,7 @@ def place_store_order(
     record_ledger_entry(
         db,
         action="order_placed",
-        actor=req.placed_by or "Store Manager",
+        actor=placed_by or req.placed_by or "Store Manager",
         order_ref=order_ref,
         outlet_id=req.outlet_id,
         reason_note=f"Placed replenishment order for {req.units} units of {req.brand}.",
@@ -80,7 +88,9 @@ def cancel_store_order(
     db: Session,
     order_ref: str,
     req: CancelOrderRequest,
+    cancelled_by: Optional[str] = None,
 ) -> Order:
+    actor_name = cancelled_by or req.cancelled_by or "Store Manager"
     order = db.query(Order).filter(Order.order_ref == order_ref).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
@@ -94,7 +104,7 @@ def cancel_store_order(
         record_ledger_entry(
             db,
             action="cancel_refused",
-            actor=req.cancelled_by or "Store Manager",
+            actor=actor_name,
             order_ref=order_ref,
             outlet_id=order.outlet_id,
             reason_note=f"Cancellation refused for {order_ref}: order is already in loading/transit/delivered state.",
@@ -112,7 +122,7 @@ def cancel_store_order(
     record_ledger_entry(
         db,
         action="order_cancelled",
-        actor=req.cancelled_by or "Store Manager",
+        actor=actor_name,
         order_ref=order_ref,
         outlet_id=order.outlet_id,
         reason_note=f"Order cancelled by store: {req.reason}",
@@ -131,6 +141,7 @@ def cancel_store_order(
 def confirm_store_receipt(
     db: Session,
     req: ReceiptConfirmRequest,
+    confirmed_by: Optional[str] = None,
 ) -> ReceiptRecord:
     receipt = ReceiptRecord(
         order_ref=req.order_ref,
@@ -140,7 +151,7 @@ def confirm_store_receipt(
         has_issue=req.has_issue,
         issue_type=req.issue_type if req.has_issue else None,
         notes=req.notes,
-        confirmed_by=req.confirmed_by or "K. Perera (Manager)",
+        confirmed_by=confirmed_by or req.confirmed_by or "K. Perera (Manager)",
         confirmed_at=datetime.now(timezone.utc),
     )
     db.add(receipt)
@@ -171,12 +182,13 @@ def confirm_store_receipt(
 def acknowledge_deferral(
     db: Session,
     req: DeferralAckRequest,
+    acknowledged_by: Optional[str] = None,
 ) -> DeferralAcknowledgement:
     ack = DeferralAcknowledgement(
         outlet_id=req.outlet_id,
         order_ref=req.order_ref,
         manifest_version=req.manifest_version,
-        acknowledged_by=req.acknowledged_by or "Store Manager",
+        acknowledged_by=acknowledged_by or req.acknowledged_by or "Store Manager",
         acknowledged_at=datetime.now(timezone.utc),
         notes=req.notes,
     )

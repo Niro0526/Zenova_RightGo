@@ -96,6 +96,9 @@ export interface OrderAssignment {
   tripNo: 1 | 2 | null;
   reasonCode: DeferReasonCode | null;
   reasonNote: string | null;
+  /** True once set by a manual dispatcher action (assign/defer/reorder/departure/fuel) -
+   * the server preserves locked rows verbatim when "Suggest Plan" re-runs. */
+  locked?: boolean;
 }
 
 export type DecisionLedgerAction = 'assigned' | 'deferred' | 'reassigned' | 'published' | 'resequenced';
@@ -171,6 +174,7 @@ export interface PassportResult {
 /** Per (vehicleId, tripNo) dispatcher-entered planning inputs. Missing values are null, never a silent default — see docs/SOURCE_REQUIREMENTS.md. */
 export interface TripMeta {
   plannedDepartureTime: string | null; // "HH:MM", Asia/Colombo, dispatcher-entered (Fresh trips are pre-filled with a suggested 03:30, editable)
+  locked?: boolean;
 }
 
 /** Per-vehicle dispatcher-confirmed prior fuel usage. null = not yet confirmed (never defaulted to 0). */
@@ -190,15 +194,26 @@ export interface IntakeCheckResult {
 export interface ManifestTripSnapshot {
   vehicleId: string;
   tripNo: 1 | 2;
+  tripId?: string | null;
+  brand?: string | null;
+  district?: string | null;
+  depot?: string | null;
+  plannedDepartureTime?: string | null;
+  leaveByTime?: string | null;
   stopOutletIds: string[]; // physical stop sequence at the moment of release
   orderRefs: string[];
+  loadingStatus?: string | null; // planned, loading, ready, departed, completed
+  otpUnlocked?: boolean;
 }
 
 export interface Manifest {
-  revision: number; // the draftRevision that was live at publish time
-  publishedAt: string; // HH:MM, session-local clock
+  id?: number;
+  revision: number; // == the server's manifest `version` - the draftRevision that was live at publish time
+  publishedAt: string; // HH:MM
+  decisionMaker?: string;
+  shortfallPolicy?: string;
   trips: ManifestTripSnapshot[];
-  acknowledgement: 'pending' | 'acknowledged-simulated';
+  acknowledgement: 'pending' | 'acknowledged';
 }
 
 export interface ShortfallEvent {

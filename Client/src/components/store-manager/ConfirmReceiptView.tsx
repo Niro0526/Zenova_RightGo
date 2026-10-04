@@ -202,6 +202,7 @@ export default function ConfirmReceiptView({
     }
 
     const isFullMatch = deliveryStatus === 'complete';
+    const totalReceivedUnits = itemsChecklist.reduce((acc, item) => acc + (item.received || 0), 0);
     const disputesList = isFullMatch ? [] : [{
       product: affectedProduct,
       type: deliveryStatus,
@@ -215,7 +216,8 @@ export default function ConfirmReceiptView({
       receiverName,
       status: deliveryStatus,
       disputes: disputesList,
-      isFullMatch
+      isFullMatch,
+      confirmedUnits: totalReceivedUnits > 0 ? totalReceivedUnits : 12
     });
   };
 

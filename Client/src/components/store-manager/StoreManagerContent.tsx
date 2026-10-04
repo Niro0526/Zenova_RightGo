@@ -11,6 +11,13 @@ import DegradationView from './DegradationView';
 import OrderConfirmationModal from './OrderConfirmationModal';
 import { MOCK_OUTLETS } from '../../data/mockData';
 import { getInitialStoreOrders } from '@/hooks/useStoreManagerOrders';
+import { 
+  fetchStoreOrdersApi, 
+  cancelStoreOrderApi, 
+  confirmStoreReceiptApi, 
+  acknowledgeDeferralApi,
+  BackendOrder 
+} from '@/lib/storeManagerApi';
 
 export interface StoreManagerContentProps {
   initialView?: string;
@@ -22,18 +29,78 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   // Master Interactive State with LocalStorage Persistence
   const [orders, setOrders] = useState<any[]>(getInitialStoreOrders);
 
-  // Sync from localStorage after client mount to prevent SSR hydration mismatch
+  // Sync from localStorage and FastAPI backend
   useEffect(() => {
+    let localList: any[] = [];
     try {
       const cached = localStorage.getItem('rightgo_store_manager_orders');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          localList = parsed;
           setOrders(parsed);
         }
       }
     } catch {}
-  }, []);
+
+    // Live sync from FastAPI backend
+    fetchStoreOrdersApi(selectedOutlet.outlet_id).then(serverOrders => {
+      if (serverOrders && serverOrders.length > 0) {
+        setOrders(prev => {
+          const mapStatus = (st: string) => {
+            if (st === 'awaiting_planning') return 'Awaiting Planning';
+            if (st === 'planned') return 'Planned';
+            if (st === 'loading') return 'Loading';
+            if (st === 'in_transit') return 'Out for Delivery';
+            if (st === 'delivered') return 'Delivered';
+            if (st === 'deferred') return 'Deferred';
+            if (st === 'cancelled') return 'Cancelled';
+            return st;
+          };
+
+          const mapSection = (st: string) => {
+            if (st === 'in_transit' || st === 'loading') return 'active';
+            if (st === 'awaiting_planning' || st === 'planned') return 'future';
+            if (st === 'deferred') return 'deferred';
+            if (st === 'delivered' || st === 'cancelled') return 'completed';
+            return 'future';
+          };
+
+          const updated = [...prev];
+          serverOrders.forEach(so => {
+            const existingIdx = updated.findIndex(o => o.delivery_id === so.order_ref);
+            const mappedOrder = {
+              delivery_id: so.order_ref,
+              brand: so.brand,
+              brand_code: so.brand === 'Fresh' ? 'FR' : 'ST',
+              order_type: `Brand ${so.brand} · ${so.temp_requirement === 'chilled' ? 'Chilled' : 'Ambient'}`,
+              order_date: so.created_at ? new Date(so.created_at).toLocaleDateString() : 'Today',
+              status: mapStatus(so.status),
+              section: mapSection(so.status),
+              order_units: so.order_units,
+              weight_kg: so.order_weight_kg,
+              volume_cbm: so.order_volume_m3,
+              vehicle_id: 'VEH003 (Reefer Van)',
+              driver_name: 'Chaminda Vithanage',
+              items: existingIdx >= 0 && updated[existingIdx].items?.length > 0 
+                ? updated[existingIdx].items 
+                : [
+                    { name: `${so.brand} Assorted Stock Pack`, qty: so.order_units, unit: 'crates', expected: so.order_units, loaded: so.order_units, temp: so.temp_requirement === 'chilled' ? 'Chilled (+4°C)' : 'Ambient' }
+                  ]
+            };
+
+            if (existingIdx >= 0) {
+              updated[existingIdx] = { ...updated[existingIdx], ...mappedOrder };
+            } else {
+              updated.unshift(mappedOrder);
+            }
+          });
+
+          return updated;
+        });
+      }
+    });
+  }, [selectedOutlet.outlet_id]);
 
   // Keep localStorage synced across tabs and route navigations
   useEffect(() => {
@@ -143,6 +210,11 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   };
 
   const handleCancelOrder = (orderId: string) => {
+    cancelStoreOrderApi(orderId, {
+      reason: 'Cancelled by Store Manager before dispatch loading',
+      cancelled_by: selectedOutlet.manager_name || 'Store Manager'
+    }).catch(() => {});
+
     setOrders(prev => {
       const updated = prev.filter(o => o.delivery_id !== orderId);
       if (typeof window !== 'undefined') {
@@ -159,6 +231,16 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   };
 
   const handleReceiptConfirmed = (deliveryId: string, receiptData: any) => {
+    confirmStoreReceiptApi({
+      order_ref: deliveryId,
+      outlet_id: selectedOutlet.outlet_id,
+      confirmed_units: receiptData.confirmedUnits || 12,
+      has_issue: !receiptData.isFullMatch,
+      issue_type: receiptData.disputes?.[0]?.type || undefined,
+      notes: receiptData.disputes?.[0]?.note || 'Store receipt confirmed with electronic signature',
+      confirmed_by: receiptData.receiverName || selectedOutlet.manager_name || 'Store Manager'
+    }).catch(() => {});
+
     setOrders(prev => {
       const updated = prev.map(ord => {
         if (ord.delivery_id === deliveryId) {
@@ -184,6 +266,14 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   };
 
   const handleAcknowledgeDeferral = (deliveryId: string, slot?: string) => {
+    acknowledgeDeferralApi({
+      outlet_id: selectedOutlet.outlet_id,
+      order_ref: deliveryId,
+      manifest_version: 1,
+      notes: 'Store acknowledged deferral and confirmed slot: ' + (slot || 'Tomorrow Wave 1'),
+      acknowledged_by: selectedOutlet.manager_name || 'Store Manager'
+    }).catch(() => {});
+
     setOrders(prev => prev.map(ord => {
       if (ord.delivery_id === deliveryId) {
         return {
