@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
+from app.core.deps import require_role, CurrentUser
 from app.models.plan import ReleasedTrip, ReleasedManifest
 from app.models.operations import DeliveryRecord, DriverIssue
 from app.models.order import Order
@@ -28,9 +29,10 @@ from app.services.driver_service import (
 router = APIRouter(prefix="/driver", tags=["Driver Portal"])
 
 @router.get("/my-run")
-def get_my_run(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_db)):
-    """Fetch assigned driver run manifest, stops, and unlock status."""
-    trip = get_driver_active_trip(db, vehicle_id=vehicle_id)
+def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Fetch assigned driver run manifest, stops, and unlock status - for the
+    authenticated driver's own assigned vehicle, never a client-supplied one."""
+    trip = get_driver_active_trip(db, vehicle_id=user.vehicle_id)
     if not trip:
         return {"hasRun": False, "message": "No active released run found"}
 
@@ -74,26 +76,32 @@ def get_my_run(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_
     }
 
 @router.post("/otp/verify")
-def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db)):
-    """Verify 6-digit cryptographic OTP to unlock driver run."""
+def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Verify 6-digit cryptographic OTP to unlock driver run - rejects a
+    driver trying to unlock a trip assigned to a different vehicle."""
+    if user.vehicle_id and req.vehicle_id != user.vehicle_id:
+        raise HTTPException(status_code=403, detail="You can only unlock a trip assigned to your own vehicle.")
     return verify_driver_otp(db, req.trip_id, req.vehicle_id, req.otp_code)
 
 @router.get("/progress", response_model=DriverRunProgressResponse)
-def api_get_driver_progress(trip_id: str, db: Session = Depends(get_db)):
+def api_get_driver_progress(trip_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
     """Get calculated progress (% completed, stops remaining)."""
     return get_driver_run_progress(db, trip_id)
 
 @router.post("/deliveries")
-def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends(get_db)):
-    """Record delivery outcome and POD metadata."""
+def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Record delivery outcome and POD metadata - rejects a delivery recorded
+    against a trip/vehicle the authenticated driver doesn't own."""
+    if user.vehicle_id and record.vehicleId != user.vehicle_id:
+        raise HTTPException(status_code=403, detail="You can only record deliveries for your own vehicle's trip.")
     rec = record_driver_delivery(db, record)
     return {"success": True, "deliveryId": rec.id, "status": rec.status}
 
 @router.get("/history", response_model=List[LocalDeliveryRecordSchema])
-def api_get_driver_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_db)):
-    """Get completed deliveries history for driver."""
+def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Get completed deliveries history for the authenticated driver's own vehicle."""
     deliveries = db.query(DeliveryRecord).filter(
-        DeliveryRecord.vehicle_id == vehicle_id
+        DeliveryRecord.vehicle_id == user.vehicle_id
     ).order_by(DeliveryRecord.recorded_at.desc()).all()
 
     results = []
@@ -138,16 +146,18 @@ def api_get_driver_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = 
     return results
 
 @router.post("/issues")
-def api_record_driver_issue(report: IssueReportRecordSchema, db: Session = Depends(get_db)):
+def api_record_driver_issue(report: IssueReportRecordSchema, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
     """Report road or delivery issue after vehicle departure."""
+    if user.vehicle_id and report.vehicleId != user.vehicle_id:
+        raise HTTPException(status_code=403, detail="You can only report issues for your own vehicle's trip.")
     issue = record_driver_issue(db, report)
     return {"success": True, "issueId": issue.id, "status": issue.status}
 
 @router.get("/issues/history", response_model=List[IssueReportRecordSchema])
-def api_get_driver_issues_history(vehicle_id: Optional[str] = "PEL-R04", db: Session = Depends(get_db)):
-    """Get driver-submitted road issues only."""
+def api_get_driver_issues_history(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Get driver-submitted road issues for the authenticated driver's own vehicle."""
     issues = db.query(DriverIssue).filter(
-        DriverIssue.vehicle_id == vehicle_id
+        DriverIssue.vehicle_id == user.vehicle_id
     ).order_by(DriverIssue.recorded_at.desc()).all()
 
     return [

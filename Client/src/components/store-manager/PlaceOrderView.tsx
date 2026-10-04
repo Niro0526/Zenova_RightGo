@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { createOrder } from '@/lib/api/dispatcher';
+import { ApiError } from '@/lib/api/client';
 import { 
   Plus, 
   Minus, 
@@ -56,6 +58,8 @@ export default function PlaceOrderView({
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // Default seed items for Fresh store replenishment or editingOrder items
   const [orderItems, setOrderItems] = useState<any[]>(editingOrder?.items || [
@@ -170,11 +174,14 @@ export default function PlaceOrderView({
   const targetDeliveryLabel = storeClosureNotice ? formatColomboDate(2, true) : formatColomboDate(1, true);
   const targetDeliveryShort = storeClosureNotice ? formatShortDate(2) : formatShortDate(1);
 
-  const handlePlaceOrderSubmit = () => {
+  const handlePlaceOrderSubmit = async () => {
     if (orderItems.length === 0) {
       alert('Please select at least 1 item to place a requisition.');
       return;
     }
+    if (isSubmitting) return; // prevent duplicate submission while a request is already in flight
+    setIsSubmitting(true);
+    setSubmitError(null);
 
     const newOrder = {
       delivery_id: editingOrder ? editingOrder.delivery_id : `RG-F-${Math.floor(3000 + Math.random() * 7000)}`,
@@ -206,6 +213,28 @@ export default function PlaceOrderView({
       }))
     };
 
+    // Real backend call - success is only claimed once the server confirms
+    // it. The backend's CreateOrderRequest models one order as a single
+    // brand + unit count (no itemized SKUs), so the line-item detail this
+    // view collects is preserved in `notes` rather than silently dropped.
+    const itemsSummary = orderItems
+      .map((i: any) => `${i.name ?? i.sku} x${Number(i.qty) || 1}`)
+      .join(', ');
+    try {
+      await createOrder({
+        outletId: newOrder.outlet_id,
+        brand: 'Fresh',
+        units: totalUnits,
+        notes: itemsSummary,
+      });
+      onOrderCreated(newOrder);
+      setShowReviewModal(false);
+    } catch (err) {
+      setSubmitError(err instanceof ApiError ? err.message : 'Could not place order - check your connection and try again.');
+      setShowReviewModal(true); // keep the review modal open with the order items intact so the dispatcher's input isn't lost
+    } finally {
+      setIsSubmitting(false);
+    }
     // Forward to FastAPI backend API with proper schema
     const tempReq = chilledUnits > 0 ? 'chilled' : 'ambient';
     placeReplenishmentOrderApi({
@@ -1202,16 +1231,17 @@ export default function PlaceOrderView({
 
               <button
                 type="button"
-                onClick={() => {
-                  setShowReviewModal(false);
-                  handlePlaceOrderSubmit();
-                }}
+                disabled={isSubmitting}
+                onClick={() => { void handlePlaceOrderSubmit(); }}
                 className="btn-orange-primary"
-                style={{ padding: '8px 20px', fontSize: '13px' }}
+                style={{ padding: '8px 20px', fontSize: '13px', opacity: isSubmitting ? 0.6 : 1, cursor: isSubmitting ? 'not-allowed' : 'pointer' }}
               >
-                ✓ Lock Requisition into Cutoff Queue
+                {isSubmitting ? 'Placing order…' : '✓ Lock Requisition into Cutoff Queue'}
               </button>
             </div>
+            {submitError && (
+              <p style={{ color: '#DC2626', fontSize: '13px', marginTop: '8px', textAlign: 'right' }}>{submitError}</p>
+            )}
           </div>
         </div>
       )}

@@ -16,19 +16,24 @@ from app.schemas.driver import (
 from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
 
-def get_driver_active_trip(db: Session, vehicle_id: Optional[str] = "PEL-R04") -> Optional[ReleasedTrip]:
-    """Fetch the active released trip for the driver/vehicle."""
-    query = db.query(ReleasedTrip).join(
+def get_driver_active_trip(db: Session, vehicle_id: Optional[str]) -> Optional[ReleasedTrip]:
+    """Fetch the active released trip for the driver's own vehicle.
+
+    Deliberately does NOT fall back to "any active trip" when the vehicle
+    has none - a driver with no run today must see "no active run," not a
+    different vehicle's trip (stops, OTP, delivery instructions). The old
+    fallback here was a real wrong-trip-delivery bug: it made every driver
+    land on whichever trip happened to be queried first, regardless of
+    whose vehicle it actually was.
+    """
+    if not vehicle_id:
+        return None
+    return db.query(ReleasedTrip).join(
         ReleasedManifest, ReleasedTrip.manifest_id == ReleasedManifest.id
     ).filter(
         ReleasedManifest.is_active == True,
-    )
-    if vehicle_id:
-        trip = query.filter(ReleasedTrip.vehicle_id == vehicle_id).first()
-        if trip:
-            return trip
-    # Fallback to first active trip in demo
-    return query.first()
+        ReleasedTrip.vehicle_id == vehicle_id,
+    ).first()
 
 def verify_driver_otp(
     db: Session,

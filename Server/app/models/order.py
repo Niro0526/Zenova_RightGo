@@ -1,7 +1,7 @@
 """Order database model."""
 
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, Date, ForeignKey
 from app.database.base import Base
 
 class Order(Base):
@@ -9,6 +9,10 @@ class Order(Base):
 
     order_ref = Column(String(64), primary_key=True) # e.g. S1-000 or ORD-2026-001
     scenario = Column(String(32), nullable=False, default="S1", index=True)
+    # Operating day (Asia/Colombo) this order is eligible for planning on, derived from the
+    # 4 PM confirmation cutoff + operating calendar. NULL means "legacy/seed row - always
+    # eligible for the current run" (the original 85-row S1 scenario predates this column).
+    run_date = Column(Date, nullable=True, index=True)
     outlet_id = Column(String(32), ForeignKey("outlets.outlet_id"), nullable=False, index=True)
     brand = Column(String(32), nullable=False, index=True) # Fresh, Style, Tech
     district = Column(String(64), nullable=False)

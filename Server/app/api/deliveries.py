@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
+from app.core.deps import require_role, CurrentUser
 from app.models.operations import DeliveryRecord
 from app.schemas.driver import LocalDeliveryRecordSchema, DiscrepancyDetails, NotDeliveredDetails, PodDetails
 
@@ -53,19 +54,24 @@ def list_deliveries(
     outlet_id: Optional[str] = None,
     vehicle_id: Optional[str] = None,
     db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_role("dispatcher", "store_manager")),
 ):
-    """List completed deliveries with POD metadata."""
+    """List completed deliveries with POD metadata. A store_manager only sees their own outlet's."""
     query = db.query(DeliveryRecord)
-    if outlet_id:
+    if user.role == "store_manager":
+        query = query.filter(DeliveryRecord.stop_id == user.outlet_id)
+    elif outlet_id:
         query = query.filter(DeliveryRecord.stop_id == outlet_id)
     if vehicle_id:
         query = query.filter(DeliveryRecord.vehicle_id == vehicle_id)
     return [to_schema(d) for d in query.order_by(DeliveryRecord.recorded_at.desc()).all()]
 
 @router.get("/{delivery_id}", response_model=LocalDeliveryRecordSchema)
-def get_delivery(delivery_id: str, db: Session = Depends(get_db)):
+def get_delivery(delivery_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher", "store_manager"))):
     """Get single delivery by ID."""
     d = db.query(DeliveryRecord).filter(DeliveryRecord.id == delivery_id).first()
     if not d:
         raise HTTPException(status_code=404, detail="Delivery record not found")
+    if user.role == "store_manager" and d.stop_id != user.outlet_id:
+        raise HTTPException(status_code=403, detail="You can only view deliveries for your own outlet.")
     return to_schema(d)

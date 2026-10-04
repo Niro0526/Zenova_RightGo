@@ -1,8 +1,10 @@
 """Planning schemas for dispatcher workflows and validations."""
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Literal, Optional, Any
 from pydantic import BaseModel, Field
 from app.schemas.reference import VehicleSchema
+
+TripNo = Literal[1, 2]
 
 class OrderAssignmentSchema(BaseModel):
     decision: str = "unresolved" # unresolved, served, deferred
@@ -10,16 +12,17 @@ class OrderAssignmentSchema(BaseModel):
     tripNo: Optional[int] = None
     reasonCode: Optional[str] = None
     reasonNote: Optional[str] = None
+    locked: bool = False # manual decision - preserved across "Suggest Plan" re-runs
 
 class AssignOrderRequest(BaseModel):
     order_ref: str
     vehicle_id: str
-    trip_no: int # 1 or 2
+    trip_no: TripNo
 
 class ReassignOrderRequest(BaseModel):
     order_ref: str
     vehicle_id: str
-    trip_no: int
+    trip_no: TripNo
     reason_note: Optional[str] = None
 
 class DeferOrderRequest(BaseModel):
@@ -29,12 +32,12 @@ class DeferOrderRequest(BaseModel):
 
 class ReorderTripRequest(BaseModel):
     vehicle_id: str
-    trip_no: int
+    trip_no: TripNo
     new_outlet_order: List[str]
 
 class SetTripDepartureRequest(BaseModel):
     vehicle_id: str
-    trip_no: int
+    trip_no: TripNo
     departure_time: Optional[str] = None # e.g. "03:30"
 
 class SetVehicleFuelInputRequest(BaseModel):
@@ -89,6 +92,8 @@ class DraftPlanResponse(BaseModel):
     draftRevision: int
     assignments: Dict[str, OrderAssignmentSchema]
     stopSequences: Dict[str, List[str]]
+    stopSequenceLocks: Dict[str, bool] = {}
     tripMeta: Dict[str, Dict[str, Any]]
     vehicleFuelInputs: Dict[str, Optional[float]]
+    vehicleFuelLocks: Dict[str, bool] = {}
     counts: Dict[str, int]

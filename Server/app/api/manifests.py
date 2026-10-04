@@ -4,6 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
+from app.core.deps import get_current_user, require_role, CurrentUser
 from app.models.plan import ReleasedManifest, ReleasedTrip
 from app.schemas.manifest import ManifestResponseSchema, ManifestTripSnapshotSchema, AcknowledgeManifestRequest
 from app.services.loading_service import get_current_released_manifest, acknowledge_manifest
@@ -41,7 +42,7 @@ def build_manifest_schema(db: Session, manifest: ReleasedManifest) -> ManifestRe
     )
 
 @router.get("/latest", response_model=Optional[ManifestResponseSchema])
-def get_latest_manifest(scenario: str = "S1", db: Session = Depends(get_db)):
+def get_latest_manifest(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """Get the currently active released manifest version."""
     manifest = get_current_released_manifest(db, scenario)
     if not manifest:
@@ -49,7 +50,7 @@ def get_latest_manifest(scenario: str = "S1", db: Session = Depends(get_db)):
     return build_manifest_schema(db, manifest)
 
 @router.get("", response_model=List[ManifestResponseSchema])
-def list_manifests(scenario: str = "S1", db: Session = Depends(get_db)):
+def list_manifests(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """List all released manifest versions."""
     manifests = db.query(ReleasedManifest).filter(
         ReleasedManifest.scenario == scenario
@@ -57,7 +58,7 @@ def list_manifests(scenario: str = "S1", db: Session = Depends(get_db)):
     return [build_manifest_schema(db, m) for m in manifests]
 
 @router.get("/{version}", response_model=ManifestResponseSchema)
-def get_manifest_by_version(version: int, scenario: str = "S1", db: Session = Depends(get_db)):
+def get_manifest_by_version(version: int, scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
     """Get a specific historical manifest version snapshot."""
     manifest = db.query(ReleasedManifest).filter(
         ReleasedManifest.scenario == scenario,
@@ -68,8 +69,8 @@ def get_manifest_by_version(version: int, scenario: str = "S1", db: Session = De
     return build_manifest_schema(db, manifest)
 
 @router.post("/{version}/ack", response_model=ManifestResponseSchema)
-def api_ack_manifest(version: int, req: Optional[AcknowledgeManifestRequest] = None, db: Session = Depends(get_db)):
-    """Acknowledge manifest by warehouse Loader."""
-    user = req.acknowledged_by if req else "Rizwan (Loader)"
-    manifest = acknowledge_manifest(db, version, acknowledged_by=user)
+def api_ack_manifest(version: int, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("loader"))):
+    """Acknowledge manifest by warehouse Loader - actor identity is the
+    authenticated session, never a client-supplied name."""
+    manifest = acknowledge_manifest(db, version, acknowledged_by=user.display_name)
     return build_manifest_schema(db, manifest)

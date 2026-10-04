@@ -10,6 +10,11 @@ from app.core.config import settings
 def sanitize_db_url(url: str) -> str:
     """Sanitize and encode database URL components safely."""
     if not url or "YOUR_SUPABASE" in url or "your-project" in url or not (url.startswith("postgresql") or url.startswith("postgres") or url.startswith("sqlite")):
+        print(
+            f"[RightGo] DATABASE_URL is unset or a placeholder (got: {url!r}) - "
+            "falling back to local SQLite (sqlite:///./rightgo_dev.db). "
+            "Set a real DATABASE_URL to use PostgreSQL."
+        )
         return "sqlite:///./rightgo_dev.db"
     url = url.strip().strip('"').strip("'")
     if url.startswith("postgres://"):
@@ -53,9 +58,14 @@ except Exception as e:
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Generator[Session, None, None]:
-    """FastAPI dependency for database session."""
+    """FastAPI dependency for database session. Rolls back on any unhandled
+    exception so a failed request (e.g. a mid-release error) leaves no partial
+    writes behind, instead of relying on close() to discard the transaction."""
     db = SessionLocal()
     try:
         yield db
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
