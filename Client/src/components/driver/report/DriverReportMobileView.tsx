@@ -270,9 +270,39 @@ export function DriverReportMobileView({
 
             {/* Field: Description / Details */}
             <div className="flex flex-col">
-              <label className="text-[#6B788C] text-[9px] leading-[11px] font-normal mb-1.5">
-                Description / Details
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-[#6B788C] text-[9px] leading-[11px] font-normal">
+                  Description / Details (Required)
+                </label>
+                <span className="text-[9px] text-[#ED5214] font-bold">
+                  {description.length > 0 ? `${description.length} chars` : "* Mandatory"}
+                </span>
+              </div>
+
+              {/* Quick suggestion chips */}
+              <div className="flex flex-wrap gap-1 mb-2">
+                {[
+                  "Store Closed",
+                  "Traffic / Route Blocked",
+                  "Customer Refused",
+                  "Damaged Package",
+                  "Missing Carton",
+                ].map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => {
+                      const current = description.trim();
+                      if (current.includes(chip)) return;
+                      const updated = current ? `${current}. ${chip}` : chip;
+                      onChangeDescription(updated);
+                    }}
+                    className="px-2 py-0.5 bg-[#F1F5F9] hover:bg-[#FFF2E8] hover:text-[#ED5214] text-[#475569] text-[9px] font-medium rounded-[5px] border border-[#E2E8F0] cursor-pointer transition-all active:scale-95"
+                  >
+                    + {chip}
+                  </button>
+                ))}
+              </div>
 
               <textarea
                 id="driver-issue-description-input"
@@ -280,7 +310,7 @@ export function DriverReportMobileView({
                 value={description}
                 onChange={(e) => onChangeDescription(e.target.value)}
                 placeholder="Describe what happened and any action already taken…"
-                className="w-[318px] min-h-[112px] bg-white border border-[#D6DBE3] rounded-[8px] p-3 text-[#1F293B] placeholder-[#6B788C] text-[11px] leading-[14px] font-normal focus:outline-none focus:border-[#ED5214] resize-none"
+                className="w-[318px] min-h-[112px] bg-white border border-[#D6DBE3] focus:border-[#ED5214] focus:ring-1 focus:ring-[#ED5214]/20 rounded-[8px] p-3 text-[#1F293B] placeholder-[#6B788C] text-[11px] leading-[15px] font-normal focus:outline-none resize-none transition-colors"
               />
             </div>
           </div>
@@ -482,7 +512,17 @@ export function DriverReportMobileView({
             </div>
           </div>
 
-          {/* ── CARD 4: NEXT ACTION (350 x 154, bg #FFFFFF, r: 12px) ── */}
+          {/* ── CARD 4: DESCRIPTION / DETAILS (350 x auto, bg #FFFFFF, r: 12px) ── */}
+          <div className="w-[350px] bg-white rounded-[12px] p-4 flex flex-col mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
+            <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-2">
+              DESCRIPTION / DETAILS
+            </span>
+            <p className="text-[#1F293B] text-[11px] leading-[15px] font-normal m-0">
+              {description || "Issue recorded by driver."}
+            </p>
+          </div>
+
+          {/* ── CARD 5: NEXT ACTION (350 x 154, bg #FFFFFF, r: 12px) ── */}
           <div className="w-[350px] min-h-[154px] bg-white rounded-[12px] p-4 flex flex-col justify-between mb-3 shadow-[0_1px_3px_rgba(0,0,0,0.04)] border border-[#EDF2FA]">
             <span className="block text-[#6B788C] font-bold text-[10px] leading-[12px] uppercase tracking-wider mb-2">
               NEXT ACTION
