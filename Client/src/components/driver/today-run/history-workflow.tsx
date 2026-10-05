@@ -18,6 +18,7 @@ import {
 } from "@/components/driver/today-run/icons";
 import {
   getAllLocalDeliveryRecords,
+  retryRejectedRecord,
   getAllLocalIssueReports,
   type LocalDeliveryRecord,
 } from "@/lib/driver/driver-offline-db";
@@ -487,7 +488,22 @@ export function DriverHistoryWorkflow() {
                             )}
 
                             {/* Cloud Sync Status */}
-                            {record.status === "Synced" ? (
+                            {record.status === "Rejected" ? (
+                              <span className="inline-flex flex-col gap-1">
+                                <span title={record.syncError ?? ""} className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                  Rejected - needs attention
+                                </span>
+                                <span className="text-[11px] text-red-700 font-medium">{record.syncError || "The server refused this record."}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void retryRejectedRecord("delivery", record.id).then(loadDeliveryRecords)}
+                                  className="self-start text-[11px] font-bold text-slate-700 underline bg-transparent border-none cursor-pointer p-0"
+                                >
+                                  Retry sync
+                                </button>
+                              </span>
+                            ) : record.status === "Synced" ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                                 Synced
@@ -770,7 +786,22 @@ export function DriverHistoryWorkflow() {
                               </span>
                             )}
 
-                            {report.status === "Synced" ? (
+                            {report.status === "Rejected" ? (
+                              <span className="inline-flex flex-col gap-1">
+                                <span title={report.syncError ?? ""} className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-700 bg-red-50 px-2 py-0.5 rounded border border-red-200">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" />
+                                  Rejected - needs attention
+                                </span>
+                                <span className="text-[11px] text-red-700 font-medium">{report.syncError || "The server refused this report."}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => void retryRejectedRecord("report", report.id).then(loadReportRecords)}
+                                  className="self-start text-[11px] font-bold text-slate-700 underline bg-transparent border-none cursor-pointer p-0"
+                                >
+                                  Retry sync
+                                </button>
+                              </span>
+                            ) : report.status === "Synced" ? (
                               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-green-700 bg-green-50 px-2 py-0.5 rounded border border-green-200">
                                 <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
                                 Synced

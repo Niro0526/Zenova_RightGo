@@ -49,6 +49,7 @@ def test_driver_delivery_online_pod_storage_persistence(client, db_session, driv
         "stopId": "OUT001",
         "stopName": "Colpetty Retailer",
         "vehicleId": "VEH036",
+        "arrivedAt": "2026-10-04T09:00:00Z",
         "outcome": "full",
         "podDetails": {
             "signerName": "Store Lead",
@@ -140,7 +141,7 @@ def test_offline_sync_uploads_evidence_and_saves_references(client, db_session, 
     When connection returns, /api/sync processes events, uploads evidence to Supabase Storage,
     saves storage paths in PostgreSQL, and marks records as Synced.
     """
-    seed_active_trip("VEH036", ["OUT001", "OUT002", "OUT003"], ["S1-002", "S1-003"])
+    seed_active_trip("VEH036", ["OUT002", "OUT003"], ["S1-002", "S1-003"])
     event_id = f"evt-offline-{uuid.uuid4().hex[:8]}"
     del_id = f"DEL-OFFLINE-{uuid.uuid4().hex[:6]}"
 
@@ -157,6 +158,7 @@ def test_offline_sync_uploads_evidence_and_saves_references(client, db_session, 
                     "stopId": "OUT002",
                     "stopName": "Bambalapitiya Grocers",
                     "vehicleId": "VEH036",
+                    "arrivedAt": "2026-10-04T09:00:00Z",
                     "outcome": "discrepancy",
                     "discrepancyDetails": {
                         "type": "Quantity Short",
@@ -197,7 +199,7 @@ def test_offline_sync_duplicate_idempotency(client, db_session, driver_auth, see
     """
     Test that replaying duplicate offline events is idempotent and does not create duplicate records.
     """
-    seed_active_trip("VEH036", ["OUT001", "OUT002", "OUT003"])
+    seed_active_trip("VEH036", ["OUT003"])
     event_id = f"evt-idempotent-{uuid.uuid4().hex[:8]}"
     del_id = f"DEL-IDEM-{uuid.uuid4().hex[:6]}"
 
@@ -214,6 +216,7 @@ def test_offline_sync_duplicate_idempotency(client, db_session, driver_auth, see
                     "stopId": "OUT003",
                     "stopName": "Kollupitiya Super",
                     "vehicleId": "VEH036",
+                    "arrivedAt": "2026-10-04T09:00:00Z",
                     "outcome": "full",
                     "podDetails": {
                         "signerName": "Lead",

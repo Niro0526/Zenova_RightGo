@@ -44,6 +44,8 @@ class LocalDeliveryRecordSchema(BaseModel):
     createdAt: str
     syncedAt: Optional[str] = None
     tripId: Optional[str] = None  # the run this outcome belongs to (filled in by the server)
+    arrivedAt: Optional[str] = None  # ISO time of the driver's manual arrival, carried by offline records
+
 
 class IssueCategoryItem(BaseModel):
     id: str
@@ -79,3 +81,11 @@ class DriverRunProgressResponse(BaseModel):
     currentStopIndex: int
     isCompleted: bool
     status: str
+
+
+class ArrivalRequest(BaseModel):
+    trip_id: str
+    stop_id: str
+    arrived_at: Optional[str] = None   # ISO device time of the button press (clamped by the server)
+    latitude: Optional[float] = None   # optional GPS fix, stored as evidence only
+    longitude: Optional[float] = None

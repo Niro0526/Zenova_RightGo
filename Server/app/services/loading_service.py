@@ -140,6 +140,42 @@ def get_trip_loading_sequence(db: Session, trip_id: int) -> Dict[str, Any]:
         "vehicleVolumeCapM3": vehicle.volume_cap_m3 if vehicle else None,
     }
 
+def refresh_trip_readiness(db: Session, trip: ReleasedTrip) -> bool:
+    """Re-evaluate the departure gate from the committed database state and flip the trip to
+    "ready" when every order is loaded, the manifest is acknowledged and no loading issue is open.
+
+    The loader UI marks all orders of a stop loaded in parallel requests, so no single request is
+    guaranteed to see the others' rows; each one re-checks after its own commit, so the last to
+    commit always observes the full picture. Returns True when the trip is (now) ready."""
+    if trip.loading_status in ("departed", "completed"):
+        return False
+    if trip.loading_status == "ready":
+        return True
+    db.refresh(trip)
+    states = db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
+    open_issues = db.query(LoadingIssue).filter(
+        LoadingIssue.manifest_version == trip.manifest_version,
+        LoadingIssue.vehicle_id == trip.vehicle_id,
+        LoadingIssue.trip_no == trip.trip_no,
+        LoadingIssue.status.in_(["open", "escalated"]),
+    ).count()
+    manifest = db.query(ReleasedManifest).filter(ReleasedManifest.id == trip.manifest_id).first()
+    is_ack = bool(manifest and manifest.acknowledgement == "acknowledged")
+    if states and all(s.is_loaded for s in states) and open_issues == 0 and is_ack:
+        trip.loading_status = "ready"
+        create_notification(
+            db,
+            target_role="driver",
+            kind="loading_complete",
+            title=f"Trip {trip.trip_id_str} Ready for Departure",
+            text=f"Vehicle {trip.vehicle_id} loaded successfully. OTP unlock available.",
+            plan_version=trip.manifest_version,
+        )
+        db.commit()
+        return True
+    return False
+
+
 def mark_order_loaded(db: Session, trip_id: int, order_ref: str, loaded_units: Optional[int] = None) -> OrderLoadingState:
     trip = db.query(ReleasedTrip).filter(ReleasedTrip.id == trip_id).first()
     if not trip:
@@ -198,6 +234,7 @@ def mark_order_loaded(db: Session, trip_id: int, order_ref: str, loaded_units: O
 
     db.commit()
     db.refresh(state)
+    refresh_trip_readiness(db, trip)
     return state
 
 def create_loading_issue(db: Session, req: LoadingIssueCreateRequest, reported_by: Optional[str] = None) -> LoadingIssue:

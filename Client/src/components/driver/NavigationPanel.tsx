@@ -123,6 +123,12 @@ export function NavigationPanel({
 
   const unwatchRef = useRef<(() => void) | null>(null);
 
+  // The persisted arrival (restored after a refresh, or undone if the server refused it) drives this panel.
+  useEffect(() => {
+    setHasArrived(initialArrivalConfirmed);
+    setArrivalTimestamp(initialArrivalTimestamp);
+  }, [initialArrivalConfirmed, initialArrivalTimestamp]);
+
   // Validate destination coordinates from backend
   const hasValidDestination =
     destinationLat !== undefined &&
@@ -785,6 +791,19 @@ export function NavigationPanel({
             className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-xs cursor-pointer border-none transition-all shadow-xs active:scale-95"
           >
             Confirm Arrival
+          </button>
+        </div>
+      ) : !hasArrived ? (
+        /* No GPS fix needed: the driver can always reveal the manual confirmation themselves */
+        <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs">
+          <span className="text-slate-500 font-medium">GPS unavailable or inaccurate?</span>
+          <button
+            type="button"
+            id="btn-driver-manual-arrival"
+            onClick={() => setManualNearOverride(true)}
+            className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-800 font-bold rounded-lg border border-slate-300 cursor-pointer transition-all active:scale-95"
+          >
+            I&apos;m at the store
           </button>
         </div>
       ) : null}

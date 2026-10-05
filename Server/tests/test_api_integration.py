@@ -139,6 +139,7 @@ def test_api_e2e_flow(client):
                     "stopId": sync_stop_id,
                     "stopName": "Colpetty Retailer",
                     "vehicleId": sync_vehicle_id,
+                    "arrivedAt": "2026-10-04T09:00:00Z",
                     "outcome": "full",
                     "podDetails": {
                         "signerName": "K. Perera",

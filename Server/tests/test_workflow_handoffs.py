@@ -72,6 +72,7 @@ def _delivery(stop, outcome="full", vehicle="VEH036", rec_id=None, delivered=Non
         "stopName": f"{stop} Outlet",
         "vehicleId": vehicle,
         "outcome": outcome,
+        "arrivedAt": datetime.now(timezone.utc).isoformat(),
         "podDetails": {"signerName": "Store", "hasSignature": True},
         "createdAt": datetime.now(timezone.utc).isoformat(),
     }
@@ -385,3 +386,172 @@ def test_infeasible_departed_trip_does_not_block_new_release(client, roles, db_s
     refs_in_new_trips = {r for t in res.json()["trips"] for r in t["orderRefs"]}
     assert not refs_in_new_trips & {f"S1-00{i}" for i in range(8)}
     assert not any(t["vehicleId"] == "VEH036" and t["tripNo"] == 1 for t in res.json()["trips"])
+
+
+# --------------------------------------------------------------------------- manual arrival, stop order, retryable vs permanent
+def _departed_unlocked_run(client, roles, db_session):
+    manifest, _ = _plan_and_publish(client, roles)
+    trip = manifest["trips"][0]
+    l, drv = roles["loader"], roles["driver"]
+    client.post("/api/manifests/1/ack", headers=l)
+    for ref in trip["orderRefs"]:
+        client.post(f"/api/trips/{trip['id']}/load-order", json={"order_ref": ref}, headers=l)
+    otp = client.get(f"/api/trips/{trip['id']}/readiness", headers=l).json()["otpCode"]
+    assert client.post(f"/api/trips/{trip['id']}/depart", headers=l).status_code == 200
+    assert client.post("/api/driver/otp/verify", json={"trip_id": trip["tripId"], "vehicle_id": "VEH036", "otp_code": otp}, headers=drv).status_code == 200
+    return trip
+
+
+def _code(res):
+    d = res.json()["detail"]
+    return d["code"], d["retryable"]
+
+
+def test_manual_arrival_is_persisted_idempotent_and_restored(client, roles, db_session):
+    drv = roles["driver"]
+    trip = _departed_unlocked_run(client, roles, db_session)
+    first_stop, second_stop = trip["stopOutletIds"][0], trip["stopOutletIds"][1]
+    run = client.get("/api/driver/my-run", headers=drv).json()
+    assert all(s["arrivedAt"] is None for s in run["stops"])  # nothing is "arrived" just because the run is live
+
+    # GPS-free: the body carries no coordinates, arrival still works (manual path)
+    res = client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": first_stop}, headers=drv)
+    assert res.status_code == 200, res.text
+    stamp = res.json()["arrivedAt"]
+    again = client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": first_stop, "arrived_at": "2099-01-01T00:00:00Z"}, headers=drv)
+    assert again.status_code == 200 and again.json()["arrivedAt"] == stamp  # first confirmation wins, no duplicates
+    # restored after a "refresh" = a fresh read of the run
+    run = client.get("/api/driver/my-run", headers=drv).json()
+    assert next(s for s in run["stops"] if s["stopId"] == first_stop)["arrivedAt"] == stamp
+    assert next(s for s in run["stops"] if s["stopId"] == second_stop)["arrivedAt"] is None
+    # a loader cannot confirm arrival
+    assert client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": first_stop}, headers=roles["loader"]).status_code == 403
+    # audit trail
+    assert "arrived" in {e["action"] for e in client.get("/api/ledger", headers=roles["dispatcher"]).json()}
+
+
+def test_stop_order_is_enforced_by_the_backend(client, roles, db_session):
+    drv = roles["driver"]
+    trip = _departed_unlocked_run(client, roles, db_session)
+    s1, s2 = trip["stopOutletIds"][0], trip["stopOutletIds"][1]
+
+    # cannot arrive at, or deliver to, stop 2 before stop 1 has an outcome - the refusal is retryable
+    res = client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": s2}, headers=drv)
+    assert res.status_code == 409 and _code(res) == ("PREVIOUS_STOP_PENDING", True)
+    res = client.post("/api/driver/deliveries", json=_delivery(s2), headers=drv)
+    assert res.status_code == 409 and _code(res) == ("PREVIOUS_STOP_PENDING", True)
+
+    # a delivery with no persisted arrival and none carried is refused permanently
+    body = _delivery(s1)
+    body.pop("arrivedAt")
+    res = client.post("/api/driver/deliveries", json=body, headers=drv)
+    assert res.status_code == 409 and _code(res) == ("ARRIVAL_REQUIRED", False)
+
+    # the authorized exception path: record stop 1 as NOT DELIVERED (reason + notes) - that unblocks stop 2
+    assert client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": s1}, headers=drv).status_code == 200
+    res = client.post("/api/driver/deliveries", json=_delivery(s1, "none", rec_id="DEL-SEQ-1"), headers=drv)
+    assert res.status_code == 200, res.text
+    # permanent refusals say so (checked while the run is still open)
+    dup = client.post("/api/driver/deliveries", json=_delivery(s1, rec_id="DEL-SEQ-1-AGAIN"), headers=drv)
+    assert dup.status_code == 409 and _code(dup) == ("STOP_ALREADY_RECORDED", False)
+    foreign = client.post("/api/driver/deliveries", json=_delivery("OUT099", rec_id="DEL-X"), headers=drv)
+    assert foreign.status_code == 409 and _code(foreign) == ("STOP_NOT_ON_RUN", False)
+
+    assert client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": s2}, headers=drv).status_code == 200
+    assert client.post("/api/driver/deliveries", json=_delivery(s2, rec_id="DEL-SEQ-2"), headers=drv).status_code == 200
+    # once every stop has an outcome the run is closed: further events are permanently refused
+    late = client.post("/api/driver/deliveries", json=_delivery(s2, rec_id="DEL-LATE"), headers=drv)
+    assert late.status_code == 409 and _code(late) == ("RUN_COMPLETED", False)
+
+
+def test_arrival_is_refused_until_departed_and_unlocked_and_marked_retryable(client, roles, db_session):
+    drv, l = roles["driver"], roles["loader"]
+    manifest, _ = _plan_and_publish(client, roles)
+    trip = manifest["trips"][0]
+    stop = trip["stopOutletIds"][0]
+    res = client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": stop}, headers=drv)
+    assert res.status_code == 409 and _code(res) == ("RUN_NOT_DEPARTED", True)
+    client.post("/api/manifests/1/ack", headers=l)
+    for ref in trip["orderRefs"]:
+        client.post(f"/api/trips/{trip['id']}/load-order", json={"order_ref": ref}, headers=l)
+    otp = client.get(f"/api/trips/{trip['id']}/readiness", headers=l).json()["otpCode"]
+    client.post(f"/api/trips/{trip['id']}/depart", headers=l)
+    res = client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": stop}, headers=drv)
+    assert res.status_code == 403 and _code(res) == ("RUN_LOCKED", True)
+    client.post("/api/driver/otp/verify", json={"trip_id": trip["tripId"], "vehicle_id": "VEH036", "otp_code": otp}, headers=drv)
+    assert client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": stop}, headers=drv).status_code == 200
+
+
+def test_sync_results_distinguish_retryable_from_permanent_and_carry_arrival(client, roles, db_session):
+    drv, l = roles["driver"], roles["loader"]
+    manifest, _ = _plan_and_publish(client, roles)
+    trip = manifest["trips"][0]
+    s1 = trip["stopOutletIds"][0]
+
+    def ev(eid, etype, payload):
+        return {"event_id": eid, "event_type": etype, "payload": payload, "recorded_at": datetime.now(timezone.utc).isoformat()}
+
+    # run not departed: retryable rejection
+    res = client.post("/api/sync", json={"device_id": "D", "events": [ev("00000000-0000-0000-0000-0000000000a1", "delivery.completed", _delivery(s1, rec_id="DEL-S-1"))]}, headers=drv).json()
+    assert res["results"][0]["status"] == "rejected" and res["results"][0]["retryable"] is True and res["results"][0]["code"] == "RUN_NOT_DEPARTED"
+    client.post("/api/manifests/1/ack", headers=l)
+    for ref in trip["orderRefs"]:
+        client.post(f"/api/trips/{trip['id']}/load-order", json={"order_ref": ref}, headers=l)
+    otp = client.get(f"/api/trips/{trip['id']}/readiness", headers=l).json()["otpCode"]
+    client.post(f"/api/trips/{trip['id']}/depart", headers=l)
+    client.post("/api/driver/otp/verify", json={"trip_id": trip["tripId"], "vehicle_id": "VEH036", "otp_code": otp}, headers=drv)
+    # a queued arrival event applies; the retried delivery then applies (it was never marked processed)
+    arr = client.post("/api/sync", json={"device_id": "D", "events": [ev("00000000-0000-0000-0000-0000000000a2", "arrival.confirmed", {"tripId": trip["tripId"], "stopId": s1})]}, headers=drv).json()
+    assert arr["results"][0]["status"] == "applied"
+    ok = client.post("/api/sync", json={"device_id": "D", "events": [ev("00000000-0000-0000-0000-0000000000a1", "delivery.completed", _delivery(s1, rec_id="DEL-S-1"))]}, headers=drv).json()
+    assert ok["results"][0]["status"] == "applied"
+    # a conflicting second outcome for the same stop: permanent
+    bad = client.post("/api/sync", json={"device_id": "D", "events": [ev("00000000-0000-0000-0000-0000000000a3", "delivery.completed", _delivery(s1, "none", rec_id="DEL-S-2"))]}, headers=drv).json()
+    assert bad["results"][0]["status"] == "rejected" and bad["results"][0]["retryable"] is False and bad["results"][0]["code"] == "STOP_ALREADY_RECORDED"
+
+
+def test_actual_unlock_versus_departure_order(client, roles, db_session):
+    """Documented order: the unlock code exists once the trip is READY and the driver may unlock then,
+    but arrival/delivery need BOTH the loader's departure and the unlock (README states exactly this)."""
+    drv, l = roles["driver"], roles["loader"]
+    manifest, _ = _plan_and_publish(client, roles)
+    trip = manifest["trips"][0]
+    stop = trip["stopOutletIds"][0]
+    # before loading is complete: no unlock (trip not ready), code not even needed yet
+    early = client.post("/api/driver/otp/verify", json={"trip_id": trip["tripId"], "vehicle_id": "VEH036", "otp_code": "000000"}, headers=drv)
+    assert early.status_code == 409 and _code(early) == ("RUN_NOT_READY", True)
+    client.post("/api/manifests/1/ack", headers=l)
+    for ref in trip["orderRefs"]:
+        client.post(f"/api/trips/{trip['id']}/load-order", json={"order_ref": ref}, headers=l)
+    ready = client.get(f"/api/trips/{trip['id']}/readiness", headers=l).json()
+    assert ready["isReady"] and ready["loadingStatus"] == "ready" and ready["otpCode"]
+    # READY (not yet departed): the driver CAN unlock ...
+    assert client.post("/api/driver/otp/verify", json={"trip_id": trip["tripId"], "vehicle_id": "VEH036", "otp_code": ready["otpCode"]}, headers=drv).status_code == 200
+    # ... but still cannot arrive or deliver until the loader departs the trip
+    res = client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": stop}, headers=drv)
+    assert res.status_code == 409 and _code(res) == ("RUN_NOT_DEPARTED", True)
+    assert client.post(f"/api/trips/{trip['id']}/depart", headers=l).status_code == 200
+    assert client.post("/api/driver/arrival", json={"trip_id": trip["tripId"], "stop_id": stop}, headers=drv).status_code == 200
+
+
+def test_parallel_loading_never_strands_a_trip_short_of_ready(client, roles, db_session):
+    """The loader UI marks a stop's orders loaded in parallel requests; if no request observes the
+    others' rows the trip used to stay 'loading' forever and the driver could never unlock."""
+    drv, l = roles["driver"], roles["loader"]
+    manifest, _ = _plan_and_publish(client, roles)
+    trip = manifest["trips"][0]
+    client.post("/api/manifests/1/ack", headers=l)
+    for ref in trip["orderRefs"]:
+        assert client.post(f"/api/trips/{trip['id']}/load-order", json={"order_ref": ref}, headers=l).status_code == 200
+    # simulate the lost update: every order is loaded in the DB but the status flip was missed
+    row = db_session.query(ReleasedTrip).filter(ReleasedTrip.id == trip["id"]).one()
+    row.loading_status = "loading"
+    db_session.commit()
+    ready = client.get(f"/api/trips/{trip['id']}/readiness", headers=l).json()
+    assert ready["loadingStatus"] == "ready" and ready["isReady"] is True  # readiness endpoint heals it
+    row = db_session.query(ReleasedTrip).filter(ReleasedTrip.id == trip["id"]).one()
+    row.loading_status = "loading"
+    db_session.commit()
+    # ... and so does the driver's unlock path
+    res = client.post("/api/driver/otp/verify", json={"trip_id": trip["tripId"], "vehicle_id": "VEH036", "otp_code": ready["otpCode"]}, headers=drv)
+    assert res.status_code == 200, res.text

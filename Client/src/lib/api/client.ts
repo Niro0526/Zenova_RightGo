@@ -48,6 +48,9 @@ export class ApiError extends Error {
 
 function extractErrorMessage(detail: unknown, fallback: string): string {
   if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object' && !Array.isArray(detail) && typeof (detail as { message?: unknown }).message === 'string') {
+    return (detail as { message: string }).message;
+  }
   if (Array.isArray(detail)) {
     return detail.map((e) => (e && typeof e === 'object' && 'msg' in e ? String((e as { msg: unknown }).msg) : JSON.stringify(e))).join(', ');
   }
@@ -113,3 +116,16 @@ export const apiGet = <T>(path: string, query?: ApiFetchOptions['query'], signal
 
 export const apiPost = <T>(path: string, body?: unknown, query?: ApiFetchOptions['query']) =>
   apiFetch<T>(path, { method: 'POST', body, query });
+
+/** Structured refusal details from the driver endpoints: `retryable` says whether trying again
+ *  later can ever succeed (true) or the server will always refuse this record (false). */
+export function refusalInfo(err: unknown): { code?: string; retryable?: boolean } {
+  if (err instanceof ApiError && err.detail && typeof err.detail === 'object' && !Array.isArray(err.detail)) {
+    const d = err.detail as { code?: unknown; retryable?: unknown };
+    return {
+      code: typeof d.code === 'string' ? d.code : undefined,
+      retryable: typeof d.retryable === 'boolean' ? d.retryable : undefined,
+    };
+  }
+  return {};
+}

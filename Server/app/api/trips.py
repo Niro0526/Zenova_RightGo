@@ -13,6 +13,7 @@ from app.services.loading_service import (
     get_trip_loading_sequence,
     mark_order_loaded,
     depart_trip,
+    refresh_trip_readiness,
 )
 
 router = APIRouter(prefix="/trips", tags=["Trips & Loading"])
@@ -44,7 +45,7 @@ def api_get_trip_readiness(trip_id: int, db: Session = Depends(get_db), user: Cu
     trip = db.query(ReleasedTrip).filter(ReleasedTrip.id == trip_id).first()
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
-
+    refresh_trip_readiness(db, trip)  # heal a missed flip (parallel load requests) before reporting
     states = db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
     open_issues = db.query(LoadingIssue).filter(
         LoadingIssue.manifest_version == trip.manifest_version,

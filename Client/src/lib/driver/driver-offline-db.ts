@@ -6,6 +6,16 @@
  * Automatically synchronizes with the backend API upon internet reconnection.
  */
 
+export type SyncStatus = "Pending Sync" | "Syncing" | "Synced" | "Rejected";
+
+/** Failure bookkeeping stored on a record by the sync loop. */
+export interface SyncMeta {
+  syncError?: string | null;
+  syncCode?: string | null;
+  syncAttempts?: number;
+  nextRetryAt?: string | null;
+}
+
 export interface LocalDeliveryRecord {
   id: string; // e.g. "DEL-S1-T001-001"
   stopId: string; // "OUT001"
@@ -34,11 +44,18 @@ export interface LocalDeliveryRecord {
     hasSignature?: boolean;
     hasPhoto?: boolean;
   };
-  status: "Pending Sync" | "Syncing" | "Synced";
+  /** Pending Sync = will be retried; Rejected = the server will never accept it (kept for review, never auto-retried). */
+  status: SyncStatus;
   offlineCreated: boolean;
   createdAt: string; // ISO string
   syncedAt?: string | null;
   tripId?: string | null;
+  /** ISO time of the driver's manual Confirm Arrival, carried so an offline delivery is self-contained. */
+  arrivedAt?: string | null;
+  syncError?: string | null;
+  syncCode?: string | null;
+  syncAttempts?: number;
+  nextRetryAt?: string | null;
 }
 
 export interface IssueCategoryItem {
@@ -64,10 +81,15 @@ export interface IssueReportRecord {
     name: string;
     url: string;
   } | null;
-  status: "Pending Sync" | "Syncing" | "Synced";
+  status: SyncStatus;
   offlineCreated: boolean;
   createdAt: string; // ISO string
   syncedAt?: string | null;
+  syncError?: string | null;
+  syncCode?: string | null;
+  syncAttempts?: number;
+  nextRetryAt?: string | null;
+
 }
 
 const DB_NAME = "RightGo_Driver_DB";
@@ -192,8 +214,9 @@ export async function getAllLocalDeliveryRecords(): Promise<LocalDeliveryRecord[
  */
 export async function updateRecordSyncStatus(
   id: string,
-  status: "Pending Sync" | "Syncing" | "Synced",
-  syncedAt?: string
+  status: SyncStatus,
+  syncedAt?: string,
+  meta?: SyncMeta
 ): Promise<void> {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -207,6 +230,12 @@ export async function updateRecordSyncStatus(
         record.status = status;
         if (syncedAt !== undefined) {
           record.syncedAt = syncedAt;
+        }
+        if (meta) Object.assign(record, meta);
+        if (status === "Synced") {
+          record.syncError = null;
+          record.syncCode = null;
+          record.nextRetryAt = null;
         }
         const putRequest = store.put(record);
         putRequest.onsuccess = () => resolve();
@@ -330,8 +359,9 @@ export async function getAllLocalIssueReports(): Promise<IssueReportRecord[]> {
  */
 export async function updateIssueReportSyncStatus(
   id: string,
-  status: "Pending Sync" | "Syncing" | "Synced",
-  syncedAt?: string
+  status: SyncStatus,
+  syncedAt?: string,
+  meta?: SyncMeta
 ): Promise<void> {
   try {
     const db = await openDB();
@@ -347,6 +377,7 @@ export async function updateIssueReportSyncStatus(
           if (syncedAt !== undefined) {
             record.syncedAt = syncedAt;
           }
+          if (meta) Object.assign(record, meta);
           const putRequest = store.put(record);
           putRequest.onsuccess = () => resolve();
           putRequest.onerror = () => reject(putRequest.error);
@@ -372,6 +403,7 @@ export async function updateIssueReportSyncStatus(
         if (syncedAt !== undefined) {
           target.syncedAt = syncedAt;
         }
+        if (meta) Object.assign(target, meta);
         localStorage.setItem(LOCAL_STORAGE_REPORTS_KEY, JSON.stringify(list));
       }
     }
@@ -384,14 +416,117 @@ export async function updateIssueReportSyncStatus(
    3. BACKEND API TRANSMISSION & DISPATCH ENGINE
    ───────────────────────────────────────────────────────────── */
 
-import { postDriverDelivery, postDriverIssue } from "./driver-api";
-import { ApiError } from "@/lib/api/client";
+import { postDriverDelivery, postDriverIssue, postDriverArrival } from "./driver-api";
+import { ApiError, refusalInfo } from "@/lib/api/client";
 
-/** A 4xx other than timeout/rate-limit means the server understood and refused this record
- *  (e.g. run still locked, stop already recorded) - retrying later may help, but it must not
- *  block the records queued behind it. Network errors / 5xx / 408 / 429 are transient. */
-function isServerRefusal(err: unknown): err is ApiError {
-  return err instanceof ApiError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
+/**
+ * Why a send failed, and what the queue must do about it:
+ *  - "transient": network down / 5xx / 408 / 429 / 401 - stop this pass (keep order), retry with backoff.
+ *  - "retryable-refusal": the server understood but the run is not ready yet (not departed, locked, an earlier
+ *    stop still queued) - keep the record Pending and retry later with backoff.
+ *  - "permanent": the server will never accept it (stop already recorded, not on this run, bad quantity...)
+ *    - mark it Rejected with the reason, keep all its data, and never auto-retry.
+ */
+type FailureKind = "transient" | "retryable-refusal" | "permanent";
+
+function classifyFailure(err: unknown): { kind: FailureKind; message: string; code?: string } {
+  if (!(err instanceof ApiError)) return { kind: "transient", message: err instanceof Error ? err.message : "Network error" };
+  const { code, retryable } = refusalInfo(err);
+  const s = err.status;
+  if (s === 0 || s >= 500 || s === 408 || s === 429 || s === 401) return { kind: "transient", message: err.message, code };
+  if (s >= 400 && s < 500) {
+    // structured refusals say so explicitly; an unstructured 4xx (validation, role) will never succeed
+    return { kind: retryable === true ? "retryable-refusal" : "permanent", message: err.message, code };
+  }
+  return { kind: "transient", message: err.message, code };
+}
+
+/** 15s, 30s, 60s ... capped at 5 minutes. */
+function backoffMs(attempts: number): number {
+  return Math.min(5 * 60_000, 15_000 * 2 ** Math.max(0, attempts - 1));
+}
+
+function isDue(r: { nextRetryAt?: string | null }): boolean {
+  return !r.nextRetryAt || Date.parse(r.nextRetryAt) <= Date.now();
+}
+
+async function markFailure<T extends { id: string; syncAttempts?: number }>(
+  record: T,
+  failure: { kind: FailureKind; message: string; code?: string },
+  setStatus: (id: string, status: SyncStatus, syncedAt?: string, meta?: SyncMeta) => Promise<void>
+) {
+  const attempts = (record.syncAttempts ?? 0) + 1;
+  if (failure.kind === "permanent") {
+    await setStatus(record.id, "Rejected", undefined, {
+      syncError: failure.message, syncCode: failure.code ?? null, syncAttempts: attempts, nextRetryAt: null,
+    });
+  } else {
+    await setStatus(record.id, "Pending Sync", undefined, {
+      syncError: failure.message, syncCode: failure.code ?? null, syncAttempts: attempts,
+      nextRetryAt: new Date(Date.now() + backoffMs(attempts)).toISOString(),
+    });
+  }
+}
+
+/** Put a Rejected record back in the queue (e.g. after the dispatcher fixed the underlying problem). */
+export async function retryRejectedRecord(kind: "delivery" | "report", id: string): Promise<void> {
+  const reset: SyncMeta = { syncError: null, syncCode: null, syncAttempts: 0, nextRetryAt: null };
+  if (kind === "delivery") await updateRecordSyncStatus(id, "Pending Sync", undefined, reset);
+  else await updateIssueReportSyncStatus(id, "Pending Sync", undefined, reset);
+}
+
+/* ── Manual arrival queue (small, localStorage): arrival confirmed while offline is kept and sent first ── */
+const LOCAL_STORAGE_ARRIVALS_KEY = "RightGo_Driver_Arrivals";
+
+export interface LocalArrival {
+  id: string; // `${tripId}:${stopId}`
+  tripId: string;
+  stopId: string;
+  arrivedAt: string; // ISO
+  latitude?: number;
+  longitude?: number;
+  status: SyncStatus;
+  syncError?: string | null;
+  syncCode?: string | null;
+  syncAttempts?: number;
+  nextRetryAt?: string | null;
+}
+
+function readArrivals(): LocalArrival[] {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_ARRIVALS_KEY);
+    return raw ? (JSON.parse(raw) as LocalArrival[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeArrivals(list: LocalArrival[]) {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_ARRIVALS_KEY, JSON.stringify(list));
+  } catch {
+    // storage unavailable: the arrival still travels inside the delivery record
+  }
+}
+
+export function getLocalArrivals(): LocalArrival[] {
+  return readArrivals();
+}
+
+export function queueLocalArrival(a: Omit<LocalArrival, "id" | "status">): LocalArrival {
+  const entry: LocalArrival = { ...a, id: `${a.tripId}:${a.stopId}`, status: "Pending Sync" };
+  const list = readArrivals().filter((x) => x.id !== entry.id);
+  list.push(entry);
+  writeArrivals(list);
+  return entry;
+}
+
+function removeLocalArrival(id: string) {
+  writeArrivals(readArrivals().filter((x) => x.id !== id));
+}
+
+function patchLocalArrival(id: string, patch: Partial<LocalArrival>) {
+  writeArrivals(readArrivals().map((x) => (x.id === id ? { ...x, ...patch } : x)));
 }
 
 let syncInFlight: ReturnType<typeof runSync> | null = null;
@@ -442,11 +577,12 @@ export async function getAllPendingCount(): Promise<{
     getPendingDeliveryRecords(),
     getPendingIssueReports(),
   ]);
+  const pendingArrivals = readArrivals().filter((a) => a.status === "Pending Sync").length;
 
   return {
     deliveriesCount: pendingDeliveries.length,
     reportsCount: pendingReports.length,
-    totalPending: pendingDeliveries.length + pendingReports.length,
+    totalPending: pendingDeliveries.length + pendingReports.length + pendingArrivals,
   };
 }
 
@@ -476,12 +612,18 @@ async function runSync(): Promise<{
   totalSynced: number;
   syncedTimeStr: string;
 }> {
-  const [pendingDeliveries, pendingReports] = await Promise.all([
+  const [allPendingDeliveries, allPendingReports] = await Promise.all([
     getPendingDeliveryRecords(),
     getPendingIssueReports(),
   ]);
+  // Records still inside their backoff window wait; everything else is due now.
+  const pendingDeliveries = allPendingDeliveries.filter(isDue);
+  const pendingReports = allPendingReports.filter(isDue);
+  const pendingArrivals = readArrivals()
+    .filter((a) => a.status === "Pending Sync" && isDue(a))
+    .sort((a, b) => Date.parse(a.arrivedAt) - Date.parse(b.arrivedAt));
 
-  const totalPending = pendingDeliveries.length + pendingReports.length;
+  const totalPending = pendingDeliveries.length + pendingReports.length + pendingArrivals.length;
   const nowTimeStr = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
   if (totalPending === 0) {
@@ -497,34 +639,52 @@ async function runSync(): Promise<{
   let syncedDeliveries = 0;
   let syncedReports = 0;
   const syncTimestamp = new Date().toISOString();
+  let stopPass = false;
+
+  // 1. Manual arrivals first (they gate the delivery of the same stop)
+  for (const arr of pendingArrivals) {
+    try {
+      await postDriverArrival({ tripId: arr.tripId, stopId: arr.stopId, arrivedAt: arr.arrivedAt, latitude: arr.latitude, longitude: arr.longitude });
+      removeLocalArrival(arr.id);
+    } catch (err) {
+      const failure = classifyFailure(err);
+      const attempts = (arr.syncAttempts ?? 0) + 1;
+      patchLocalArrival(arr.id, failure.kind === "permanent"
+        ? { status: "Rejected", syncError: failure.message, syncCode: failure.code ?? null, syncAttempts: attempts, nextRetryAt: null }
+        : { syncError: failure.message, syncCode: failure.code ?? null, syncAttempts: attempts, nextRetryAt: new Date(Date.now() + backoffMs(attempts)).toISOString() });
+      if (failure.kind === "transient") { stopPass = true; break; }
+    }
+  }
 
   // 2. Transmit delivery records strictly in recorded order. A record is only marked Synced
   //    after the server acknowledged it; on a transient failure we stop, so later records
   //    are never delivered ahead of an earlier one.
-  for (const del of pendingDeliveries) {
+  for (const del of stopPass ? [] : pendingDeliveries) {
     await updateRecordSyncStatus(del.id, "Syncing");
     try {
       await transmitDeliveryRecordToBackend(del);
       await updateRecordSyncStatus(del.id, "Synced", syncTimestamp);
       syncedDeliveries++;
     } catch (err) {
-      console.error(`Failed to sync delivery record ${del.id}:`, err);
-      await updateRecordSyncStatus(del.id, "Pending Sync");
-      if (!isServerRefusal(err)) break;
+      const failure = classifyFailure(err);
+      console.error(`Failed to sync delivery record ${del.id} (${failure.kind}):`, failure.message);
+      await markFailure(del, failure, updateRecordSyncStatus);
+      if (failure.kind === "transient") { stopPass = true; break; }
     }
   }
 
   // 3. Transmit issue reports (same rules)
-  for (const rep of pendingReports) {
+  for (const rep of stopPass ? [] : pendingReports) {
     await updateIssueReportSyncStatus(rep.id, "Syncing");
     try {
       await transmitIssueReportToBackend(rep);
       await updateIssueReportSyncStatus(rep.id, "Synced", syncTimestamp);
       syncedReports++;
     } catch (err) {
-      console.error(`Failed to sync issue report ${rep.id}:`, err);
-      await updateIssueReportSyncStatus(rep.id, "Pending Sync");
-      if (!isServerRefusal(err)) break;
+      const failure = classifyFailure(err);
+      console.error(`Failed to sync issue report ${rep.id} (${failure.kind}):`, failure.message);
+      await markFailure(rep, failure, updateIssueReportSyncStatus);
+      if (failure.kind === "transient") break;
     }
   }
 

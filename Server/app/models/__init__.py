@@ -27,6 +27,7 @@ from app.models.operations import (
     DriverIssue,
     DeliveryRecord,
     ReceiptRecord,
+    StopArrival,
 )
 from app.models.memory import (
     DeferralMemory,
@@ -59,6 +60,8 @@ __all__ = [
     "DriverIssue",
     "DeliveryRecord",
     "ReceiptRecord",
+    "StopArrival",
+
     "DeferralMemory",
     "DeferralAcknowledgement",
     "Notification",

@@ -20,6 +20,8 @@ class EventSyncResult(BaseModel):
     status: str # applied, duplicate, rejected
     message: Optional[str] = None
     remote_id: Optional[str] = None
+    code: Optional[str] = None          # machine-readable reason when rejected
+    retryable: Optional[bool] = None    # True: may succeed later (retry); False: permanent, needs attention
 
 class OfflineSyncResponse(BaseModel):
     success: bool

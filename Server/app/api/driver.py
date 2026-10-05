@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.core.deps import require_role, CurrentUser
 from app.models.plan import ReleasedTrip, ReleasedManifest, OrderLoadingState
-from app.models.operations import DeliveryRecord, DriverIssue, LoadingIssue
+from app.models.operations import DeliveryRecord, DriverIssue, LoadingIssue, StopArrival
 from app.models.order import Order
 from app.models.reference import Outlet
 from app.schemas.driver import (
     OTPVerifyRequest,
+    ArrivalRequest,
     LocalDeliveryRecordSchema,
     IssueReportRecordSchema,
     DriverRunProgressResponse,
@@ -24,6 +25,8 @@ from app.services.driver_service import (
     get_driver_run_progress,
     record_driver_delivery,
     record_driver_issue,
+    confirm_arrival,
+    reject,
 )
 from app.services.storage_service import storage_service
 
@@ -46,6 +49,11 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
         DeliveryRecord.manifest_version == trip.manifest_version,
         DeliveryRecord.vehicle_id == trip.vehicle_id,
         DeliveryRecord.stop_id.in_(stop_ids),
+    ).all()}
+    arrivals = {a.stop_id: a for a in db.query(StopArrival).filter(
+        StopArrival.trip_id == trip.trip_id_str,
+        StopArrival.manifest_version == trip.manifest_version,
+        StopArrival.vehicle_id == trip.vehicle_id,
     ).all()}
     effective_units = {
         s.order_ref: s.effective_units
@@ -99,6 +107,7 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
             "managerPhone": outlet.phone if outlet else "+94 77 100000",
             "latitude": outlet.latitude if outlet else None,
             "longitude": outlet.longitude if outlet else None,
+            "arrivedAt": arrivals[out_id].arrived_at.isoformat() if out_id in arrivals else None,
             "isCompleted": del_rec is not None,
             "outcome": del_rec.outcome if del_rec else None,
             "orders": order_refs,
@@ -154,8 +163,19 @@ def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db), user: C
     """Verify 6-digit cryptographic OTP to unlock driver run - rejects a
     driver trying to unlock a trip assigned to a different vehicle."""
     if user.vehicle_id and req.vehicle_id != user.vehicle_id:
-        raise HTTPException(status_code=403, detail="You can only unlock a trip assigned to your own vehicle.")
+        raise reject(403, "FORBIDDEN_VEHICLE", "You can only unlock a trip assigned to your own vehicle.", False)
     return verify_driver_otp(db, req.trip_id, req.vehicle_id, req.otp_code, actor=user.display_name)
+
+@router.post("/arrival")
+def api_confirm_arrival(req: ArrivalRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Persist the driver's manual Confirm Arrival at a stop of their own live run (idempotent).
+    The vehicle always comes from the session, never the request."""
+    arrival = confirm_arrival(
+        db, user.vehicle_id, req.trip_id, req.stop_id,
+        arrived_at=req.arrived_at, latitude=req.latitude, longitude=req.longitude, actor=user.display_name,
+    )
+    return {"success": True, "stopId": arrival.stop_id, "tripId": arrival.trip_id, "arrivedAt": arrival.arrived_at.isoformat()}
+
 
 @router.get("/progress", response_model=DriverRunProgressResponse)
 def api_get_driver_progress(trip_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
@@ -167,7 +187,7 @@ def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends
     """Record delivery outcome and POD metadata - rejects a delivery recorded
     against a trip/vehicle the authenticated driver doesn't own."""
     if user.vehicle_id and record.vehicleId != user.vehicle_id:
-        raise HTTPException(status_code=403, detail="You can only record deliveries for your own vehicle's trip.")
+        raise reject(403, "FORBIDDEN_VEHICLE", "You can only record deliveries for your own vehicle's trip.", False)
     rec = record_driver_delivery(db, record, actor=user.display_name)
     return {"success": True, "deliveryId": rec.id, "status": rec.status}
 
@@ -229,7 +249,7 @@ def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = De
 def api_record_driver_issue(report: IssueReportRecordSchema, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
     """Report road or delivery issue after vehicle departure."""
     if user.vehicle_id and report.vehicleId != user.vehicle_id:
-        raise HTTPException(status_code=403, detail="You can only report issues for your own vehicle's trip.")
+        raise reject(403, "FORBIDDEN_VEHICLE", "You can only report issues for your own vehicle's trip.", False)
     issue = record_driver_issue(db, report)
     return {"success": True, "issueId": issue.id, "status": issue.status}
 

@@ -7,6 +7,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import Session
+from fastapi import HTTPException
 from app.core.deps import CurrentUser
 from app.models.memory import OfflineProcessedEvent
 from app.models.plan import ReleasedManifest
@@ -16,7 +17,7 @@ from app.schemas.sync import (
     EventSyncResult,
 )
 from app.schemas.driver import LocalDeliveryRecordSchema, IssueReportRecordSchema
-from app.services.driver_service import record_driver_delivery, record_driver_issue, get_driver_active_trip
+from app.services.driver_service import record_driver_delivery, record_driver_issue, get_driver_active_trip, confirm_arrival
 from app.services.loading_service import acknowledge_manifest
 
 class SyncOwnershipError(Exception):
@@ -114,6 +115,7 @@ def process_offline_sync(
                     offlineCreated=True,
                     createdAt=item.recorded_at,
                     syncedAt=now_utc.isoformat(),
+                    arrivedAt=del_data.get("arrivedAt"),
                 )
                 rec = record_driver_delivery(db, del_schema, source_device_id=request.device_id, actor=user.display_name)
                 event_record.status = "applied"
@@ -180,6 +182,24 @@ def process_offline_sync(
                     remote_id=iss.id,
                 ))
 
+            elif item.event_type in ("arrival.confirmed", "arrival_confirmed"):
+                if user.role != "driver":
+                    raise SyncOwnershipError("Only the driver role may confirm arrival.")
+                arr = item.payload
+                arrival = confirm_arrival(
+                    db, user.vehicle_id, arr.get("tripId") or arr.get("trip_id") or "", arr.get("stopId") or arr.get("stop_id") or "",
+                    arrived_at=arr.get("arrivedAt") or item.recorded_at,
+                    latitude=arr.get("latitude"), longitude=arr.get("longitude"), actor=user.display_name,
+                )
+                event_record.status = "applied"
+                db.add(event_record)
+                db.commit()
+                results.append(EventSyncResult(
+                    event_id=item.event_id,
+                    status="applied",
+                    message=f"Arrival at {arrival.stop_id} recorded.",
+                    remote_id=arrival.id,
+                ))
             elif item.event_type in ("manifest.ack", "manifest_ack"):
                 if user.role != "loader":
                     raise SyncOwnershipError("Only the loader role may acknowledge a manifest.")
@@ -210,15 +230,23 @@ def process_offline_sync(
 
         except Exception as e:
             db.rollback()
+            # Distinguish "try again later" from "this will never be accepted".
+            code, retryable, message = None, False, str(e)
+            detail = getattr(e, "detail", None)
+            if isinstance(detail, dict):
+                code, retryable, message = detail.get("code"), bool(detail.get("retryable")), detail.get("message") or message
+            elif isinstance(e, HTTPException):
+                message = str(detail)
             event_record.status = "rejected"
-            event_record.error_message = str(e)
+            event_record.error_message = f"{code or 'ERROR'}: {message}"
             db.add(event_record)
             db.commit()
-
             results.append(EventSyncResult(
                 event_id=item.event_id,
                 status="rejected",
-                message=f"Error applying event: {str(e)}",
+                message=f"Error applying event: {message}",
+                code=code,
+                retryable=retryable,
             ))
 
     all_applied = all(r.status in ("applied", "duplicate") for r in results)

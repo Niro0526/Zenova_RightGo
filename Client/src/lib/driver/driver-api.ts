@@ -27,6 +27,7 @@ export interface DriverRunStop {
   latitude?: number | null;
   longitude?: number | null;
   isCompleted: boolean;
+  arrivedAt?: string | null;
   outcome?: "full" | "discrepancy" | "none" | null;
   orders: string[];
   orderDetails?: { orderRef: string; units: number; plannedUnits: number; weightKg?: number; volumeM3?: number; tempRequirement?: string }[];
@@ -102,6 +103,19 @@ export async function verifyDriverOtp(tripId: string, vehicleId: string, otpCode
  */
 export async function postDriverDelivery(record: LocalDeliveryRecord) {
   return apiPost<{ success: boolean; deliveryId: string; status: string }>("/driver/deliveries", record);
+}
+
+/**
+ * Persist the driver's MANUAL Confirm Arrival at a stop (idempotent; GPS never calls this by itself).
+ */
+export async function postDriverArrival(args: { tripId: string; stopId: string; arrivedAt?: string; latitude?: number; longitude?: number }) {
+  return apiPost<{ success: boolean; stopId: string; tripId: string; arrivedAt: string }>("/driver/arrival", {
+    trip_id: args.tripId,
+    stop_id: args.stopId,
+    arrived_at: args.arrivedAt,
+    latitude: args.latitude,
+    longitude: args.longitude,
+  });
 }
 
 /**

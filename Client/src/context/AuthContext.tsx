@@ -56,13 +56,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(profile);
           sessionStorage.setItem('rightgo_user', JSON.stringify(profile));
         }
-      } catch {
-        // Expired/invalid session - clear it rather than leaving a stale, unverified profile in place.
-        setAuthToken(null);
-        try {
-          sessionStorage.removeItem('rightgo_user');
-          sessionStorage.removeItem('rightgo_token');
-        } catch {}
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) {
+          // The server says this session is invalid/expired - clear it rather than keep a stale profile.
+          setAuthToken(null);
+          try {
+            sessionStorage.removeItem('rightgo_user');
+            sessionStorage.removeItem('rightgo_token');
+          } catch {}
+        } else {
+          // Could not reach the server (offline, request interrupted by a reload, 5xx): that says nothing
+          // about the session, so the driver must not be logged out for it. Keep the token and show the
+          // stored profile; every API call is still verified server-side.
+          try {
+            const stored = sessionStorage.getItem('rightgo_user');
+            if (stored) setUser(JSON.parse(stored) as UserProfile);
+          } catch {}
+        }
       } finally {
         setIsLoading(false);
       }

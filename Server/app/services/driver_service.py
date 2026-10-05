@@ -6,7 +6,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.plan import ReleasedManifest, ReleasedTrip, OrderLoadingState
-from app.models.operations import DeliveryRecord, DriverIssue
+from app.models.operations import DeliveryRecord, DriverIssue, StopArrival
 from app.models.order import Order
 from app.models.reference import Outlet
 from app.schemas.driver import (
@@ -16,8 +16,137 @@ from app.schemas.driver import (
 )
 from app.services.notification_service import create_notification
 from app.services.ledger_service import record_ledger_entry
+from app.services.loading_service import refresh_trip_readiness
 from app.services.storage_service import storage_service
 from app.core.config import settings
+
+def reject(status_code: int, code: str, message: str, retryable: bool) -> HTTPException:
+    """Structured refusal. `retryable` tells the offline queue whether trying again later can
+    succeed (run not departed/unlocked yet, an earlier stop still queued) or never will
+    (stop already recorded, not on this run, invalid quantity) so it stops retrying and keeps
+    the record for review instead of looping forever."""
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message, "retryable": retryable})
+
+
+def _parse_device_time(value: Optional[str], fallback: datetime) -> datetime:
+    """Device clock timestamp, clamped to a sane range (never in the future)."""
+    if not value:
+        return fallback
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+    except Exception:
+        return fallback
+    return min(parsed, fallback)
+
+
+def _recorded_stop_ids(db: Session, trip: ReleasedTrip) -> set:
+    return {d.stop_id for d in db.query(DeliveryRecord).filter(
+        DeliveryRecord.trip_id == trip.trip_id_str,
+        DeliveryRecord.manifest_version == trip.manifest_version,
+        DeliveryRecord.vehicle_id == trip.vehicle_id,
+    ).all()}
+
+
+def _require_stop_sequence(db: Session, trip: ReleasedTrip, stop_id: str) -> None:
+    """The approved sequence (the released stop order) is enforced by the backend: a stop can only
+    be worked once every earlier stop has an outcome. The existing exception path is the driver's
+    "not delivered" outcome (with reason + evidence), which counts as an outcome and unblocks the next."""
+    stops = list(trip.stop_outlet_ids or [])
+    done = _recorded_stop_ids(db, trip)
+    pending = [s for s in stops[: stops.index(stop_id)] if s not in done]
+    if pending:
+        raise reject(
+            status.HTTP_409_CONFLICT, "PREVIOUS_STOP_PENDING",
+            f"Finish stop {pending[0]} first (stops must be worked in the released order; record it as not delivered if it cannot be served).",
+            True,
+        )
+
+
+def _require_workable_run(trip: Optional[ReleasedTrip], stop_id: str) -> ReleasedTrip:
+    if not trip:
+        raise reject(status.HTTP_409_CONFLICT, "NO_ACTIVE_RUN", "No active run for this vehicle.", False)
+    if stop_id not in (trip.stop_outlet_ids or []):
+        raise reject(status.HTTP_409_CONFLICT, "STOP_NOT_ON_RUN", f"Stop {stop_id} is not part of run {trip.trip_id_str}.", False)
+    if trip.loading_status == "completed":
+        raise reject(status.HTTP_409_CONFLICT, "RUN_COMPLETED", f"Run {trip.trip_id_str} is already completed.", False)
+    if trip.loading_status != "departed":
+        raise reject(
+            status.HTTP_409_CONFLICT, "RUN_NOT_DEPARTED",
+            f"Run {trip.trip_id_str} is '{trip.loading_status}', not departed: stops can only be worked after the loader departs the trip.",
+            True,
+        )
+    if not trip.otp_unlocked:
+        raise reject(status.HTTP_403_FORBIDDEN, "RUN_LOCKED", "Run is locked. Enter the unlock code from the loader first.", True)
+    return trip
+
+
+def confirm_arrival(
+    db: Session,
+    vehicle_id: str,
+    trip_id_str: str,
+    stop_id: str,
+    arrived_at: Optional[str] = None,
+    latitude: Optional[float] = None,
+    longitude: Optional[float] = None,
+    actor: Optional[str] = None,
+) -> StopArrival:
+    """Record the driver's MANUAL arrival at a stop. Idempotent: the first confirmation wins.
+    Nothing in the system calls this from GPS - proximity alone never confirms arrival."""
+    trip = get_driver_active_trip(db, vehicle_id)
+    if trip and trip_id_str and trip.trip_id_str != trip_id_str:
+        raise reject(status.HTTP_409_CONFLICT, "RUN_MISMATCH", "That run is not your live run.", False)
+    trip = _require_workable_run(trip, stop_id)
+    existing = db.query(StopArrival).filter(
+        StopArrival.trip_id == trip.trip_id_str,
+        StopArrival.manifest_version == trip.manifest_version,
+        StopArrival.vehicle_id == trip.vehicle_id,
+        StopArrival.stop_id == stop_id,
+    ).first()
+    if existing:
+        return existing
+    if stop_id in _recorded_stop_ids(db, trip):
+        raise reject(status.HTTP_409_CONFLICT, "STOP_ALREADY_RECORDED", f"Stop {stop_id} already has a recorded outcome.", False)
+    _require_stop_sequence(db, trip, stop_id)
+    now_utc = datetime.now(timezone.utc)
+    arrival = StopArrival(
+        trip_id=trip.trip_id_str,
+        manifest_version=trip.manifest_version,
+        vehicle_id=trip.vehicle_id,
+        stop_id=stop_id,
+        arrived_at=_parse_device_time(arrived_at, now_utc),
+        recorded_at=now_utc,
+        source="manual",
+        latitude=latitude,
+        longitude=longitude,
+        arrived_by=actor,
+    )
+    db.add(arrival)
+    db.commit()
+    db.refresh(arrival)
+    outlet = db.query(Outlet).filter(Outlet.outlet_id == stop_id).first()
+    record_ledger_entry(
+        db,
+        action="arrived",
+        actor=actor or "Driver",
+        outlet_id=stop_id,
+        vehicle_id=trip.vehicle_id,
+        trip_no=trip.trip_no,
+        reason_note=f"Driver confirmed arrival at {outlet.name if outlet else stop_id} (manual).",
+        plan_version=trip.manifest_version,
+    )
+    create_notification(
+        db,
+        target_role="store_manager",
+        target_outlet_id=stop_id,
+        kind="arrival",
+        title=f"Vehicle {trip.vehicle_id} Arrived",
+        text=f"The driver has confirmed arrival at your outlet on {trip.trip_id_str}.",
+        plan_version=trip.manifest_version,
+    )
+    return arrival
+
 
 def get_driver_active_trip(db: Session, vehicle_id: Optional[str]) -> Optional[ReleasedTrip]:
     """Fetch the active released trip for the driver's own vehicle.
@@ -106,10 +235,10 @@ def verify_driver_otp(
             "vehicleId": trip.vehicle_id,
             "unlocked": True,
         }
-    if trip.loading_status not in ("ready", "departed"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Run {trip.trip_id_str} is not ready yet ({trip.loading_status}). The loader must finish loading first.",
+    if trip.loading_status not in ("ready", "departed") and not refresh_trip_readiness(db, trip):
+        raise reject(
+            status.HTTP_409_CONFLICT, "RUN_NOT_READY",
+            f"Run {trip.trip_id_str} is not ready yet ({trip.loading_status}). The loader must finish loading first.", True,
         )
     if trip.otp_attempts >= 5:
         raise HTTPException(
@@ -236,19 +365,8 @@ def record_driver_delivery(
     if existing:
         return existing
     if record.outcome not in ("full", "discrepancy", "none"):
-        raise HTTPException(status_code=422, detail=f"Unknown delivery outcome '{record.outcome}'.")
-    trip = get_driver_active_trip(db, record.vehicleId)
-    if not trip:
-        raise HTTPException(status_code=409, detail="No active run for this vehicle.")
-    if record.stopId not in (trip.stop_outlet_ids or []):
-        raise HTTPException(status_code=409, detail=f"Stop {record.stopId} is not part of run {trip.trip_id_str}.")
-    if trip.loading_status != "departed":
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Run {trip.trip_id_str} is '{trip.loading_status}', not departed: deliveries can only be recorded after the loader departs the trip.",
-        )
-    if not trip.otp_unlocked:
-        raise HTTPException(status_code=403, detail="Run is locked. Enter the OTP from the loader to unlock it first.")
+        raise reject(422, "INVALID_OUTCOME", f"Unknown delivery outcome '{record.outcome}'.", False)
+    trip = _require_workable_run(get_driver_active_trip(db, record.vehicleId), record.stopId)
     duplicate = db.query(DeliveryRecord).filter(
         DeliveryRecord.trip_id == trip.trip_id_str,
         DeliveryRecord.manifest_version == trip.manifest_version,
@@ -256,10 +374,23 @@ def record_driver_delivery(
         DeliveryRecord.stop_id == record.stopId,
     ).first()
     if duplicate:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Stop {record.stopId} already has a recorded outcome ({duplicate.outcome}) on run {trip.trip_id_str}.",
+        raise reject(
+            status.HTTP_409_CONFLICT, "STOP_ALREADY_RECORDED",
+            f"Stop {record.stopId} already has a recorded outcome ({duplicate.outcome}) on run {trip.trip_id_str}.", False,
         )
+    _require_stop_sequence(db, trip, record.stopId)
+    # Arrival is its own explicit, persisted step. An offline record carries the time of the
+    # driver's manual confirmation; if neither exists the driver never confirmed arrival.
+    arrival = db.query(StopArrival).filter(
+        StopArrival.trip_id == trip.trip_id_str,
+        StopArrival.manifest_version == trip.manifest_version,
+        StopArrival.vehicle_id == trip.vehicle_id,
+        StopArrival.stop_id == record.stopId,
+    ).first()
+    if not arrival:
+        if not record.arrivedAt:
+            raise reject(status.HTTP_409_CONFLICT, "ARRIVAL_REQUIRED", f"Confirm arrival at {record.stopId} before recording the delivery.", False)
+        arrival = confirm_arrival(db, trip.vehicle_id, trip.trip_id_str, record.stopId, arrived_at=record.arrivedAt, actor=actor)
     stop_quantities = _stop_order_quantities(db, trip, record.stopId)
     expected_qty = sum(q for _, q in stop_quantities)
     discrepancy_type = None
@@ -269,13 +400,10 @@ def record_driver_delivery(
         delivered_qty = expected_qty
     elif record.outcome == "discrepancy":
         if not record.discrepancyDetails:
-            raise HTTPException(status_code=422, detail="Discrepancy details are required for a discrepancy outcome.")
+            raise reject(422, "DISCREPANCY_DETAILS_REQUIRED", "Discrepancy details are required for a discrepancy outcome.", False)
         delivered_qty = record.discrepancyDetails.deliveredQty
         if delivered_qty < 0 or delivered_qty > expected_qty:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Delivered quantity must be between 0 and the {expected_qty} units loaded for this stop.",
-            )
+            raise reject(422, "QUANTITY_INVALID", f"Delivered quantity must be between 0 and the {expected_qty} units loaded for this stop.", False)
         discrepancy_type = record.discrepancyDetails.type
         discrepancy_notes = record.discrepancyDetails.notes
     elif record.discrepancyDetails:
@@ -446,11 +574,11 @@ def record_driver_issue(
         return existing
     issue_trip = get_driver_active_trip(db, report.vehicleId)
     if not issue_trip or (report.tripId and report.tripId != issue_trip.trip_id_str):
-        raise HTTPException(status_code=409, detail="Issue report does not match your live run.")
+        raise reject(status.HTTP_409_CONFLICT, "RUN_MISMATCH", "Issue report does not match your live run.", False)
     if issue_trip.loading_status not in ("departed", "completed"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Post-departure issues can only be reported once the trip has departed (use the loader's issue log before departure).",
+        raise reject(
+            status.HTTP_409_CONFLICT, "RUN_NOT_DEPARTED",
+            "Post-departure issues can only be reported once the trip has departed (use the loader's issue log before departure).", True,
         )
     now_utc = datetime.now(timezone.utc)
     rec_time = now_utc

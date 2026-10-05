@@ -59,6 +59,7 @@ def test_driver_workflow(db_session):
             stopName=f"{stop_id} / Outlet",
             vehicleId=trip.vehicle_id,
             outcome="full",
+            arrivedAt="2026-10-02T09:59:00Z",
             podDetails=PodDetails(
                 signerName="K. Perera",
                 hasSignature=True,

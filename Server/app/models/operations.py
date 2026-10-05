@@ -2,7 +2,7 @@
 
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, ForeignKey, JSON
+from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, ForeignKey, JSON, UniqueConstraint
 from app.database.base import Base
 
 class LoadingIssue(Base):
@@ -87,3 +87,22 @@ class ReceiptRecord(Base):
     notes = Column(Text, nullable=True)
     confirmed_by = Column(String(128), nullable=False)
     confirmed_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+
+
+class StopArrival(Base):
+    """Driver's manual "Confirm Arrival" at a stop of a live run. One row per (trip, stop);
+    persisted server-side so a refresh or a second device restores it. GPS never creates it."""
+    __tablename__ = "stop_arrivals"
+    __table_args__ = (UniqueConstraint("trip_id", "manifest_version", "vehicle_id", "stop_id", name="uq_stop_arrival_trip_stop"),)
+
+    id = Column(String(64), primary_key=True, default=lambda: f"ARR-{uuid.uuid4().hex[:10].upper()}")
+    trip_id = Column(String(64), nullable=False, index=True)
+    manifest_version = Column(Integer, nullable=False)
+    vehicle_id = Column(String(32), nullable=False, index=True)
+    stop_id = Column(String(32), nullable=False, index=True)
+    arrived_at = Column(DateTime(timezone=True), nullable=False)      # when the driver pressed the button (device clock, clamped)
+    recorded_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)  # server time
+    source = Column(String(16), default="manual", nullable=False)     # always "manual"
+    latitude = Column(Float, nullable=True)                           # optional GPS fix at confirmation (evidence only)
+    longitude = Column(Float, nullable=True)
+    arrived_by = Column(String(128), nullable=True)

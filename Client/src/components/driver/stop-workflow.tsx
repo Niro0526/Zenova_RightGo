@@ -26,9 +26,10 @@ import { SignatureModal } from "@/components/driver/today-run/SignatureModal";
 import { Toast, type ToastMessage } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { useAuth } from "@/context/AuthContext";
-import { saveLocalDeliveryRecord, updateRecordSyncStatus, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
+import { saveLocalDeliveryRecord, updateRecordSyncStatus, queueLocalArrival, getLocalArrivals, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
+import { ApiError, refusalInfo } from "@/lib/api/client";
 import { getOutletContact } from "@/lib/driver/outlet-service";
-import { postDriverDelivery, fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
+import { postDriverDelivery, postDriverArrival, fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
 import { NavigationPanel } from "@/components/driver/NavigationPanel";
 import { DriverCurrentStopMobileView } from "@/components/driver/current-stop/DriverCurrentStopMobileView";
 import { describeLoadingNote, describePlanChange, type Stop } from "@/components/driver/today-run/types";
@@ -124,6 +125,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const [deliveryStarted, setDeliveryStarted] = useState(false);
   const [stopStatus, setStopStatus] = useState<"EN_ROUTE" | "ARRIVED" | "DELIVERED">("EN_ROUTE");
   const [arrivalTimestamp, setArrivalTimestamp] = useState<string | null>(null);
+  const [arrivalIso, setArrivalIso] = useState<string | null>(null);
   const [isNavigating, setIsNavigating] = useState(false);
   const [completingDelivery, setCompletingDelivery] = useState(false);
   const [stopRecorded, setStopRecorded] = useState(initialStopRecorded);
@@ -170,6 +172,49 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   useEffect(() => {
     if (runStop) setExpectedQty(runStop.units);
   }, [runStop?.stopId, runStop?.units]);
+
+  // Restore a manual arrival after a refresh: from the server first, else from this device's offline queue.
+  useEffect(() => {
+    if (!runInfo?.tripId || !targetStopId) return;
+    const local = getLocalArrivals().find((a) => a.tripId === runInfo.tripId && a.stopId === targetStopId && a.status !== "Rejected");
+    const at = runStop?.arrivedAt || local?.arrivedAt;
+    if (!at) return;
+    setArrivalIso(at);
+    setArrivalTimestamp(new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    setStopStatus((s) => (s === "DELIVERED" ? s : "ARRIVED"));
+  }, [runInfo?.tripId, targetStopId, runStop?.arrivedAt]);
+
+  // Manual Confirm Arrival: persisted on the server (or queued on this device when offline). GPS never calls this.
+  const handleConfirmArrival = async (displayTime: string) => {
+    if (!runInfo?.tripId || !targetStopId) {
+      setToast({ id: Date.now().toString(), type: "warning", title: "No live run", message: "There is no active run to confirm arrival against.", duration: 4000 });
+      return;
+    }
+    const iso = new Date().toISOString();
+    setStopStatus("ARRIVED");
+    setArrivalTimestamp(displayTime);
+    setArrivalIso(iso);
+    try {
+      if (!isOnline) throw new ApiError(0, "offline", null);
+      const res = await postDriverArrival({ tripId: runInfo.tripId, stopId: targetStopId, arrivedAt: iso });
+      setArrivalIso(res.arrivedAt);
+      setToast({ id: Date.now().toString(), type: "success", title: "Arrival Confirmed", message: `Stop ${targetStopId} marked ARRIVED at ${displayTime} and saved.`, duration: 3000 });
+    } catch (err) {
+      const refused = err instanceof ApiError && err.status >= 400 && err.status < 500 && ![401, 408, 429].includes(err.status);
+      if (refused) {
+        // The server will not accept this arrival (e.g. an earlier stop is still open): undo it and say why.
+        setStopStatus("EN_ROUTE");
+        setArrivalTimestamp(null);
+        setArrivalIso(null);
+        const info = refusalInfo(err);
+        setToast({ id: Date.now().toString(), type: "warning", title: info.code === "PREVIOUS_STOP_PENDING" ? "Finish the earlier stop first" : "Arrival not accepted", message: (err as ApiError).message, duration: 6000 });
+      } else {
+        queueLocalArrival({ tripId: runInfo.tripId, stopId: targetStopId, arrivedAt: iso });
+        void refreshPendingCount();
+        setToast({ id: Date.now().toString(), type: "success", title: "Arrival saved on this device", message: "No connection - it will be sent automatically when you are back online.", duration: 4000 });
+      }
+    }
+  };
   const [discrepancyNotes, setDiscrepancyNotes] = useState("");
   const [discrepancyPhoto, setDiscrepancyPhoto] = useState<{ name: string; url: string } | null>(null);
 
@@ -439,6 +484,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       const localRecord: LocalDeliveryRecord = {
         id: recordId,
         tripId: runInfo?.tripId,
+        arrivedAt: arrivalIso,
         stopId: targetStopId,
         stopName,
         vehicleId,
@@ -1850,15 +1896,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                 initialArrivalConfirmed={stopStatus === "ARRIVED"}
                 initialArrivalTimestamp={arrivalTimestamp}
                 onConfirmArrival={(time) => {
-                  setStopStatus("ARRIVED");
-                  setArrivalTimestamp(time);
-                  setToast({
-                    id: Date.now().toString(),
-                    type: "success",
-                    title: "Arrival Confirmed",
-                    message: `Stop marked as ARRIVED at ${time}`,
-                    duration: 3000,
-                  });
+                  void handleConfirmArrival(time);
                 }}
                 onStartDelivery={() => {
                   setDeliveryStarted(true);
@@ -1951,15 +1989,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           stopStatus={stopStatus}
           arrivalTimestamp={arrivalTimestamp}
           onConfirmArrival={(ts) => {
-            setStopStatus("ARRIVED");
-            setArrivalTimestamp(ts);
-            setToast({
-              id: Date.now().toString(),
-              type: "success",
-              title: "Arrival Confirmed",
-              message: `Stop marked as ARRIVED at ${ts}`,
-              duration: 3000,
-            });
+            void handleConfirmArrival(ts);
           }}
           storeContact={storeContact}
         />

@@ -27,6 +27,7 @@ def test_offline_sync_idempotency(db_session, seed_active_trip):
                     "stopId": "OUT001",
                     "stopName": "Colpetty Retailer",
                     "vehicleId": "VEH036",
+                    "arrivedAt": "2026-10-04T09:00:00Z",
                     "outcome": "full",
                     "podDetails": {
                         "signerName": "K. Perera",

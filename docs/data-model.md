@@ -34,6 +34,7 @@ Source of truth: `Server/app/models/*.py` and `Server/alembic/versions/`. Timest
 | Table | Key | Purpose |
 |---|---|---|
 | `loading_issues` | `id` | Loader pre-departure issue: type (missing/damaged/short/vehicle_problem), units_affected, status, action_taken |
+| `stop_arrivals` | one row per (trip, stop), unique: the driver's **manual** Confirm Arrival (`arrived_at`, optional GPS evidence). Written only by `POST /api/driver/arrival` (or an offline delivery that carries `arrivedAt`); never by proximity. |
 | `delivery_records` | `id` | Driver stop outcome (full/discrepancy/none), quantities, reasons, POD photo/signature references, sync status, source_device_id |
 | `driver_issues` | `id` | Post-departure incident with category, description, photo reference, sync status |
 | `receipt_records` | `id` | Store receipt: order_ref, outlet_id, confirmed_units, issue flag/type, confirmed_by |
@@ -52,7 +53,7 @@ Source of truth: `Server/app/models/*.py` and `Server/alembic/versions/`. Timest
 
 ## Evolution
 
-Alembic head is `0004_merge_heads`: `0001_initial_schema` → (`0002_locks_cutoff_dedup` → `0003_auth_sessions`) and (`0002_add_outlet_coordinates`), merged by `0004`. Fresh databases are migrated with `alembic upgrade head` (the Docker entrypoint does this); the API also calls `create_all()` at startup for tables missing from older databases.
+Alembic head is `0005_stop_arrivals` (adds `stop_arrivals`, after `0004_merge_heads`): `0001_initial_schema` → (`0002_locks_cutoff_dedup` → `0003_auth_sessions`) and (`0002_add_outlet_coordinates`), merged by `0004`. Fresh databases are migrated with `alembic upgrade head` (the Docker entrypoint does this); the API also calls `create_all()` at startup for tables missing from older databases.
 
 ## Seeding
 

@@ -22,7 +22,7 @@ PostgreSQL   (SQLite fallback only when DATABASE_URL is unset or a placeholder)
 - **Frontend** `Client/`: App Router workspaces `/dispatcher`, `/loader`, `/driver`, `/store-manager`, plus `/login`. `src/lib/api/client.ts` is the shared API client (`NEXT_PUBLIC_API_URL`, default `http://localhost:8000`). Built with `output: "standalone"`.
 - **Backend** `Server/`: stateless API. All operational state is server-side; the browser keeps only the session token and the driver's offline queue.
 - **Auth**: four fixed demo users in `app/api/auth.py`. Login issues a random bearer token stored in `auth_sessions`; protected routes resolve it through `app/core/deps.py` and enforce roles (`dispatcher`, `loader`, `driver`, `store_manager`).
-- **Migrations**: Alembic (`Server/alembic`, single head `0004_merge_heads`). The API also runs `Base.metadata.create_all()` at startup and seeds reference data (`reference_service.seed_reference_data`); seeding only fills empty tables.
+- **Migrations**: Alembic (`Server/alembic`, single head `0005_stop_arrivals`). The API also runs `Base.metadata.create_all()` at startup and seeds reference data (`reference_service.seed_reference_data`); seeding only fills empty tables.
 
 ## Domain flow
 
