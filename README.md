@@ -55,16 +55,6 @@ If required files are missing the backend container stops with a message naming 
 
 ## Demo accounts
 
-Sign in at http://localhost:3000/login with a username or email.
-
-| Role | Username / email | Password | Lands on |
-|---|---|---|---|
-| Dispatcher | `dilani` / `dilani@rightgo.lk` | `Dispatch@2026` | `/dispatcher` |
-| Loader | `rizwan` / `rizwan@rightgo.lk` | `Loader@2026` | `/loader` |
-| Driver (vehicle VEH036) | `sunil` / `sunil@rightgo.lk` | `Driver@2026` | `/driver` |
-| Store Manager (outlet OUT001) | `kavitha` / `kavitha@rightgo.lk` | `Store@2026` | `/store-manager` |
-
-These are fixed demo credentials defined in [Server/app/api/auth.py](Server/app/api/auth.py). They are not for production use (see Known limitations).
 
 ## Cross-role walkthrough
 
