@@ -52,13 +52,19 @@ def process_offline_sync(
             OfflineProcessedEvent.event_id == item.event_id
         ).first()
 
-        if existing_event:
+        if existing_event and existing_event.status != "rejected":
             results.append(EventSyncResult(
                 event_id=item.event_id,
                 status="duplicate",
                 message="Event already processed previously. Replay ignored.",
             ))
             continue
+        if existing_event:
+            # A previously REJECTED event was never applied (e.g. the run was not yet
+            # departed/unlocked). Keep it retryable: drop the stale rejection record and
+            # process the replay normally instead of reporting it as already done.
+            db.delete(existing_event)
+            db.commit()
 
         # Parse recorded_at
         try:
@@ -109,7 +115,7 @@ def process_offline_sync(
                     createdAt=item.recorded_at,
                     syncedAt=now_utc.isoformat(),
                 )
-                rec = record_driver_delivery(db, del_schema, source_device_id=request.device_id)
+                rec = record_driver_delivery(db, del_schema, source_device_id=request.device_id, actor=user.display_name)
                 event_record.status = "applied"
                 db.add(event_record)
                 db.commit()
@@ -179,8 +185,7 @@ def process_offline_sync(
                     raise SyncOwnershipError("Only the loader role may acknowledge a manifest.")
 
                 ver = item.payload.get("version", current_version)
-                acknowledged_by_name = item.payload.get("acknowledged_by") or user.display_name
-                acknowledge_manifest(db, version=ver, acknowledged_by=acknowledged_by_name)
+                acknowledge_manifest(db, version=ver, acknowledged_by=user.display_name)
                 event_record.status = "applied"
                 db.add(event_record)
                 db.commit()

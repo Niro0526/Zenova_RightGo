@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import type { Stop } from "@/components/driver/today-run/types";
+import { describeLoadingNote, describePlanChange, type Stop } from "@/components/driver/today-run/types";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { DriverOfflineSyncNotice } from "@/components/driver/today-run-workflow";
 import { NavigationPanel } from "@/components/driver/NavigationPanel";
@@ -116,18 +116,34 @@ export function DriverCurrentStopMobileView({
 }: DriverCurrentStopMobileViewProps) {
   const { isOnline, connectionState } = useConnectivity();
 
-  const stopCode = stop.code || "OUT001";
-  const stopName = stop.name || "Colpetty Retailer";
-  const timeWindow = stop.timeWindow || "06:00 – 08:00";
-  const dockType = stop.dockType || "Rear Dock";
-  const phone = storeContact?.phone || "+94 11 257 3489";
+  const stopCode = stop.code || "";
+  const stopName = stop.name || stop.code || "";
+  const timeWindow = stop.timeWindow || "";
+  const dockType = stop.dockType || "";
+  const phone = storeContact?.phone || stop.managerPhone || "";
 
   // Coordinates
   const destinationLat = storeContact?.latitude ?? 6.9034;
   const destinationLng = storeContact?.longitude ?? 79.8512;
 
-  const ordersList =
-    stop.orders && stop.orders.length > 0 ? stop.orders : ["S1-000", "S1-001"];
+  // Real orders and quantities for this stop (effective units = after any loading shortfall).
+  const orderRows =
+    stop.orderDetails && stop.orderDetails.length > 0
+      ? stop.orderDetails
+      : (stop.orders ?? []).map((orderRef) => ({ orderRef, units: 0, plannedUnits: 0 }));
+  const ordersList = orderRows.map((o) => o.orderRef);
+  const loadingNotes = stop.loadingNotes ?? [];
+  const planChanges = loadingNotes.map(describePlanChange).filter((x): x is string => !!x);
+  const deliveredNum = deliveredQty !== "" && Number.isFinite(Number(deliveredQty)) ? Math.max(0, Number(deliveredQty)) : expectedQty;
+  // Split the delivered total across the stop's orders exactly as the server does (first order filled first).
+  let remainingDelivered = deliveredNum;
+  const actualByOrder = orderRows.map((o) => {
+    const take = Math.min(o.units, remainingDelivered);
+    remainingDelivered -= take;
+    return take;
+  });
+  const shortUnits = Math.max(0, expectedQty - deliveredNum);
+  const shortOrderRef = orderRows.find((o, i) => actualByOrder[i] < o.units)?.orderRef ?? orderRows[orderRows.length - 1]?.orderRef ?? "";
 
   const [isDiscrepancyDropdownOpen, setIsDiscrepancyDropdownOpen] = useState(false);
 
@@ -330,48 +346,29 @@ export function DriverCurrentStopMobileView({
                 ORDER QUANTITIES
               </span>
 
-              {/* Order S1-000 */}
-              <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-                <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                  S1-000
-                </span>
-                <div className="flex items-center gap-6">
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Expected
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F293B]">80</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Actual
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F9457]">80</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Order S1-001 */}
-              <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-                <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                  S1-001
-                </span>
-                <div className="flex items-center gap-6">
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Expected
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F293B]">80</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <span className="font-normal text-[10px] text-[#6B788C]">
-                      Actual
-                    </span>
-                    <span className="font-bold text-[15px] text-[#1F9457]">80</span>
+              {orderRows.map((o) => (
+                <div key={o.orderRef} className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
+                  <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                    {o.orderRef}
+                  </span>
+                  <div className="flex items-center gap-6">
+                    <div className="flex flex-col items-center">
+                      <span className="font-normal text-[10px] text-[#6B788C]">
+                        Expected
+                      </span>
+                      <span className="font-bold text-[15px] text-[#1F293B]">{o.units}</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <span className="font-normal text-[10px] text-[#6B788C]">
+                        Actual
+                      </span>
+                      <span className="font-bold text-[15px] text-[#1F9457]">{o.units}</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ))}
 
+              {/* Match Banner */}
               {/* Match Banner */}
               <div className="bg-[#EBFAF0] rounded-[9px] p-3 flex items-center justify-center">
                 <span className="font-bold text-[11px] leading-[13px] text-[#1F9457]">
@@ -390,47 +387,32 @@ export function DriverCurrentStopMobileView({
                   ACTUAL QUANTITIES
                 </span>
 
-                {/* S1-000 */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                      S1-000
-                    </span>
-                    <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
-                      Expected 80
-                    </span>
+                {orderRows.map((o, idx) => (
+                  <div key={o.orderRef} className="flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                        {o.orderRef}
+                      </span>
+                      <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
+                        Expected {o.units}
+                      </span>
+                    </div>
+                    <div className={`w-[96px] h-[40px] rounded-[8px] flex items-center justify-center ${actualByOrder[idx] < o.units ? "bg-[#FFF2E8]" : "bg-[#EDF2FA]"}`}>
+                      <span className={`font-bold text-[14px] leading-[17px] ${actualByOrder[idx] < o.units ? "text-[#ED5214]" : "text-[#1F293B]"}`}>
+                        {actualByOrder[idx]}
+                      </span>
+                    </div>
                   </div>
-                  <div className="w-[96px] h-[40px] bg-[#EDF2FA] rounded-[8px] flex items-center justify-center">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                      80
-                    </span>
-                  </div>
-                </div>
+                ))}
 
-                {/* S1-001 */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                      S1-001
-                    </span>
-                    <span className="font-normal text-[11px] leading-[13px] text-[#6B788C]">
-                      Expected 80
-                    </span>
-                  </div>
-                  <div className="w-[96px] h-[40px] bg-[#FFF2E8] rounded-[8px] flex items-center justify-center">
-                    <span className="font-bold text-[14px] leading-[17px] text-[#ED5214]">
-                      {deliveredQty || "72"}
-                    </span>
-                  </div>
-                </div>
-
+                {/* Quantity Discrepancy Alert Banner */}
                 {/* Quantity Discrepancy Alert Banner */}
                 <div className="w-full bg-[#FFF7E3] rounded-[9px] p-3 flex flex-col gap-1 border border-amber-200/60">
                   <span className="font-bold text-[11px] leading-[13px] text-[#ED5214]">
                     Quantity discrepancy
                   </span>
                   <span className="font-normal text-[11px] leading-[13px] text-[#1F293B]">
-                    S1-001: {Math.max(0, expectedQty - (Number(deliveredQty) || 72))} units short from expected quantity.
+                    {shortOrderRef}: {shortUnits} units short from expected quantity.
                   </span>
                   <span className="font-normal text-[10px] leading-[12px] text-[#6B788C]">
                     A reason is required before continuing.
@@ -451,7 +433,7 @@ export function DriverCurrentStopMobileView({
                   </span>
                   <div className="w-full h-[42px] px-3 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center">
                     <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-                      S1-001
+                      {shortOrderRef}
                     </span>
                   </div>
                 </div>
@@ -478,7 +460,7 @@ export function DriverCurrentStopMobileView({
                       type="number"
                       value={deliveredQty}
                       onChange={(e) => onChangeDeliveredQty(e.target.value)}
-                      placeholder="72"
+                      placeholder={String(expectedQty)}
                       className="font-bold text-[11px] leading-[13px] text-[#1F293B] bg-transparent border-none outline-hidden w-24"
                     />
                     <span className="font-bold text-[12px] leading-[15px] text-[#ED5214]">
@@ -494,7 +476,7 @@ export function DriverCurrentStopMobileView({
                   </span>
                   <div className="w-full h-[42px] px-3 bg-[#F7F9FB] border border-[#E0E3E8] rounded-[8px] flex items-center">
                     <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-                      {Math.max(0, expectedQty - (Number(deliveredQty) || 72))} units short
+                      {shortUnits} units short
                     </span>
                   </div>
                 </div>
@@ -590,7 +572,7 @@ export function DriverCurrentStopMobileView({
                   </span>
                   <div className="w-full min-h-[39px] px-3 py-2 bg-white border-[1.5px] border-[#ED5214] rounded-[8px] flex items-center justify-between">
                     <span className="font-normal text-[11px] leading-[13px] text-[#1F293B]">
-                      {discrepancyNotes || "8 units unavailable at delivery."}
+                      {discrepancyNotes || "Describe the discrepancy"}
                     </span>
                     <span className="font-bold text-[12px] leading-[15px] text-[#ED5214]">
                       ✎
@@ -917,26 +899,21 @@ export function DriverCurrentStopMobileView({
               EXPECTED ORDERS
             </span>
 
-            {/* S1-000 */}
-            <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-              <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                S1-000
-              </span>
-              <span className="font-normal text-[11px] leading-[13px] text-[#1F9457]">
-                Ready for delivery
-              </span>
-            </div>
+            {orderRows.map((o) => {
+              const reduced = o.units < o.plannedUnits;
+              return (
+                <div key={o.orderRef} className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
+                  <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
+                    {o.orderRef}
+                  </span>
+                  <span className={`font-normal text-[11px] leading-[13px] ${reduced ? "text-[#ED5214]" : "text-[#1F9457]"}`}>
+                    {reduced ? `${o.units} of ${o.plannedUnits} units (loading shortfall)` : `${o.units} units - ready for delivery`}
+                  </span>
+                </div>
+              );
+            })}
 
-            {/* S1-001 */}
-            <div className="flex items-center justify-between py-1 border-b border-[#F1F5F9]">
-              <span className="font-bold text-[14px] leading-[17px] text-[#1F293B]">
-                S1-001
-              </span>
-              <span className="font-normal text-[11px] leading-[13px] text-[#1F9457]">
-                Replacement stock verified
-              </span>
-            </div>
-
+            {/* Confirm Order Checkbox Frame */}
             {/* Confirm Order Checkbox Frame */}
             <div
               onClick={onToggleOrderConfirmed}
@@ -1107,32 +1084,33 @@ export function DriverCurrentStopMobileView({
           ))}
         </div>
 
-        {/* ── CARD 3: LOADING UPDATE RESOLVED (350x150, radius: 12px, bg: #EBFAF0) ── */}
-        <div className="bg-[#EBFAF0] rounded-[12px] p-4 flex flex-col gap-2 border border-emerald-200">
-          <span className="font-bold text-[13px] leading-[16px] text-[#1F9457]">
-            Loading Update — Resolved
-          </span>
-          <p className="font-normal text-[11px] leading-[14px] text-[#1F293B] m-0">
-            Loading issue reported for order S1-001 at {stopCode} / {stopName}.
-          </p>
-          <p className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
-            8 damaged units were replaced before departure. Final quantity verified by the Loader.
-          </p>
-          <span className="font-bold text-[11px] leading-[13px] text-[#1F9457]">
-            No action required.
-          </span>
-        </div>
+        {loadingNotes.length > 0 && (
+          <div className="bg-[#EBFAF0] rounded-[12px] p-4 flex flex-col gap-2 border border-emerald-200">
+            <span className="font-bold text-[13px] leading-[16px] text-[#1F9457]">
+              Loading Update
+            </span>
+            {loadingNotes.map((n, i) => (
+              <p key={i} className="font-normal text-[11px] leading-[14px] text-[#1F293B] m-0">
+                {describeLoadingNote(n)}
+              </p>
+            ))}
+          </div>
+        )}
 
-        {/* ── CARD 4: ACKNOWLEDGED PLAN CHANGES (350x102, radius: 12px, bg: #FFF7E3) ── */}
-        <div className="bg-[#FFF7E3] rounded-[12px] p-4 flex flex-col gap-1.5 border border-amber-200">
-          <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
-            ACKNOWLEDGED PLAN CHANGES
-          </span>
-          <p className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
-            Plan v2: 8 units of S1-001 replaced due to loading shortfall. Original 80 units → replacement stock loaded. Quantity verified by loader.
-          </p>
-        </div>
+        {planChanges.length > 0 && (
+          <div className="bg-[#FFF7E3] rounded-[12px] p-4 flex flex-col gap-1.5 border border-amber-200">
+            <span className="font-bold text-[11px] leading-[13px] text-[#1F293B]">
+              PLAN CHANGES
+            </span>
+            {planChanges.map((text, i) => (
+              <p key={i} className="font-normal text-[11px] leading-[14px] text-[#6B788C] m-0">
+                {text}
+              </p>
+            ))}
+          </div>
+        )}
 
+        {/* ── CARD 5: MAPBOX MAP PREVIEW & NAVIGATION (350x231, radius: 12px) ── */}
         {/* ── CARD 5: MAPBOX MAP PREVIEW & NAVIGATION (350x231, radius: 12px) ── */}
         <div className="flex flex-col gap-2">
           <NavigationPanel

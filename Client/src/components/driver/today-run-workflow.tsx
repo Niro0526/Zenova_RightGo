@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { STOPS } from "@/components/driver/today-run/types";
+
 import {
   RouteIcon,
   ClockIcon,
@@ -29,7 +29,7 @@ import {
   type LocalDeliveryRecord,
 } from "@/lib/driver/driver-offline-db";
 import { CompletedDeliveryModal } from "@/components/driver/today-run/CompletedDeliveryModal";
-import { fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
+import { fetchDriverRun, verifyDriverOtp, type DriverRunResponse } from "@/lib/driver/driver-api";
 import { TodayRunMobileView } from "@/components/driver/today-run/TodayRunMobileView";
 
 /* ─── Reusable sub-pieces (fluid, no absolute positioning) ─── */
@@ -391,20 +391,43 @@ export function TodayRunWorkflow() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Dynamic run state loaded from backend
-  const [tripInfo, setTripInfo] = useState({
+  const [tripInfo, setTripInfo] = useState<{
+    vehicleId: string;
+    tripPlanId: string;
+    planVersion: string;
+    brand: string;
+    district: string;
+    stops: Stop[];
+  }>({
     vehicleId: user?.vehicle_id ?? "",
-    tripPlanId: "S1-T001",
-    planVersion: "Plan v2",
-    brand: "Fresh",
-    district: "Colombo",
-    stops: STOPS,
+    tripPlanId: "",
+    planVersion: "",
+    brand: "",
+    district: "",
+    stops: [],
   });
+  // Server-authoritative run state: which stops already have a recorded outcome,
+  // whether the OTP unlock has happened, and the loader/departure status.
+  const [serverCompletedStops, setServerCompletedStops] = useState<string[]>([]);
+  const [runGate, setRunGate] = useState<{ isUnlocked: boolean; loadingStatus: string }>({ isUnlocked: true, loadingStatus: "" });
+  const [hasRun, setHasRun] = useState(false);
+  const [otpInput, setOtpInput] = useState("");
+  const [otpError, setOtpError] = useState<string | null>(null);
+  const [otpBusy, setOtpBusy] = useState(false);
 
   const loadRunData = useCallback(async () => {
     try {
       const run = await fetchDriverRun();
       setLoadError(null);
+      setHasRun(!!(run && run.hasRun && run.stops && run.stops.length > 0));
+      if (!run || !run.hasRun || !run.stops || run.stops.length === 0) {
+        // No active run: show the honest empty state, never leftover or sample stops.
+        setTripInfo((prev) => ({ ...prev, tripPlanId: "", planVersion: "", stops: [] }));
+        setServerCompletedStops([]);
+      }
       if (run && run.stops && run.stops.length > 0) {
+        setServerCompletedStops(run.stops.filter((st) => st.isCompleted).map((st) => st.stopId));
+        setRunGate({ isUnlocked: !!run.isUnlocked, loadingStatus: run.loadingStatus || "" });
         const formattedStops: Stop[] = run.stops.map((s) => ({
           id: s.id,
           stopId: s.stopId,
@@ -419,6 +442,8 @@ export function TodayRunWorkflow() {
           managerPhone: s.managerPhone,
           outlets: s.outlets || 1,
           orders: s.orders || [],
+          orderDetails: s.orderDetails,
+          loadingNotes: s.loadingNotes,
           units: s.units,
           weightKg: s.weightKg,
           volumeM3: s.volumeM3,
@@ -431,10 +456,10 @@ export function TodayRunWorkflow() {
 
         setTripInfo({
           vehicleId: run.vehicleId || user?.vehicle_id || "",
-          tripPlanId: run.tripId || "S1-T001",
-          planVersion: run.manifestVersion || "Plan v2",
-          brand: run.brand || "Fresh",
-          district: run.district || "Colombo",
+          tripPlanId: run.tripId || "",
+          planVersion: run.manifestVersion || "",
+          brand: run.brand || "",
+          district: run.district || "",
           stops: formattedStops,
         });
       }
@@ -474,9 +499,11 @@ export function TodayRunWorkflow() {
   // Compute status for stops: if completed in local IndexedDB or backend, mark as completed
   let foundNext = false;
   const stopsWithStatus: Stop[] = tripInfo.stops.map((stop) => {
-    const isDone = completedRecords.some(
-      (r) => r.stopId === stop.code || r.stopName.includes(stop.code)
-    );
+    const isDone =
+      serverCompletedStops.includes(stop.stopId ?? stop.code) ||
+      completedRecords.some(
+        (r) => r.status !== "Synced" && (r.stopId === stop.code || r.stopId === stop.stopId)
+      );
     if (isDone) {
       return { ...stop, status: "completed" as StopStatus };
     }
@@ -487,11 +514,42 @@ export function TodayRunWorkflow() {
     return { ...stop, status: "upcoming" as StopStatus };
   });
 
+  const handleUnlock = async () => {
+    setOtpBusy(true);
+    setOtpError(null);
+    try {
+      await verifyDriverOtp(tripInfo.tripPlanId, tripInfo.vehicleId, otpInput.trim());
+      setOtpInput("");
+      await loadRunData();
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Could not verify the code.");
+    } finally {
+      setOtpBusy(false);
+    }
+  };
+
   const completedCount = stopsWithStatus.filter((s) => s.status === "completed").length;
   const nextStop =
     stopsWithStatus.find((s) => s.status === "next") ??
     stopsWithStatus.find((s) => s.status === "upcoming") ??
     stopsWithStatus[0];
+
+  if (!isLoading && (!hasRun || !nextStop)) {
+    return (
+      <div className="m-6 flex flex-col gap-2 rounded-2xl border border-[#CBD5E1] bg-white p-6 text-sm text-[#485563]">
+        <span className="text-base font-bold text-[#202D2D]">No active run</span>
+        <span>
+          {loadError
+            ? `Could not reach the RightGo server: ${loadError}`
+            : "No released run is assigned to your vehicle yet. It appears here once the dispatcher releases a plan and the loader has loaded your vehicle."}
+        </span>
+      </div>
+    );
+  }
+  if (!nextStop) {
+    return null; // still loading the first response
+  }
+
 
   return (
     <>
@@ -500,6 +558,35 @@ export function TodayRunWorkflow() {
         onClose={() => setSelectedRecord(null)}
         record={selectedRecord}
       />
+
+      {!runGate.isUnlocked && (
+        <div className="m-4 mb-0 flex flex-col gap-2 rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm text-[#202D2D]">
+          <span className="font-bold">Run locked - enter the unlock code from the loader</span>
+          {runGate.loadingStatus === "ready" || runGate.loadingStatus === "departed" ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={otpInput}
+                onChange={(e) => setOtpInput(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="6-digit code"
+                className="w-40 rounded-lg border border-[#CBD5E1] px-3 py-2 tracking-[0.3em]"
+              />
+              <button
+                type="button"
+                disabled={otpBusy || otpInput.length !== 6}
+                onClick={() => void handleUnlock()}
+                className="rounded-lg bg-[#F97316] px-4 py-2 font-bold text-white disabled:opacity-50"
+              >
+                {otpBusy ? "Checking..." : "Unlock run"}
+              </button>
+            </div>
+          ) : (
+            <span className="text-[#64748B]">Waiting for the loader to finish loading your vehicle (status: {runGate.loadingStatus || "planned"}).</span>
+          )}
+          {otpError && <span className="font-semibold text-red-600">{otpError}</span>}
+        </div>
+      )}
 
       {loadError && (
         <div className="m-4 mb-0 flex items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">

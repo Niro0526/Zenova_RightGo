@@ -335,7 +335,7 @@ export function CompletedDeliveryModal({
               <span className="text-[10px] font-semibold text-slate-400 block uppercase">
                 Trip Plan
               </span>
-              <span className="font-bold text-slate-800">S1-T001 (Plan v2)</span>
+              <span className="font-bold text-slate-800">{record.tripId || "-"}</span>
             </div>
             <div>
               <span className="text-[10px] font-semibold text-slate-400 block uppercase">

@@ -1,4 +1,4 @@
-﻿# RightGo Frontend
+# RightGo Frontend
 
 Next.js 15, TypeScript, and Tailwind CSS client application for the RightGo Logistics Platform.
 
@@ -12,24 +12,16 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
-`/` is a role-selection homepage linking to each workspace. Use the role switcher inside
-any workspace to jump between Store Manager, Dispatcher, Loader, and Driver — there is no
-sign-in yet, so every workspace is open for demonstration.
+`/` is a role-selection homepage; `/login` signs in with one of four demo accounts (see the
+root `README.md`) and routes to that role's workspace. Run the backend (`Server/`) on
+`http://localhost:8000` (or set `NEXT_PUBLIC_API_URL`) for data to load.
 
-| Workspace | Route |
+| Workspace | Routes |
 | --- | --- |
-| Home / role picker | `/` |
-| Store Manager | `/store-manager` |
-| Dispatcher | `/dispatcher` |
-| Loader — Assigned Trips | `/loader` |
-| Loader — Load Sequence | `/loader/load-sequence` |
-| Loader — Report Issue | `/loader/report-issue` |
-| Loader — Trip Readiness | `/loader/trip-readiness` |
-| Driver | `/driver` |
-
-The loader pages use sample data. Only trip S1-T001 has a loading details demo;
-other trip actions stay disabled. Driver is a navigation shell and empty state only —
-no trip data, backend, or workflow is implemented yet.
+| Store Manager | `/store-manager` (+ `place-order`, `my-orders`, `order-detail`, `deliveries`, `degradation`) |
+| Dispatcher | `/dispatcher` (+ `orders`, `planning`, `plan-review`, `live-operations`, `future-capacity`, `reports`) |
+| Loader | `/loader` (+ `load-sequence`, `report-issue`, `review-changes`, `trip-readiness`) |
+| Driver | `/driver` (+ `today-run`, `current-stop`, `history`, `offline`, `report`) |
 
 After switching branches, stop and restart the development server. If using
 `npm start`, run `npm run build` first so it serves the current branch's pages.
@@ -49,7 +41,4 @@ Next.js uses its own build tooling, so a separate Vite setup is not needed.
 | `src/lib/` | Integrations and business-rule logic (e.g. dispatcher checker-parity validation) |
 | `src/data/` | Mock/demo datasets |
 
-`src/layouts/`, `src/services/`, `src/utils/`, and `src/offline/` aren't present yet —
-nothing in the current codebase needs them (no shared layout wrapper beyond each role's
-own chrome, no real API/service layer, no extracted pure helpers, no offline/PWA support).
-Reintroduce them when that work begins rather than keeping them as empty placeholders.
+Tests: `npm test` (Vitest). Production build: `npm run build`.

@@ -23,7 +23,6 @@ interface AuthContextType {
   logout: () => void;
 }
 
-const API_BASE = 'http://localhost:8000/api';
 const ROLE_HOME_ROUTES: Record<UserProfile['role'], string> = {
   dispatcher: '/dispatcher',
   loader: '/loader',

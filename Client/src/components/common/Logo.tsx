@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 interface LogoProps {
-  /** Small uppercase tag shown under the wordmark, e.g. "Loader Role", "PULSE". */
+  /** Small uppercase tag shown under the wordmark, e.g. "Loader Role", "Driver Portal". */
   subtitle?: string;
   /** Compact single-letter mark instead of the full wordmark (tight spaces). */
   compact?: boolean;
@@ -11,22 +11,23 @@ interface LogoProps {
   className?: string;
 }
 
-/**
- * Temporary text wordmark — no approved RightGo brand asset exists in this
- * repo yet. Replace with the approved logo file once design delivers one.
- */
 export default function Logo({ subtitle, compact = false, tone = "dark", href, className = "" }: LogoProps) {
   const wordmarkColor = tone === "dark" ? "text-white" : "text-[#202D2D]";
+  const markIcon = (
+    <img
+      src="/brand/logo-mark.png"
+      alt="RightGo"
+      className={compact ? "h-8 w-8 shrink-0 object-contain" : "h-9 w-9 shrink-0 object-contain"}
+    />
+  );
   const mark = compact ? (
-    <span
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#F97316] text-[15px] font-bold leading-none text-white"
-      aria-hidden="true"
-    >
-      R
-    </span>
+    markIcon
   ) : (
-    <span className={`text-[17px] font-bold leading-[22px] tracking-[-0.2px] ${wordmarkColor}`}>
-      Right<span className="text-[#F97316]">Go</span>
+    <span className="flex items-center gap-2">
+      {markIcon}
+      <span className={`text-[17px] font-bold leading-[22px] tracking-[-0.2px] ${wordmarkColor}`}>
+        Right<span className="text-[#F97316]">Go</span>
+      </span>
     </span>
   );
 

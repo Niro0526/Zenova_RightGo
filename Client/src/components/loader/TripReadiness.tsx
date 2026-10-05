@@ -297,6 +297,12 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                     <span className="text-[#64748B]">Status:</span>
                     <span className="font-bold text-[#202D2D] capitalize">{readiness.loadingStatus}</span>
                   </div>
+                  {(isReady || alreadyDeparted) && readiness.otpCode && (
+                    <div className="flex flex-col sm:col-span-2">
+                      <span className="text-[#64748B]">Driver unlock code (give to {readiness.vehicleId} driver):</span>
+                      <span className="font-bold text-[#202D2D] tracking-[0.3em] text-base">{readiness.otpCode}</span>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-col gap-2 mt-2">

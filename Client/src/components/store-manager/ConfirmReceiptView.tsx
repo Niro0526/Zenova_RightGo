@@ -17,6 +17,8 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 
+import { getReceiptExpectation, type ReceiptExpectation } from '@/lib/api/dispatcher';
+
 interface ConfirmReceiptViewProps {
   order?: any;
   selectedOutlet?: any;
@@ -30,30 +32,54 @@ export default function ConfirmReceiptView({
   onReceiptConfirmed, 
   onBack 
 }: ConfirmReceiptViewProps) {
-  const currentOrder = order || {
-    delivery_id: 'S1-001',
-    driver_name: 'Chaminda Vithanage',
-    vehicle_id: 'VEH003 (Reefer Van)',
-    brand: 'Fresh'
-  };
+  const currentOrder = order || { delivery_id: '', driver_name: '', vehicle_id: '', brand: '' };
 
   // Delivery Status: 'complete' | 'partial' | 'damaged' | 'temp'
   const [deliveryStatus, setDeliveryStatus] = useState('complete');
 
   // Form Fields
-  const [receiverName, setReceiverName] = useState('K. Perera (Store Manager)');
-  const [deliveredTime, setDeliveredTime] = useState('07:30 AM');
+  const [receiverName, setReceiverName] = useState(selectedOutlet?.manager_name || '');
+  const [deliveredTime, setDeliveredTime] = useState(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
   const [discrepancyNote, setDiscrepancyNote] = useState('');
   const [uploadedPhotos, setUploadedPhotos] = useState<any[]>([]);
-  const [affectedProduct, setAffectedProduct] = useState('Organic Chicken Breast');
-  const [reportedShortQty, setReportedShortQty] = useState('2 cases');
+  const [affectedProduct, setAffectedProduct] = useState('');
+  const [reportedShortQty, setReportedShortQty] = useState('');
 
   // Interactive Checklist of Delivered Items
-  const [itemsChecklist, setItemsChecklist] = useState([
-    { id: 'item-1', name: 'Organic Chicken Breast', requested: '4 cases', expected: '4 cases', received: 4, isTicked: true, temp: 'Chilled (+4°C)' },
-    { id: 'item-2', name: 'Whole Pasteurised Milk', requested: '8 cases', expected: '8 cases', received: 8, isTicked: true, temp: 'Chilled (+4°C)' },
-    { id: 'item-3', name: 'Basmati Rice 5kg', requested: '3 cases', expected: '3 cases', received: 3, isTicked: true, temp: 'Ambient' }
-  ]);
+  // Real expectation from the server: the quantity the driver actually delivered for this order.
+  const [expectation, setExpectation] = useState<ReceiptExpectation | null>(null);
+  const [expectError, setExpectError] = useState<string | null>(null);
+  const [itemsChecklist, setItemsChecklist] = useState<any[]>([]);
+  useEffect(() => {
+    if (!currentOrder.delivery_id) return;
+    let alive = true;
+    getReceiptExpectation(currentOrder.delivery_id)
+      .then((exp) => {
+        if (!alive) return;
+        setExpectation(exp);
+        setExpectError(
+          !exp.delivered ? 'The driver has not recorded delivery for this order yet.'
+          : exp.outcome === 'none' ? 'This order was recorded as not delivered - there is nothing to confirm.'
+          : exp.alreadyConfirmed ? 'Receipt for this order was already confirmed.'
+          : null
+        );
+        const name = (currentOrder.items && currentOrder.items[0]?.name) || `${currentOrder.brand || ''} replenishment units`.trim();
+        setAffectedProduct(name);
+        setItemsChecklist([{
+          id: 'item-1',
+          name,
+          requested: `${exp.plannedUnits} units`,
+          expected: `${exp.deliveredUnits} units`,
+          received: exp.deliveredUnits,
+          isTicked: true,
+          temp: (currentOrder.items && currentOrder.items[0]?.temp) || '',
+        }]);
+      })
+      .catch((err) => {
+        if (alive) setExpectError(err instanceof Error ? err.message : 'Could not load the delivery for this order.');
+      });
+    return () => { alive = false; };
+  }, [currentOrder.delivery_id]);
 
   // Digital Signature Canvas Ref & State
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -123,7 +149,7 @@ export default function ConfirmReceiptView({
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.font = '22px "Brush Script MT", cursive, sans-serif';
         ctx.fillStyle = '#0F172A';
-        ctx.fillText('K. Perera (Signed)', 40, 45);
+        ctx.fillText(`${receiverName || 'Store manager'} (Signed)`, 40, 45);
       }
       setHasSignature(true);
     }
@@ -163,15 +189,8 @@ export default function ConfirmReceiptView({
         }]);
       };
       reader.readAsDataURL(file);
-    } else {
-      // Sample simulated photo
-      setUploadedPhotos(prev => [...prev, {
-        id: Date.now(),
-        name: `dock_proof_${Date.now().toString().slice(-4)}.jpg`,
-        url: 'https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?w=300&auto=format&fit=crop&q=60',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }]);
     }
+    // No file chosen: nothing is attached (no placeholder photo is ever invented).
   };
 
   const removePhoto = (id: any) => {
@@ -201,8 +220,17 @@ export default function ConfirmReceiptView({
       return;
     }
 
-    const isFullMatch = deliveryStatus === 'complete';
     const totalReceivedUnits = itemsChecklist.reduce((acc, item) => acc + (item.received || 0), 0);
+    const unitsShort = expectation ? totalReceivedUnits < expectation.deliveredUnits : false;
+    if (expectError) {
+      alert(expectError);
+      return;
+    }
+    if (unitsShort && deliveryStatus === 'complete') {
+      alert('You are confirming fewer units than were delivered. Choose a partial/damaged status and add a note.');
+      return;
+    }
+    const isFullMatch = deliveryStatus === 'complete' && !unitsShort;
     const disputesList = isFullMatch ? [] : [{
       product: affectedProduct,
       type: deliveryStatus,
@@ -217,7 +245,7 @@ export default function ConfirmReceiptView({
       status: deliveryStatus,
       disputes: disputesList,
       isFullMatch,
-      confirmedUnits: totalReceivedUnits > 0 ? totalReceivedUnits : 12
+      confirmedUnits: totalReceivedUnits
     });
   };
 
@@ -239,7 +267,7 @@ export default function ConfirmReceiptView({
               Proof of Delivery & Goods Receipt
             </h1>
             <p style={{ fontSize: '13px', color: '#64748B', marginTop: '2px' }}>
-              Order Ref: <strong>{currentOrder.delivery_id}</strong> • Driver: <strong>{currentOrder.driver_name || 'Chaminda Vithanage'}</strong> ({currentOrder.vehicle_id || 'VEH003 Reefer'})
+              Order Ref: <strong>{currentOrder.delivery_id}</strong> • Vehicle: <strong>{expectation?.vehicleId || currentOrder.vehicle_id || '-'}</strong>{expectation?.tripId ? <> • Trip <strong>{expectation.tripId}</strong></> : null}{expectError ? <span style={{ color: '#DC2626', marginLeft: 8 }}>{expectError}</span> : null}
             </p>
           </div>
 

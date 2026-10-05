@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models.plan import ReleasedManifest, ReleasedTrip, OrderLoadingState
@@ -30,32 +31,86 @@ def get_driver_active_trip(db: Session, vehicle_id: Optional[str]) -> Optional[R
     """
     if not vehicle_id:
         return None
-    return db.query(ReleasedTrip).join(
+    base_q = db.query(ReleasedTrip).join(
         ReleasedManifest, ReleasedTrip.manifest_id == ReleasedManifest.id
-    ).filter(
+    ).filter(ReleasedTrip.vehicle_id == vehicle_id)
+    # Live trips: on the current manifest, or already departed on an older one
+    # (a later release must never make an in-flight run disappear). Trips of a
+    # superseded manifest that never departed are stale and are not offered.
+    live = base_q.filter(
+        ReleasedTrip.loading_status != "completed",
+        or_(ReleasedManifest.is_active == True, ReleasedTrip.loading_status == "departed"),
+    ).order_by(ReleasedTrip.manifest_version.asc(), ReleasedTrip.trip_no.asc()).all()
+    in_flight = [t for t in live if t.loading_status == "departed"]
+    if in_flight:
+        return in_flight[0]
+    if live:
+        return sorted(live, key=lambda t: (-t.manifest_version, t.trip_no))[0]
+    # Nothing left to do: keep showing the finished run on the current manifest.
+    return base_q.filter(
         ReleasedManifest.is_active == True,
-        ReleasedTrip.vehicle_id == vehicle_id,
+        ReleasedTrip.loading_status == "completed",
+    ).order_by(ReleasedTrip.trip_no.desc()).first()
+
+
+def _stop_order_quantities(db: Session, trip: ReleasedTrip, stop_id: str):
+    """(order_ref, effective_units) for the orders this trip carries to a stop,
+    in a stable order. effective_units reflects any loading shortfall."""
+    refs = list(trip.order_refs or [])
+    orders = db.query(Order).filter(Order.order_ref.in_(refs), Order.outlet_id == stop_id).order_by(Order.order_ref).all() if refs else []
+    states = {
+        s.order_ref: s
+        for s in db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
+    }
+    return [(o.order_ref, (states[o.order_ref].effective_units if o.order_ref in states else o.order_units)) for o in orders]
+
+
+def delivered_units_by_order(db: Session, delivery: DeliveryRecord) -> Dict[str, int]:
+    """Split a stop's delivered quantity across its orders (first order filled
+    first) so a store can confirm receipt per order against what was actually
+    delivered. Returns {} when the delivery cannot be tied to a trip."""
+    if not delivery.trip_id or delivery.manifest_version is None:
+        return {}
+    trip = db.query(ReleasedTrip).filter(
+        ReleasedTrip.trip_id_str == delivery.trip_id,
+        ReleasedTrip.manifest_version == delivery.manifest_version,
+        ReleasedTrip.vehicle_id == delivery.vehicle_id,
     ).first()
+    if not trip:
+        return {}
+    remaining = delivery.delivered_qty
+    out: Dict[str, int] = {}
+    for ref, eff in _stop_order_quantities(db, trip, delivery.stop_id):
+        take = min(eff, remaining)
+        out[ref] = take
+        remaining -= take
+    return out
 
 def verify_driver_otp(
     db: Session,
     trip_id_str: str,
     vehicle_id: str,
     otp_code: str,
+    actor: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Verify 6-digit OTP to unlock driver run."""
-    trip = None
-    if trip_id_str:
-        trip = db.query(ReleasedTrip).filter(ReleasedTrip.trip_id_str == trip_id_str).order_by(ReleasedTrip.id.desc()).first()
-    if not trip and vehicle_id:
-        trip = db.query(ReleasedTrip).filter(ReleasedTrip.vehicle_id == vehicle_id).order_by(ReleasedTrip.id.desc()).first()
-    if not trip:
-        trip = db.query(ReleasedTrip).filter(
-            (ReleasedTrip.trip_id_str == trip_id_str) | (ReleasedTrip.vehicle_id == vehicle_id)
-        ).first()
-    if not trip:
-        raise HTTPException(status_code=404, detail="Trip not found")
-
+    """Verify 6-digit OTP to unlock driver run. The trip must belong to the
+    caller's vehicle and be the live run - never another vehicle's trip."""
+    trip = get_driver_active_trip(db, vehicle_id)
+    if not trip or (trip_id_str and trip.trip_id_str != trip_id_str):
+        raise HTTPException(status_code=404, detail="No matching active run for your vehicle.")
+    if trip.otp_unlocked:
+        return {
+            "success": True,
+            "message": "Run already unlocked.",
+            "tripId": trip.trip_id_str,
+            "vehicleId": trip.vehicle_id,
+            "unlocked": True,
+        }
+    if trip.loading_status not in ("ready", "departed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run {trip.trip_id_str} is not ready yet ({trip.loading_status}). The loader must finish loading first.",
+        )
     if trip.otp_attempts >= 5:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -77,7 +132,7 @@ def verify_driver_otp(
     record_ledger_entry(
         db,
         action="trip_unlocked",
-        actor="Sunil (Driver)",
+        actor=actor or "Driver",
         vehicle_id=trip.vehicle_id,
         trip_no=trip.trip_no,
         reason_note=f"Driver successfully unlocked run {trip.trip_id_str} via OTP verification.",
@@ -101,9 +156,12 @@ def verify_driver_otp(
         "unlocked": True,
     }
 
-def get_driver_run_progress(db: Session, trip_id_str: str) -> DriverRunProgressResponse:
-    """Calculate and return stop completion progress."""
-    trip = db.query(ReleasedTrip).filter(ReleasedTrip.trip_id_str == trip_id_str).first()
+def get_driver_run_progress(db: Session, trip_id_str: str, vehicle_id: Optional[str] = None) -> DriverRunProgressResponse:
+    """Calculate and return stop completion progress for the caller's own trip."""
+    q = db.query(ReleasedTrip).filter(ReleasedTrip.trip_id_str == trip_id_str)
+    if vehicle_id:
+        q = q.filter(ReleasedTrip.vehicle_id == vehicle_id)
+    trip = q.order_by(ReleasedTrip.manifest_version.desc()).first()
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")
 
@@ -124,6 +182,9 @@ def get_driver_run_progress(db: Session, trip_id_str: str) -> DriverRunProgressR
 
     # Deliveries recorded for this trip's stops
     deliveries = db.query(DeliveryRecord).filter(
+        DeliveryRecord.trip_id == trip.trip_id_str,
+        DeliveryRecord.manifest_version == trip.manifest_version,
+        DeliveryRecord.vehicle_id == trip.vehicle_id,
         DeliveryRecord.stop_id.in_(stops),
     ).all()
     completed_stop_ids = {d.stop_id for d in deliveries}
@@ -163,24 +224,63 @@ def record_driver_delivery(
     db: Session,
     record: LocalDeliveryRecordSchema,
     source_device_id: Optional[str] = None,
+    actor: Optional[str] = None,
 ) -> DeliveryRecord:
     """
     Save driver delivery outcome with POD metadata.
-    Idempotent on record.id.
+    Idempotent on record.id. The stop must belong to the vehicle's live,
+    departed and unlocked trip; quantities are computed server-side from what
+    was actually loaded, never trusted from the client.
     """
     existing = db.query(DeliveryRecord).filter(DeliveryRecord.id == record.id).first()
     if existing:
         return existing
-
+    if record.outcome not in ("full", "discrepancy", "none"):
+        raise HTTPException(status_code=422, detail=f"Unknown delivery outcome '{record.outcome}'.")
+    trip = get_driver_active_trip(db, record.vehicleId)
+    if not trip:
+        raise HTTPException(status_code=409, detail="No active run for this vehicle.")
+    if record.stopId not in (trip.stop_outlet_ids or []):
+        raise HTTPException(status_code=409, detail=f"Stop {record.stopId} is not part of run {trip.trip_id_str}.")
+    if trip.loading_status != "departed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Run {trip.trip_id_str} is '{trip.loading_status}', not departed: deliveries can only be recorded after the loader departs the trip.",
+        )
+    if not trip.otp_unlocked:
+        raise HTTPException(status_code=403, detail="Run is locked. Enter the OTP from the loader to unlock it first.")
+    duplicate = db.query(DeliveryRecord).filter(
+        DeliveryRecord.trip_id == trip.trip_id_str,
+        DeliveryRecord.manifest_version == trip.manifest_version,
+        DeliveryRecord.vehicle_id == trip.vehicle_id,
+        DeliveryRecord.stop_id == record.stopId,
+    ).first()
+    if duplicate:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Stop {record.stopId} already has a recorded outcome ({duplicate.outcome}) on run {trip.trip_id_str}.",
+        )
+    stop_quantities = _stop_order_quantities(db, trip, record.stopId)
+    expected_qty = sum(q for _, q in stop_quantities)
     discrepancy_type = None
     discrepancy_notes = None
-    expected_qty = 0
     delivered_qty = 0
-    if record.discrepancyDetails:
+    if record.outcome == "full":
+        delivered_qty = expected_qty
+    elif record.outcome == "discrepancy":
+        if not record.discrepancyDetails:
+            raise HTTPException(status_code=422, detail="Discrepancy details are required for a discrepancy outcome.")
+        delivered_qty = record.discrepancyDetails.deliveredQty
+        if delivered_qty < 0 or delivered_qty > expected_qty:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Delivered quantity must be between 0 and the {expected_qty} units loaded for this stop.",
+            )
         discrepancy_type = record.discrepancyDetails.type
         discrepancy_notes = record.discrepancyDetails.notes
-        expected_qty = record.discrepancyDetails.expectedQty
-        delivered_qty = record.discrepancyDetails.deliveredQty
+    elif record.discrepancyDetails:
+        discrepancy_type = record.discrepancyDetails.type
+        discrepancy_notes = record.discrepancyDetails.notes
 
     not_del_reason = None
     not_del_notes = None
@@ -236,6 +336,8 @@ def record_driver_delivery(
 
     delivery = DeliveryRecord(
         id=record.id,
+        manifest_version=trip.manifest_version,
+        trip_id=trip.trip_id_str,
         vehicle_id=record.vehicleId,
         stop_id=record.stopId,
         stop_name=record.stopName,
@@ -259,25 +361,44 @@ def record_driver_delivery(
     )
     db.add(delivery)
 
-    # Update order statuses
-    orders = db.query(Order).filter(Order.outlet_id == record.stopId).all()
-    for o in orders:
-        if record.outcome == "full":
-            o.status = "delivered"
-        elif record.outcome == "discrepancy":
-            o.status = "delivered_short"
-        elif record.outcome == "none":
-            o.status = "not_delivered"
-
+    # Update only the orders this trip carried to this stop
+    stop_refs = {ref for ref, _ in stop_quantities}
+    remaining = delivered_qty
+    for ref, eff in stop_quantities:
+        order_row = db.query(Order).filter(Order.order_ref == ref).first()
+        if not order_row:
+            continue
+        take = min(eff, remaining)
+        remaining -= take
+        if record.outcome == "none":
+            order_row.status = "not_delivered"
+        elif take < order_row.order_units:
+            order_row.status = "delivered_short"
+        else:
+            order_row.status = "delivered"
+    db.flush()
+    # Close the run once every stop has an outcome
+    stops = list(trip.stop_outlet_ids or [])
+    done = {d.stop_id for d in db.query(DeliveryRecord).filter(
+        DeliveryRecord.trip_id == trip.trip_id_str,
+        DeliveryRecord.manifest_version == trip.manifest_version,
+        DeliveryRecord.vehicle_id == trip.vehicle_id,
+    ).all()} | {record.stopId}
+    run_completed = bool(stops) and all(s in done for s in stops)
+    if run_completed:
+        trip.loading_status = "completed"
+        trip.completed_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(delivery)
 
     record_ledger_entry(
         db,
         action="delivered" if record.outcome == "full" else ("delivered_short" if record.outcome == "discrepancy" else "not_delivered"),
-        actor="Sunil (Driver)",
+        actor=actor or "Driver",
         outlet_id=record.stopId,
         vehicle_id=record.vehicleId,
+        trip_no=trip.trip_no,
+        plan_version=trip.manifest_version,
         reason_code=discrepancy_type or not_del_reason,
         reason_note=discrepancy_notes or not_del_notes or f"Delivered to {record.stopName} (Signer: {pod_signer or 'N/A'})",
     )
@@ -290,7 +411,25 @@ def record_driver_delivery(
         title=f"Delivery Completed at {record.stopName}",
         text=f"Outcome: {record.outcome.upper()}. Goods ready for store confirmation.",
     )
-
+    if record.outcome != "full":
+        create_notification(
+            db,
+            target_role="dispatcher",
+            kind="delivery_exception",
+            title=f"Delivery {'Short' if record.outcome == 'discrepancy' else 'Not Delivered'} at {record.stopName}",
+            text=f"{expected_qty - delivered_qty} of {expected_qty} units not delivered on {trip.trip_id_str} ({record.vehicleId}).",
+            plan_version=trip.manifest_version,
+        )
+    if run_completed:
+        record_ledger_entry(
+            db,
+            action="trip_completed",
+            actor=actor or "Driver",
+            vehicle_id=trip.vehicle_id,
+            trip_no=trip.trip_no,
+            reason_note=f"All stops on {trip.trip_id_str} have a recorded outcome.",
+            plan_version=trip.manifest_version,
+        )
     return delivery
 
 def record_driver_issue(
@@ -305,7 +444,14 @@ def record_driver_issue(
     existing = db.query(DriverIssue).filter(DriverIssue.id == report.id).first()
     if existing:
         return existing
-
+    issue_trip = get_driver_active_trip(db, report.vehicleId)
+    if not issue_trip or (report.tripId and report.tripId != issue_trip.trip_id_str):
+        raise HTTPException(status_code=409, detail="Issue report does not match your live run.")
+    if issue_trip.loading_status not in ("departed", "completed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Post-departure issues can only be reported once the trip has departed (use the loader's issue log before departure).",
+        )
     now_utc = datetime.now(timezone.utc)
     rec_time = now_utc
     if report.createdAt:

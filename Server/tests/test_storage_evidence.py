@@ -37,11 +37,12 @@ def test_storage_upload_and_signed_url_direct(client):
     assert sig_data["storagePath"] == data["storagePath"]
     assert sig_data["signedUrl"] is not None
 
-def test_driver_delivery_online_pod_storage_persistence(client, db_session, driver_auth):
+def test_driver_delivery_online_pod_storage_persistence(client, db_session, driver_auth, seed_active_trip):
     """
     Test that when a driver records a stop with a Base64 signature and photo,
     PostgreSQL stores ONLY the Supabase storage path reference, not raw Base64.
     """
+    seed_active_trip("VEH036", ["OUT001"], ["S1-000", "S1-001"])
     delivery_id = f"DEL-TEST-POD-{uuid.uuid4().hex[:6]}"
     payload = {
         "id": delivery_id,
@@ -89,11 +90,12 @@ def test_driver_delivery_online_pod_storage_persistence(client, db_session, driv
     assert match["podDetails"]["signatureUrl"] is not None
     assert match["podDetails"]["photoUrl"] is not None
 
-def test_driver_issue_evidence_storage(client, db_session, driver_auth):
+def test_driver_issue_evidence_storage(client, db_session, driver_auth, seed_active_trip):
     """
     Test that road issue photo attachments are stored in driver-issue-evidence bucket
     and referenced cleanly in PostgreSQL.
     """
+    seed_active_trip("VEH036", ["OUT001"], ["S1-000"], trip_id_str="S1-T001")
     issue_id = f"REP-TEST-ISSUE-{uuid.uuid4().hex[:6]}"
     payload = {
         "id": issue_id,
@@ -138,7 +140,7 @@ def test_offline_sync_uploads_evidence_and_saves_references(client, db_session, 
     When connection returns, /api/sync processes events, uploads evidence to Supabase Storage,
     saves storage paths in PostgreSQL, and marks records as Synced.
     """
-    seed_active_trip("VEH036", ["OUT001", "OUT002", "OUT003"])
+    seed_active_trip("VEH036", ["OUT001", "OUT002", "OUT003"], ["S1-002", "S1-003"])
     event_id = f"evt-offline-{uuid.uuid4().hex[:8]}"
     del_id = f"DEL-OFFLINE-{uuid.uuid4().hex[:6]}"
 

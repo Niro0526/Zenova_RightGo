@@ -262,7 +262,7 @@ export function DriverHistoryWorkflow() {
                     </span>
                     <span className="text-slate-300 text-xs">•</span>
                     <span className="text-xs text-[#485563] font-semibold">
-                      Trip Plan S1-T001
+                      Trip Plan {deliveryRecords[0]?.tripId || "-"}
                     </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-bold text-[#202D2D] mt-0.5 m-0">
@@ -550,7 +550,7 @@ export function DriverHistoryWorkflow() {
                     </span>
                     <span className="text-slate-300 text-xs">•</span>
                     <span className="text-xs text-[#485563] font-semibold">
-                      Trip Plan S1-T001
+                      Trip Plan {reportRecords[0]?.tripId || "-"}
                     </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-bold text-[#202D2D] mt-0.5 m-0">

@@ -255,6 +255,15 @@ export const confirmReceipt = (input: ConfirmReceiptInput) =>
     has_issue: input.hasIssue ?? false, issue_type: input.issueType, notes: input.notes,
   }).then(mapReceipt);
 
+export interface ReceiptExpectation {
+  orderRef: string; outletId: string; delivered: boolean; plannedUnits: number; deliveredUnits: number;
+  outcome: 'full' | 'discrepancy' | 'none' | null; vehicleId?: string; tripId?: string | null;
+  deliveredAt?: string | null; deliveryRecordId?: string; alreadyConfirmed: boolean;
+}
+/** What the driver actually delivered for this order (after loading shortfall / discrepancy). */
+export const getReceiptExpectation = (orderRef: string) =>
+  apiGet<ReceiptExpectation>('/receipts/expected', { order_ref: orderRef });
+
 export const acknowledgeDeferral = (outletId: string, orderRef: string, manifestVersion: number, notes?: string) =>
   apiPost<{ success: boolean; ackId: string; acknowledgedAt: string }>('/deferrals/ack', {
     outlet_id: outletId, order_ref: orderRef, manifest_version: manifestVersion, notes,

@@ -167,7 +167,7 @@ def seed_reference_data(db: Session, force_reload: bool = False):
     seed_calendar(db, force_reload=force_reload)
 
     # If already seeded, ensure coordinates are populated on all outlets
-    if not force_reload and db.query(Vehicle).count() > 0 and db.query(Outlet).count() > 0 and db.query(ReleasedTrip).count() > 0:
+    if not force_reload and db.query(Vehicle).count() > 0 and db.query(Outlet).count() > 0 and (db.query(ReleasedTrip).count() > 0 or not settings.RIGHTGO_SEED_DEMO_RUN):
         unassigned_outlets = db.query(Outlet).filter(Outlet.latitude == None).all()
         if unassigned_outlets:
             for out in unassigned_outlets:
@@ -349,8 +349,8 @@ def seed_reference_data(db: Session, force_reload: bool = False):
             ))
         db.commit()
 
-    # 9. Initialize Active Released Manifest & Trips for Driver/Loader Portal on normal startup
-    if not force_reload:
+    # 9. Optional canned demo run (RIGHTGO_SEED_DEMO_RUN=true): an already-departed v1 for the driver demo
+    if not force_reload and settings.RIGHTGO_SEED_DEMO_RUN:
         active_manifest = db.query(ReleasedManifest).filter(ReleasedManifest.is_active == True).first()
         if not active_manifest:
             active_manifest = ReleasedManifest(

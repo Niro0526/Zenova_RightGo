@@ -173,7 +173,12 @@ class ValidationEngine:
         fleet_status: Dict[str, str], # vehicle_id -> status
         allowances: List[ServiceAllowance],
         travel_rows: List[DistrictTravel],
+        frozen_trip_keys: Optional[Set[str]] = None,
     ):
+        # "<vehicle>-<trip_no>" keys of trips that already departed/completed: execution history,
+        # not a draft. They keep their loads (so capacity for other trips is unaffected) but their
+        # own checker/window results can no longer block releasing a corrective plan.
+        self.frozen_trip_keys: Set[str] = set(frozen_trip_keys or ())
         self.orders = orders
         self.orders_map = {o.order_ref: o for o in orders}
         self.vehicles = vehicles
@@ -596,6 +601,8 @@ class ValidationEngine:
             vid, tno_str = k.rsplit("-", 1)
             tno = int(tno_str)
             vehicle_trip_nos.setdefault(vid, set()).add(tno)
+            if k in self.frozen_trip_keys:
+                continue
             if tno not in (1, 2):
                 all_trip_limit_ok = False
             veh = self.vehicles_map.get(vid)
@@ -657,7 +664,7 @@ class ValidationEngine:
                     sched = compute_stop_schedule(stops, dep_time, self.orders_map, self.allowances_map, self.travel_map)
                 except MissingReferenceDataError as e:
                     sched_error = str(e)
-            for o in ords:
+            for o in ([] if k in self.frozen_trip_keys else ords):
                 if dep_time is None:
                     checklist.append({"label": f"Delivery window - {o.order_ref} ({vid} Trip {tno})", "kind": "unverified", "group": "operational", "detail": "Planned departure time not yet set"})
                 elif sched_error:

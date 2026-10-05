@@ -1,54 +1,11 @@
 'use client';
 
-import React, { Suspense, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
+import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { Route, Store, PackageCheck, Truck, Mail, Lock, ArrowRight, ArrowLeft, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { Truck, Mail, Lock, ArrowRight, AlertCircle, Eye, EyeOff } from 'lucide-react';
 import Logo from '@/components/common/Logo';
 
-const ROLE_CONFIG: Record<string, {
-  title: string; subtitle: string;
-  icon: React.ElementType;
-  accent: string; bg: string; border: string;
-  hintEmail: string;
-  defaultPassword: string;
-}> = {
-  dispatcher: {
-    title: 'Dispatcher Planning Console',
-    subtitle: 'Fleet Capacity · Demand Scheduling · Manifest Release',
-    icon: Route, accent: '#0284C7', bg: '#F0F9FF', border: '#BAE6FD',
-    hintEmail: 'dilani@rightgo.lk',
-    defaultPassword: 'Dispatch@2026',
-  },
-  loader: {
-    title: 'Warehouse Loader Bay',
-    subtitle: 'Peliyagoda Central Depot · LIFO Loading · Departure Gate',
-    icon: PackageCheck, accent: '#D97706', bg: '#FFFBEB', border: '#FDE68A',
-    hintEmail: 'rizwan@rightgo.lk',
-    defaultPassword: 'Loader@2026',
-  },
-  driver: {
-    title: 'Driver Fleet Portal',
-    subtitle: 'OTP Trip Unlock · Stop Navigation · Electronic POD',
-    icon: Truck, accent: '#16A34A', bg: '#F0FDF4', border: '#BBF7D0',
-    hintEmail: 'sunil@rightgo.lk',
-    defaultPassword: 'Driver@2026',
-  },
-  store_manager: {
-    title: 'Store Manager Portal',
-    subtitle: 'Replenishment Orders · Live Tracking · Receipt Confirmation',
-    icon: Store, accent: '#EA580C', bg: '#FFF7ED', border: '#FED7AA',
-    hintEmail: 'kavitha@rightgo.lk',
-    defaultPassword: 'Store@2026',
-  },
-};
-
-function LoginContent() {
-  const params = useSearchParams();
-  const roleKey = params.get('role') ?? 'store_manager';
-  const cfg = ROLE_CONFIG[roleKey] ?? ROLE_CONFIG.store_manager;
-  const RoleIcon = cfg.icon;
+export default function LoginPage() {
   const { login } = useAuth();
 
   const [email, setEmail] = useState('');
@@ -56,12 +13,6 @@ function LoginContent() {
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  React.useEffect(() => {
-    setEmail('');
-    setPassword('');
-    setError(null);
-  }, [roleKey]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,102 +33,118 @@ function LoginContent() {
     }
   };
 
-  return (
-    <div className="min-h-screen w-full bg-[#F8FAFC] flex items-center justify-center p-4 font-sans">
-      <div className="w-full max-w-[420px]">
-
-        <div className="mb-5 flex items-center justify-between">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-[11px] font-bold text-[#64748B] hover:text-[#0F172A] transition-colors">
-            <ArrowLeft size={13} /> All Roles
-          </Link>
-          <Logo tone="light" />
-        </div>
-
-        <div className="rounded-2xl p-4 mb-5 border flex items-center gap-3.5" style={{ backgroundColor: cfg.bg, borderColor: cfg.border }}>
-          <div className="w-11 h-11 rounded-xl flex items-center justify-center text-white shrink-0" style={{ backgroundColor: cfg.accent }}>
-            <RoleIcon size={22} />
-          </div>
-          <div>
-            <h1 className="text-[13px] font-bold text-[#0F172A]">{cfg.title}</h1>
-            <p className="text-[11px] text-[#475569] mt-0.5">{cfg.subtitle}</p>
-          </div>
-        </div>
-
-        <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm overflow-hidden">
-          <div className="px-6 pt-5 pb-4 border-b border-[#F1F5F9]">
-            <p className="text-xs font-bold text-[#0F172A]">Sign In to Your Workspace</p>
-            <p className="text-[11px] text-[#94A3B8] mt-0.5">Enter your operational credentials to continue.</p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            {error && (
-              <div className="flex items-start gap-2.5 p-3 rounded-xl bg-[#FEF2F2] border border-[#FEE2E2] text-[11px] text-[#991B1B]">
-                <AlertCircle size={14} className="shrink-0 mt-0.5" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wide text-[#475569] mb-1.5">Email Address</label>
-              <div className="relative">
-                <Mail size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] pointer-events-none" />
-                <input
-                  id="login-email" type="email" required autoComplete="email"
-                  value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder="name@rightgo.lk"
-                  className="w-full pl-9 pr-3.5 py-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-[12px] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:ring-2 focus:bg-white transition"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[10px] font-bold uppercase tracking-wide text-[#475569] mb-1.5">Password</label>
-              <div className="relative">
-                <Lock size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] pointer-events-none" />
-                <input
-                  id="login-password" type={showPwd ? 'text' : 'password'} required autoComplete="current-password"
-                  value={password} onChange={e => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className="w-full pl-9 pr-10 py-2.5 bg-[#F8FAFC] border border-[#CBD5E1] rounded-xl text-[12px] text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:ring-2 focus:bg-white transition"
-                />
-                <button type="button" tabIndex={-1} onClick={() => setShowPwd(v => !v)} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#475569]">
-                  {showPwd ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit" disabled={loading}
-              className="w-full mt-1 py-2.5 rounded-xl text-white text-[12px] font-bold flex items-center justify-center gap-2 transition-opacity disabled:opacity-60 cursor-pointer"
-              style={{ backgroundColor: cfg.accent }}
-            >
-              {loading ? (
-                <>
-                  <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Redirecting to Dashboard…</span>
-                </>
-              ) : (
-                <>
-                  <span>Sign In to Workspace</span>
-                  <ArrowRight size={13} />
-                </>
-              )}
-            </button>
-          </form>
-        </div>
-
-        <p className="mt-6 text-center text-[11px] text-[#CBD5E1]">
-          RightGo Logistics Platform · Team ZENOVA · Tech-Triathlon 2026
-        </p>
+  const formPanel = (
+    <div className="w-full max-w-[400px]">
+      <div className="mb-6 flex items-center justify-center lg:hidden">
+        <Logo tone="light" />
       </div>
+
+      <div className="flex flex-col items-center text-center gap-1 mb-7">
+        <h1 className="text-[20px] font-bold leading-[28px] text-[#0F172A]">Welcome to RightGo</h1>
+        <p className="text-[13px] leading-5 text-[#64748B]">Sign in to continue</p>
+      </div>
+
+      <div className="bg-white border border-[#E2E8F0] rounded-2xl shadow-sm overflow-hidden">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-[#FEF2F2] border border-[#FEE2E2] text-[11px] text-[#991B1B]">
+              <AlertCircle size={14} className="shrink-0 mt-0.5" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[12px] font-semibold text-[#0F172A] mb-1.5">Email address</label>
+            <div className="relative">
+              <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] pointer-events-none" />
+              <input
+                id="login-email" type="email" required autoComplete="email"
+                value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="Enter your email"
+                className="w-full pl-10 pr-3.5 py-3 bg-white border border-[#E2E8F0] rounded-lg text-[14px] text-[#0F172A] placeholder:text-[#94A3B8] outline-none transition focus:border-[#F97316] focus:ring-2 focus:ring-[#F97316]/15"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[12px] font-semibold text-[#0F172A] mb-1.5">Password</label>
+            <div className="relative">
+              <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] pointer-events-none" />
+              <input
+                id="login-password" type={showPwd ? 'text' : 'password'} required autoComplete="current-password"
+                value={password} onChange={e => setPassword(e.target.value)}
+                placeholder="Enter your password"
+                className="w-full pl-10 pr-10 py-3 bg-white border border-[#E2E8F0] rounded-lg text-[14px] text-[#0F172A] placeholder:text-[#94A3B8] outline-none transition focus:border-[#F97316] focus:ring-2 focus:ring-[#F97316]/15"
+              />
+              <button type="button" tabIndex={-1} onClick={() => setShowPwd(v => !v)} aria-label={showPwd ? 'Hide password' : 'Show password'} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#94A3B8] hover:text-[#475569]">
+                {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <a href="#" className="text-[12px] font-semibold text-[#F97316] hover:underline">Forgot Password?</a>
+          </div>
+
+          <button
+            type="submit" disabled={loading}
+            className="w-full mt-1 h-[46px] rounded-lg text-white text-[14px] font-bold flex items-center justify-center gap-2 bg-[#F97316] hover:bg-[#EA580C] transition-colors disabled:opacity-60 cursor-pointer"
+          >
+            {loading ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <span>Signing in…</span>
+              </>
+            ) : (
+              <>
+                <span>Sign In</span>
+                <ArrowRight size={16} />
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+
+      <p className="mt-6 text-center text-[11px] text-[#94A3B8]">
+        Intelligent Logistics Platform · RightGo · Team ZENOVA
+      </p>
     </div>
   );
-}
 
-export default function LoginPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-xs font-semibold text-[#64748B]">Loading…</div>}>
-      <LoginContent />
-    </Suspense>
+    <div className="min-h-screen w-full flex font-sans">
+      {/* Desktop-only brand hero panel */}
+      <div className="relative hidden w-1/2 shrink-0 overflow-hidden bg-[#13171A] lg:flex lg:flex-col lg:justify-between lg:p-12">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-90"
+          style={{
+            background:
+              'radial-gradient(1100px 500px at -10% 110%, rgba(249,115,22,0.35), transparent 60%), linear-gradient(180deg, #13171A 0%, #1B2127 100%)',
+          }}
+        />
+        <div className="relative flex items-center gap-3">
+          <Logo tone="dark" />
+        </div>
+
+        <div className="relative flex max-w-md flex-col gap-3">
+          <h2 className="text-[32px] font-bold leading-[40px] text-white">
+            Smarter Deliveries
+            <br />
+            <span className="text-[#F97316]">for a Better Tomorrow</span>
+          </h2>
+          <p className="text-[14px] leading-6 text-[#8A9BB0]">Connected people. Efficient routes. Reliable deliveries.</p>
+        </div>
+
+        <div className="relative flex items-center gap-2 text-[12px] text-[#6B7C8C]">
+          <Truck className="h-4 w-4 text-[#F97316]" />
+          <span>Built for dispatch, store, loading &amp; driving operations</span>
+        </div>
+      </div>
+
+      {/* Form panel — full width on mobile, right half on desktop */}
+      <div className="flex w-full flex-1 items-center justify-center bg-[#F8FAFC] p-4 lg:w-1/2">
+        {formPanel}
+      </div>
+    </div>
   );
 }

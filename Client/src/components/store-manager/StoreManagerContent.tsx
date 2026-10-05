@@ -2,7 +2,8 @@
 
 import React, { useCallback, useEffect, useState } from 'react';
 import Sidebar from './Sidebar';
-import TopNavbar from '../layout/TopNavbar';
+import RoleTopBar from '@/components/common/RoleTopBar';
+import { Store } from 'lucide-react';
 import DashboardView from './DashboardView';
 import PlaceOrderView from './PlaceOrderView';
 import OrderDetailView from './OrderDetailView';
@@ -15,6 +16,7 @@ import {
   acknowledgeDeferral,
   cancelOrder,
   confirmReceipt,
+  getLatestManifest,
   getOrders,
   getOutlets,
   type DispatcherOrder,
@@ -29,19 +31,21 @@ export interface StoreManagerContentProps {
 function mapStatus(status: string): string {
   if (status === 'awaiting_planning') return 'Awaiting Planning';
   if (status === 'planned') return 'Planned';
-  if (status === 'loading') return 'Loading';
+  if (status === 'loading' || status === 'loaded') return 'Loading';
   if (status === 'in_transit') return 'Out for Delivery';
-  if (status === 'delivered') return 'Delivered';
+  if (status === 'delivered' || status === 'delivered_short') return 'Delivered'; // awaiting the store's receipt
+  if (status === 'received') return 'Received';
+  if (status === 'not_delivered') return 'Not Delivered';
   if (status === 'deferred') return 'Deferred';
   if (status === 'cancelled') return 'Cancelled';
   return status;
 }
 
 function mapSection(status: string): string {
-  if (status === 'in_transit' || status === 'loading') return 'active';
+  if (status === 'in_transit' || status === 'loading' || status === 'loaded') return 'active';
   if (status === 'awaiting_planning' || status === 'planned') return 'future';
-  if (status === 'deferred') return 'deferred';
-  if (status === 'delivered' || status === 'cancelled') return 'completed';
+  if (status === 'deferred' || status === 'not_delivered') return 'deferred';
+  if (status === 'delivered' || status === 'delivered_short' || status === 'received' || status === 'cancelled') return 'completed';
   return 'future';
 }
 
@@ -186,7 +190,8 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
   const handleAcknowledgeDeferral = async (deliveryId: string, slot?: string) => {
     if (!selectedOutlet) return;
     try {
-      await acknowledgeDeferral(selectedOutlet.outlet_id, deliveryId, 1, 'Store acknowledged deferral and confirmed slot: ' + (slot || 'Tomorrow Wave 1'));
+      const latest = await getLatestManifest().catch(() => null);
+      await acknowledgeDeferral(selectedOutlet.outlet_id, deliveryId, latest?.version ?? 1, 'Store acknowledged deferral and confirmed slot: ' + (slot || 'Tomorrow Wave 1'));
       await refreshOrders();
       navigateTo('dashboard');
     } catch (err) {
@@ -202,11 +207,38 @@ export function StoreManagerContent({ initialView }: StoreManagerContentProps) {
     alert('Deferral cancellation must be recorded by the backend before it can update this workspace.');
   };
 
+  const managerName = user?.display_name || selectedOutlet?.manager_name || 'Store Manager';
+  const managerInitials = managerName.split(' ').map((p: string) => p[0]).join('').slice(0, 2).toUpperCase();
+
   const shell = (content: React.ReactNode) => (
     <div className="app-container">
       <Sidebar currentView={currentView} setCurrentView={(view) => navigateTo(view)} selectedOutlet={selectedOutlet ?? {}} />
       <main className="main-content-viewport">
-        {selectedOutlet && <TopNavbar selectedOutlet={selectedOutlet} />}
+        <RoleTopBar
+          name={managerName}
+          role="Store Manager"
+          initials={managerInitials}
+          stationId={selectedOutlet?.outlet_id}
+          stationName={selectedOutlet?.name}
+          avatarColor="#EA580C"
+          title={
+            selectedOutlet && (
+              <div className="flex items-center gap-3">
+                <div className="depot-status-chip">
+                  <span className="live-pulse-dot"></span>
+                  <span>Peliyagoda Central Depot · <strong>Live Sync</strong></span>
+                </div>
+                <div className="outlet-badge-static">
+                  <Store size={15} color="#F97316" />
+                  <span className="outlet-selector-name">
+                    {selectedOutlet.outlet_id} · {selectedOutlet.name}
+                  </span>
+                  <span className="brand-tag-chip">{selectedOutlet.brand}</span>
+                </div>
+              </div>
+            )
+          }
+        />
         {content}
       </main>
     </div>

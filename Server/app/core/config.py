@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     
     # Demo behavior
     RIGHTGO_DEMO_OTP_IN_APP: bool = True
+    # Pre-seed a canned, already-departed released plan (v1) for the driver demo. Off by default:
+    # real runs come from the dispatcher -> loader -> driver workflow.
+    RIGHTGO_SEED_DEMO_RUN: bool = False
     TIMEZONE: str = "Asia/Colombo"
     
     # Security / Auth

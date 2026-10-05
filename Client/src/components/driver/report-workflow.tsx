@@ -19,7 +19,7 @@ import { Toast, ToastState } from "@/components/driver/today-run/Toast";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { useAuth } from "@/context/AuthContext";
 import { saveLocalIssueReport, updateIssueReportSyncStatus } from "@/lib/driver/driver-offline-db";
-import { postDriverIssue } from "@/lib/driver/driver-api";
+import { postDriverIssue, fetchDriverRun } from "@/lib/driver/driver-api";
 import {
   ReportDetailsModal,
   type IssueReportRecord,
@@ -82,49 +82,15 @@ export const ISSUE_TYPES = [
   },
 ] as const;
 
-export const CURRENT_TRIP_INFO = {
-  tripId: "S1-T001",
-  driverName: "Sunil (Senior Driver)",
-  planVersion: "Plan v2",
-  stops: [
-    {
-      stopId: 1,
-      stopCode: "OUT001",
-      stopName: "OUT001 / Colombo Fresh Outlet",
-      orders: [
-        { orderId: "S1-000", details: "12 ambient units • 97.8 kg" },
-        { orderId: "S1-001", details: "80 chilled units • 448.6 kg" },
-      ],
-    },
-    {
-      stopId: 2,
-      stopCode: "OUT002",
-      stopName: "OUT002 / Colombo Fresh Outlet",
-      orders: [
-        { orderId: "S1-002", details: "18 ambient units • 130.9 kg" },
-        { orderId: "S1-003", details: "38 chilled units • 329.0 kg" },
-      ],
-    },
-    {
-      stopId: 3,
-      stopCode: "OUT003",
-      stopName: "OUT003 / Colombo Fresh Outlet",
-      orders: [
-        { orderId: "S1-004", details: "28 ambient units • 160.6 kg" },
-        { orderId: "S1-005", details: "42 chilled units • 318.1 kg" },
-      ],
-    },
-    {
-      stopId: 4,
-      stopCode: "OUT004",
-      stopName: "OUT004 / Colombo Fresh Outlet",
-      orders: [
-        { orderId: "S1-006", details: "40 ambient units • 305.6 kg" },
-        { orderId: "S1-007", details: "74 chilled units • 567.7 kg" },
-      ],
-    },
-  ],
-};
+export interface ReportTripInfo {
+  tripId: string;
+  driverName: string;
+  planVersion: string;
+  stops: { stopId: number; stopCode: string; stopName: string; orders: { orderId: string; details: string }[] }[];
+}
+
+/** Placeholder until the driver's live run loads - never sample trip data. */
+const NO_TRIP_INFO: ReportTripInfo = { tripId: "", driverName: "", planVersion: "", stops: [] };
 
 const LOCAL_STORAGE_REPORTS_KEY = "RightGo_Driver_Issue_Reports";
 
@@ -148,6 +114,33 @@ export function DriverReportWorkflow() {
 
   const { user } = useAuth();
   const vehicleId = user?.vehicle_id ?? "";
+  // The driver's real, live run (trip id, plan version, stops and orders come from the server).
+  const [tripInfo, setTripInfo] = useState<ReportTripInfo>(NO_TRIP_INFO);
+  useEffect(() => {
+    let alive = true;
+    fetchDriverRun()
+      .then((run) => {
+        if (!alive || !run?.hasRun) return;
+        setTripInfo({
+          tripId: run.tripId,
+          driverName: user?.display_name ?? "",
+          planVersion: run.manifestVersion,
+          stops: run.stops.map((st) => ({
+            stopId: st.stopNumber,
+            stopCode: st.stopId,
+            stopName: st.name,
+            orders: (st.orderDetails ?? []).map((o) => ({
+              orderId: o.orderRef,
+              details: `${o.units} ${o.tempRequirement ?? ""} units${o.weightKg != null ? ` • ${o.weightKg.toFixed(1)} kg` : ""}`,
+            })),
+          })),
+        });
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [user?.display_name]);
 
   // Reports History State
   const [reports, setReports] = useState<IssueReportRecord[]>([]);
@@ -242,16 +235,16 @@ export function DriverReportWorkflow() {
 
   const getSelectedScopeDisplay = () => {
     if (selectedOrder === "VEHICLE_PEL_R04") {
-      return `Trip & Vehicle Level (${vehicleId}) — ${CURRENT_TRIP_INFO.tripId}`;
+      return `Trip & Vehicle Level (${vehicleId}) — ${tripInfo.tripId}`;
     }
     if (selectedOrder.startsWith("STOP_")) {
       const stopNum = selectedOrder.split("_")[1];
-      const matchedStop = CURRENT_TRIP_INFO.stops.find((s) => s.stopId === Number(stopNum));
+      const matchedStop = tripInfo.stops.find((s) => s.stopId === Number(stopNum));
       return matchedStop
         ? `Entire Stop ${matchedStop.stopId} (${matchedStop.stopCode} / ${matchedStop.stopName})`
         : "Entire Stop / Not Applicable";
     }
-    for (const stop of CURRENT_TRIP_INFO.stops) {
+    for (const stop of tripInfo.stops) {
       const order = stop.orders.find((o) => o.orderId === selectedOrder);
       if (order) {
         return `Order ${order.orderId} (Stop ${stop.stopId} – ${stop.stopCode} / ${stop.stopName})`;
@@ -262,14 +255,14 @@ export function DriverReportWorkflow() {
 
   const getTargetOutletName = () => {
     if (selectedOrder === "VEHICLE_PEL_R04") {
-      return `Trip ${CURRENT_TRIP_INFO.tripId} • Vehicle ${vehicleId}`;
+      return `Trip ${tripInfo.tripId} • Vehicle ${vehicleId}`;
     }
     if (selectedOrder.startsWith("STOP_")) {
       const stopNum = selectedOrder.split("_")[1];
-      const matchedStop = CURRENT_TRIP_INFO.stops.find((s) => s.stopId === Number(stopNum));
+      const matchedStop = tripInfo.stops.find((s) => s.stopId === Number(stopNum));
       return matchedStop ? `${matchedStop.stopCode} / ${matchedStop.stopName}` : "Stop Level";
     }
-    for (const stop of CURRENT_TRIP_INFO.stops) {
+    for (const stop of tripInfo.stops) {
       const order = stop.orders.find((o) => o.orderId === selectedOrder);
       if (order) {
         return `${stop.stopCode} / ${stop.stopName}`;
@@ -322,7 +315,7 @@ export function DriverReportWorkflow() {
 
     setIsSubmitting(true);
     const reportSeq = reports.length + 1;
-    const reportId = `REP-${CURRENT_TRIP_INFO.tripId}-${String(reportSeq).padStart(3, "0")}`;
+    const reportId = `REP-${tripInfo.tripId}-${String(reportSeq).padStart(3, "0")}`;
 
     const categoriesList: IssueCategoryItem[] = selectedCategoryObjects.map((c) => ({
       id: c.id,
@@ -335,7 +328,7 @@ export function DriverReportWorkflow() {
 
     const newRecord: IssueReportRecord = {
       id: reportId,
-      tripId: CURRENT_TRIP_INFO.tripId,
+      tripId: tripInfo.tripId,
       vehicleId,
       categoryId: primaryCategory.id,
       categoryLabel: combinedLabel,
@@ -467,7 +460,7 @@ export function DriverReportWorkflow() {
                   Driver Issue Management
                 </span>
                 <span className="text-[#485563] font-bold text-sm">
-                  Trip: {CURRENT_TRIP_INFO.tripId} • Vehicle: {vehicleId}
+                  Trip: {tripInfo.tripId} • Vehicle: {vehicleId}
                 </span>
               </div>
               <h1 className="text-[#202D2D] font-extrabold text-2xl lg:text-3xl mt-1 m-0">
@@ -483,7 +476,7 @@ export function DriverReportWorkflow() {
                 Assigned Run
               </span>
               <span className="text-xs font-bold text-[#202D2D]">
-                {CURRENT_TRIP_INFO.tripId} ({CURRENT_TRIP_INFO.planVersion})
+                {tripInfo.tripId} ({tripInfo.planVersion})
               </span>
             </div>
             <div
@@ -590,7 +583,7 @@ export function DriverReportWorkflow() {
                     <div>
                       <span className="text-slate-500 font-medium block">Trip &amp; Vehicle</span>
                       <span className="font-bold text-[#202D2D] mt-0.5 block">
-                        {CURRENT_TRIP_INFO.tripId} • {vehicleId}
+                        {tripInfo.tripId} • {vehicleId}
                       </span>
                     </div>
                     <div>
@@ -654,14 +647,14 @@ export function DriverReportWorkflow() {
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-lg font-extrabold text-[#202D2D]">
-                        {CURRENT_TRIP_INFO.tripId}
+                        {tripInfo.tripId}
                       </span>
                       <span className="text-sm font-bold text-slate-700 bg-white px-2.5 py-1 rounded-md border border-slate-200">
                         Vehicle: {vehicleId}
                       </span>
                     </div>
                     <p className="text-xs text-slate-500 m-0">
-                      Issue reports will be linked directly to Trip {CURRENT_TRIP_INFO.tripId} and your vehicle manifest.
+                      Issue reports will be linked directly to Trip {tripInfo.tripId} and your vehicle manifest.
                     </p>
                   </div>
 
@@ -783,7 +776,7 @@ export function DriverReportWorkflow() {
                                 🚪 Entire Stop 1 (OUT001 / Colpetty Retailer)
                               </option>
                               <option value="VEHICLE_PEL_R04">
-                                🚚 Vehicle {vehicleId} / Trip {CURRENT_TRIP_INFO.tripId} General Delay
+                                🚚 Vehicle {vehicleId} / Trip {tripInfo.tripId} General Delay
                               </option>
                             </optgroup>
                           )}
@@ -952,7 +945,7 @@ export function DriverReportWorkflow() {
                     </span>
                     <span className="text-slate-300 text-xs">•</span>
                     <span className="text-xs text-[#485563] font-semibold">
-                      Trip Plan {CURRENT_TRIP_INFO.tripId}
+                      Trip Plan {tripInfo.tripId}
                     </span>
                   </div>
                   <h3 className="text-base sm:text-lg font-bold text-[#202D2D] mt-0.5 m-0">

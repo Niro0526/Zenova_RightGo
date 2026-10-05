@@ -17,6 +17,7 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 class CurrentUser:
     def __init__(self, session: AuthSession):
+        self.token = session.token
         self.user_id = session.user_id
         self.username = session.username
         self.role = session.role

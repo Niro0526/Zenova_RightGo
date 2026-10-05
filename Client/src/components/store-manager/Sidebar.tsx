@@ -34,7 +34,7 @@ export default function Sidebar({
       <div>
         {/* Top Header Section */}
         <div className="sidebar-top-section mb-6">
-          <Logo subtitle="PULSE" href="/" />
+          <Logo subtitle="Store Manager" href="/" />
         </div>
 
         {/* Navigation List */}

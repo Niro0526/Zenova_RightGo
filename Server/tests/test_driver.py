@@ -14,7 +14,8 @@ from app.schemas.driver import (
     IssueReportRecordSchema,
     PodDetails,
 )
-from app.models.plan import ReleasedTrip
+from app.models.plan import ReleasedTrip, OrderLoadingState
+from app.services.loading_service import acknowledge_manifest, mark_order_loaded, depart_trip
 
 def test_driver_workflow(db_session):
     # Release plan
@@ -25,9 +26,19 @@ def test_driver_workflow(db_session):
         draft = set_vehicle_fuel_input(db_session, vid, 0.0, scenario="S1")
     manifest = release_plan(db_session, draft["draftRevision"], scenario="S1")
 
-    trip = db_session.query(ReleasedTrip).filter(ReleasedTrip.manifest_id == manifest.id).first()
+    # A vehicle runs its trips in order: the live run is the lowest trip number.
+    trip = db_session.query(ReleasedTrip).filter(ReleasedTrip.manifest_id == manifest.id).order_by(ReleasedTrip.trip_no.asc(), ReleasedTrip.id.asc()).first()
     assert trip is not None
     assert trip.otp_code is not None
+
+    # OTP is refused until the loader has loaded and departed the trip
+    with pytest.raises(HTTPException) as early:
+        verify_driver_otp(db_session, trip.trip_id_str, trip.vehicle_id, trip.otp_code)
+    assert early.value.status_code == 409
+    acknowledge_manifest(db_session, manifest.version)
+    for st in db_session.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all():
+        mark_order_loaded(db_session, trip.id, st.order_ref)
+    depart_trip(db_session, trip.id)
 
     # Test wrong OTP attempt
     with pytest.raises(HTTPException) as exc:

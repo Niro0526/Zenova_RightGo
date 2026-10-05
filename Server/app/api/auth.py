@@ -149,8 +149,9 @@ def login(req: LoginRequest, db: Session = Depends(get_db)):
 
 @router.post("/logout")
 def logout(user: CurrentUser = Depends(get_current_user), db: Session = Depends(get_db)):
-    """Invalidate the current session server-side."""
-    db.query(AuthSession).filter(AuthSession.user_id == user.user_id).delete()
+    """Invalidate only the current session server-side (other browsers/tabs signed in
+    as the same user keep working)."""
+    db.query(AuthSession).filter(AuthSession.token == user.token).delete()
     db.commit()
     return {"status": "logged_out"}
 

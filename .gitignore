@@ -1,10 +1,44 @@
-﻿# Python
+# Secrets / environment (placeholders live in *.env.example only)
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+
+# Competition data and rules material (confidential - supplied privately, never committed)
+Rules/
+/data/
+*.pdf
+
+# Local databases and uploaded evidence
+*.db
+*.sqlite
+*.sqlite3
+Server/storage_files/
+pgdata/
+
+# Python
 __pycache__/
 *.py[cod]
 *.pyo
 .venv/
 venv/
 *.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node / Next.js
+node_modules/
+.next/
+.next-loader/
+out/
+*.tsbuildinfo
+npm-debug.log*
+coverage/
+
+# Build outputs
 dist/
 build/
 
@@ -15,16 +49,11 @@ ml/models/*.onnx
 ml/outputs/*
 !ml/outputs/.gitkeep
 
-# Env
-.env
-*.env
-
-# IDE
+# IDE / tooling
 .vscode/
 .idea/
+.claude/
 
 # OS
 .DS_Store
 Thumbs.db
-
-Rule

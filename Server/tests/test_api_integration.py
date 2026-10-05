@@ -97,6 +97,14 @@ def test_api_e2e_flow(client):
     # here - but the branch below stays defensive in case seed data changes.
     # The important behavior this test guards is that /driver/my-run never
     # falls back to handing the driver an unrelated vehicle's trip.
+    # Loader loads and departs every released trip (the real gate), then the driver unlocks.
+    otp_by_trip = {}
+    for released in manifest_data["trips"]:
+        for ref in released["orderRefs"]:
+            assert client.post(f"/api/trips/{released['id']}/load-order", json={"order_ref": ref}, headers=loader_auth).status_code == 200
+        otp_by_trip[released["tripId"]] = client.get(f"/api/trips/{released['id']}/readiness", headers=loader_auth).json()["otpCode"]
+        assert client.post(f"/api/trips/{released['id']}/depart", headers=loader_auth).status_code == 200
+
     res_run = client.get("/api/driver/my-run", headers=driver_auth)
     assert res_run.status_code == 200
     run_info = res_run.json()
@@ -104,9 +112,7 @@ def test_api_e2e_flow(client):
     if run_info["hasRun"]:
         trip_id = run_info["tripId"]
         vehicle_id = run_info["vehicleId"]
-        res_readiness = client.get("/api/trips/1/readiness", headers=loader_auth)
-        assert res_readiness.status_code == 200
-        otp_code = res_readiness.json().get("otpCode")
+        otp_code = otp_by_trip.get(trip_id)
         if otp_code:
             res_otp = client.post("/api/driver/otp/verify", json={
                 "trip_id": trip_id,
@@ -116,8 +122,10 @@ def test_api_e2e_flow(client):
             assert res_otp.status_code == 200
             assert res_otp.json()["unlocked"] is True
         sync_vehicle_id = vehicle_id
+        sync_stop_id = run_info["stops"][0]["stopId"]
     else:
         sync_vehicle_id = "VEH001"
+        sync_stop_id = "OUT001"
 
     # 8. Offline Sync Submission (any authenticated role)
     res_sync = client.post("/api/sync", json={
@@ -128,7 +136,7 @@ def test_api_e2e_flow(client):
                 "event_type": "delivery.completed",
                 "payload": {
                     "id": "DEL-E2E-001",
-                    "stopId": "OUT001",
+                    "stopId": sync_stop_id,
                     "stopName": "Colpetty Retailer",
                     "vehicleId": sync_vehicle_id,
                     "outcome": "full",
@@ -143,7 +151,10 @@ def test_api_e2e_flow(client):
         "client_plan_version": 1,
     }, headers=driver_auth)
     assert res_sync.status_code == 200
-    assert res_sync.json()["success"] is True
+    if run_info["hasRun"]:
+        assert res_sync.json()["success"] is True
+    else:  # no run for this vehicle: the server must refuse, not invent a delivery
+        assert res_sync.json()["results"][0]["status"] == "rejected"
 
     # 9. Audit Ledger (dispatcher only)
     res_ledger = client.get("/api/ledger", headers=dispatcher_auth)

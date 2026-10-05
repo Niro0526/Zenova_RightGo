@@ -38,6 +38,7 @@ export interface LocalDeliveryRecord {
   offlineCreated: boolean;
   createdAt: string; // ISO string
   syncedAt?: string | null;
+  tripId?: string | null;
 }
 
 export interface IssueCategoryItem {
@@ -144,14 +145,27 @@ export async function getPendingDeliveryRecords(): Promise<LocalDeliveryRecord[]
       const transaction = db.transaction([DELIVERY_STORE], "readonly");
       const store = transaction.objectStore(DELIVERY_STORE);
       const statusIndex = store.index("status");
-      const request = statusIndex.getAll("Pending Sync");
+      const pendingReq = statusIndex.getAll("Pending Sync");
+      // A record left "Syncing" by a reload/crash mid-transmit was never acknowledged
+      // by the server - it must be retried, not stranded.
+      const syncingReq = statusIndex.getAll("Syncing");
 
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () =>
+        resolve(sortOldestFirst([...(pendingReq.result || []), ...(syncingReq.result || [])]));
+      transaction.onerror = () => reject(transaction.error);
     });
   } catch {
     return [];
   }
+}
+
+/** Queue order = the order the driver recorded things. */
+function sortOldestFirst<T extends { createdAt?: string; id: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const ta = Date.parse(a.createdAt || "") || 0;
+    const tb = Date.parse(b.createdAt || "") || 0;
+    return ta - tb || a.id.localeCompare(b.id);
+  });
 }
 
 /**
@@ -254,10 +268,12 @@ export async function getPendingIssueReports(): Promise<IssueReportRecord[]> {
       const transaction = db.transaction([ISSUE_REPORT_STORE], "readonly");
       const store = transaction.objectStore(ISSUE_REPORT_STORE);
       const statusIndex = store.index("status");
-      const request = statusIndex.getAll("Pending Sync");
+      const pendingReq = statusIndex.getAll("Pending Sync");
+      const syncingReq = statusIndex.getAll("Syncing");
 
-      request.onsuccess = () => resolve(request.result || []);
-      request.onerror = () => reject(request.error);
+      transaction.oncomplete = () =>
+        resolve(sortOldestFirst([...(pendingReq.result || []), ...(syncingReq.result || [])]));
+      transaction.onerror = () => reject(transaction.error);
     });
 
     if (idbPending.length > 0) return idbPending;
@@ -269,7 +285,7 @@ export async function getPendingIssueReports(): Promise<IssueReportRecord[]> {
     const stored = localStorage.getItem(LOCAL_STORAGE_REPORTS_KEY);
     if (stored) {
       const parsed = JSON.parse(stored) as IssueReportRecord[];
-      return parsed.filter((r) => r.status === "Pending Sync");
+      return sortOldestFirst(parsed.filter((r) => r.status === "Pending Sync" || r.status === "Syncing"));
     }
   } catch {
     // No storage
@@ -369,6 +385,16 @@ export async function updateIssueReportSyncStatus(
    ───────────────────────────────────────────────────────────── */
 
 import { postDriverDelivery, postDriverIssue } from "./driver-api";
+import { ApiError } from "@/lib/api/client";
+
+/** A 4xx other than timeout/rate-limit means the server understood and refused this record
+ *  (e.g. run still locked, stop already recorded) - retrying later may help, but it must not
+ *  block the records queued behind it. Network errors / 5xx / 408 / 429 are transient. */
+function isServerRefusal(err: unknown): err is ApiError {
+  return err instanceof ApiError && err.status >= 400 && err.status < 500 && err.status !== 408 && err.status !== 429;
+}
+
+let syncInFlight: ReturnType<typeof runSync> | null = null;
 
 /**
  * Backend Transmission Dispatcher for Delivery Records.
@@ -434,6 +460,22 @@ export async function syncAllPendingOfflineData(): Promise<{
   totalSynced: number;
   syncedTimeStr: string;
 }> {
+  // One sync pass at a time (interval + "online" event + manual retry must not race
+  // and double-send the same queue).
+  if (syncInFlight) return syncInFlight;
+  syncInFlight = runSync().finally(() => {
+    syncInFlight = null;
+  });
+  return syncInFlight;
+}
+
+async function runSync(): Promise<{
+  success: boolean;
+  syncedDeliveries: number;
+  syncedReports: number;
+  totalSynced: number;
+  syncedTimeStr: string;
+}> {
   const [pendingDeliveries, pendingReports] = await Promise.all([
     getPendingDeliveryRecords(),
     getPendingIssueReports(),
@@ -452,20 +494,15 @@ export async function syncAllPendingOfflineData(): Promise<{
     };
   }
 
-  // 1. Mark records as Syncing
-  for (const del of pendingDeliveries) {
-    await updateRecordSyncStatus(del.id, "Syncing");
-  }
-  for (const rep of pendingReports) {
-    await updateIssueReportSyncStatus(rep.id, "Syncing");
-  }
-
   let syncedDeliveries = 0;
   let syncedReports = 0;
   const syncTimestamp = new Date().toISOString();
 
-  // 2. Transmit delivery records
+  // 2. Transmit delivery records strictly in recorded order. A record is only marked Synced
+  //    after the server acknowledged it; on a transient failure we stop, so later records
+  //    are never delivered ahead of an earlier one.
   for (const del of pendingDeliveries) {
+    await updateRecordSyncStatus(del.id, "Syncing");
     try {
       await transmitDeliveryRecordToBackend(del);
       await updateRecordSyncStatus(del.id, "Synced", syncTimestamp);
@@ -473,11 +510,13 @@ export async function syncAllPendingOfflineData(): Promise<{
     } catch (err) {
       console.error(`Failed to sync delivery record ${del.id}:`, err);
       await updateRecordSyncStatus(del.id, "Pending Sync");
+      if (!isServerRefusal(err)) break;
     }
   }
 
-  // 3. Transmit issue reports
+  // 3. Transmit issue reports (same rules)
   for (const rep of pendingReports) {
+    await updateIssueReportSyncStatus(rep.id, "Syncing");
     try {
       await transmitIssueReportToBackend(rep);
       await updateIssueReportSyncStatus(rep.id, "Synced", syncTimestamp);
@@ -485,6 +524,7 @@ export async function syncAllPendingOfflineData(): Promise<{
     } catch (err) {
       console.error(`Failed to sync issue report ${rep.id}:`, err);
       await updateIssueReportSyncStatus(rep.id, "Pending Sync");
+      if (!isServerRefusal(err)) break;
     }
   }
 

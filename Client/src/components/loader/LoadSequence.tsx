@@ -65,7 +65,7 @@ export default function LoadSequence({ onNavigate }: LoadSequenceProps) {
     setMarkingStep(stepIndex);
     try {
       await Promise.all(
-        step.orders.map((o) => postLoadOrder(tripDbId, o.orderRef, o.plannedUnits))
+        step.orders.map((o) => postLoadOrder(tripDbId, o.orderRef, o.effectiveUnits ?? o.plannedUnits))
       );
       await loadSequence(tripDbId);
       showToast(`Stop ${step.deliveryStopRank} marked as Loaded.`);

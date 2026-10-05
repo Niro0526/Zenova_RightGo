@@ -1,30 +1,65 @@
-version: '3.9'
+# LOCAL development / judging stack: PostgreSQL + FastAPI backend + Next.js frontend.
+# Production runs on AWS EC2 + Supabase and does NOT use this file (see docs/architecture.md).
+# Configure via .env (copy from .env.example). Confidential dataset goes in ./data (see README).
 
 services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rightgo}
+      POSTGRES_USER: ${POSTGRES_USER:-rightgo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    volumes:
+      - rightgo_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-rightgo} -d ${POSTGRES_DB:-rightgo}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
   backend:
     build:
       context: ./Server
       dockerfile: Dockerfile
-    ports:
-      - "8000:8000"
+    # Runs `alembic upgrade head`, checks the dataset, then starts uvicorn.
+    # Reference-data seeding is idempotent and runs at API startup.
+    command: ["sh", "/app/docker-entrypoint.sh"]
     environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres.your-project:your-password@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:3000}
-      - RIGHTGO_DATA_DIR=/app/data
-      - RIGHTGO_DEMO_OTP_IN_APP=true
-      - SECRET_KEY=${SECRET_KEY:-rightgo-tech-triathlon-2026-super-secret-key-zenova}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-rightgo}:${POSTGRES_PASSWORD:-change-me-local-only}@db:5432/${POSTGRES_DB:-rightgo}
+      FRONTEND_URL: http://localhost:${CLIENT_PORT:-3000}
+      CORS_ORIGINS: http://localhost:${CLIENT_PORT:-3000},http://127.0.0.1:${CLIENT_PORT:-3000}
+      RIGHTGO_DATA_DIR: /app/data
+      RIGHTGO_DEMO_OTP_IN_APP: ${RIGHTGO_DEMO_OTP_IN_APP:-true}
+      SECRET_KEY: ${SECRET_KEY:-change-me}
+      ENVIRONMENT: local
+      REQUIRE_DATASET: ${REQUIRE_DATASET:-true}
+      STORAGE_LOCAL_DIR: /app/storage_files
     volumes:
       - ./data:/app/data:ro
-    restart: unless-stopped
+      - rightgo_storage:/app/storage_files
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure:3
 
   client:
     build:
       context: ./Client
       dockerfile: Dockerfile
+      args:
+        # Inlined into the browser bundle at build time; must be reachable from the browser.
+        NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8000}
     ports:
-      - "3000:3000"
-    environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - "${CLIENT_PORT:-3000}:3000"
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  rightgo_pgdata:
+  rightgo_storage:

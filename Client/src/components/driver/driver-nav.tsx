@@ -1,11 +1,13 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Route, Navigation, History, LogOut } from "lucide-react";
 import Logo from "@/components/common/Logo";
 import NavItem from "@/components/common/NavItem";
 import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { useAuth } from "@/context/AuthContext";
+import { fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
 
 /* ─── Nav item definition ─────────────────────────────────── */
 export const DRIVER_NAV_ITEMS = [
@@ -33,6 +35,18 @@ export const DRIVER_NAV_ITEMS = [
 export function DriverSidebar({ pathname }: { pathname: string }) {
   const { connectionState } = useConnectivity();
   const { user, logout } = useAuth();
+  const [navRun, setNavRun] = useState<DriverRunResponse | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchDriverRun()
+      .then((r) => {
+        if (alive) setNavRun(r.hasRun ? r : null);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [pathname]);
 
   return (
     <aside
@@ -72,11 +86,11 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
               Active Trip
             </span>
             <span className="bg-white/10 text-white/80 text-[10px] font-semibold px-2 py-0.5 rounded">
-              Plan v2
+              {navRun?.manifestVersion || "-"}
             </span>
           </div>
-          <span className="text-white font-bold text-sm">S1-T001</span>
-          <span className="text-gray-400 text-[11px]">Vehicle: {user?.vehicle_id || "-"} · Wave 1</span>
+          <span className="text-white font-bold text-sm">{navRun?.tripId || "No active run"}</span>
+          <span className="text-gray-400 text-[11px]">Vehicle: {user?.vehicle_id || "-"}{navRun ? ` · Trip ${navRun.tripNo}` : ""}</span>
         </div>
 
         <button

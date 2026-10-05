@@ -3,8 +3,8 @@ import './globals.css';
 import { AuthProvider } from '@/context/AuthContext';
 
 export const metadata: Metadata = {
-  title: 'RightGo Pulse - Logistics Operations',
-  description: 'RightGo Multi-Role Logistics Operations Console & Pulse Platform',
+  title: 'RightGo - Logistics Operations',
+  description: 'RightGo Multi-Role Logistics Operations Console',
 };
 
 export default function RootLayout({

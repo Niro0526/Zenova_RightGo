@@ -5,8 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.core.deps import require_role, CurrentUser
-from app.models.plan import ReleasedTrip, ReleasedManifest
-from app.models.operations import DeliveryRecord, DriverIssue
+from app.models.plan import ReleasedTrip, ReleasedManifest, OrderLoadingState
+from app.models.operations import DeliveryRecord, DriverIssue, LoadingIssue
 from app.models.order import Order
 from app.models.reference import Outlet
 from app.schemas.driver import (
@@ -41,26 +41,41 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
     stops_data = []
     stop_ids = list(trip.stop_outlet_ids or [])
     outlets = {o.outlet_id: o for o in db.query(Outlet).filter(Outlet.outlet_id.in_(stop_ids)).all()}
-    deliveries = {d.stop_id: d for d in db.query(DeliveryRecord).filter(DeliveryRecord.stop_id.in_(stop_ids)).all()}
+    deliveries = {d.stop_id: d for d in db.query(DeliveryRecord).filter(
+        DeliveryRecord.trip_id == trip.trip_id_str,
+        DeliveryRecord.manifest_version == trip.manifest_version,
+        DeliveryRecord.vehicle_id == trip.vehicle_id,
+        DeliveryRecord.stop_id.in_(stop_ids),
+    ).all()}
+    effective_units = {
+        s.order_ref: s.effective_units
+        for s in db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
+    }
+    # Real loader issues on this trip, so the driver sees genuine loading changes
+    # (never a canned message).
+    loading_issues_by_order: Dict[str, list] = {}
+    for li in db.query(LoadingIssue).filter(
+        LoadingIssue.manifest_version == trip.manifest_version,
+        LoadingIssue.vehicle_id == trip.vehicle_id,
+        LoadingIssue.trip_no == trip.trip_no,
+    ).order_by(LoadingIssue.reported_at).all():
+        loading_issues_by_order.setdefault(li.order_ref, []).append(li)
     
     # Query orders associated with this trip or outlets
-    trip_orders = db.query(Order).filter(Order.outlet_id.in_(stop_ids)).all()
+    trip_orders = db.query(Order).filter(Order.order_ref.in_(list(trip.order_refs or []))).order_by(Order.order_ref).all()
     orders_by_outlet = {}
     for o in trip_orders:
-        if trip.order_refs and o.order_ref in trip.order_refs:
-            orders_by_outlet.setdefault(o.outlet_id, []).append(o)
-        elif not trip.order_refs:
-            orders_by_outlet.setdefault(o.outlet_id, []).append(o)
+        orders_by_outlet.setdefault(o.outlet_id, []).append(o)
 
     for rank, out_id in enumerate(stop_ids, 1):
         outlet = outlets.get(out_id)
         del_rec = deliveries.get(out_id)
         outlet_orders = orders_by_outlet.get(out_id, [])
-        order_refs = [o.order_ref for o in outlet_orders] if outlet_orders else [f"S1-{out_id[-3:]}"]
-        temp_reqs = list(set(o.temp_requirement for o in outlet_orders)) if outlet_orders else ["ambient"]
-        total_units = sum(o.order_units for o in outlet_orders) if outlet_orders else 40
-        total_weight = sum(o.order_weight_kg for o in outlet_orders) if outlet_orders else 250.0
-        total_volume = sum(o.order_volume_m3 for o in outlet_orders) if outlet_orders else 1.5
+        order_refs = [o.order_ref for o in outlet_orders]
+        temp_reqs = sorted(set(o.temp_requirement for o in outlet_orders))
+        total_units = sum(effective_units.get(o.order_ref, o.order_units) for o in outlet_orders)
+        total_weight = sum(o.order_weight_kg for o in outlet_orders)
+        total_volume = sum(o.order_volume_m3 for o in outlet_orders)
 
         win_open = outlet.window_open_time if outlet else "05:00"
         win_close = outlet.window_close_time if outlet else "07:30"
@@ -87,6 +102,30 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
             "isCompleted": del_rec is not None,
             "outcome": del_rec.outcome if del_rec else None,
             "orders": order_refs,
+            "orderDetails": [
+                {
+                    "orderRef": o.order_ref,
+                    "units": effective_units.get(o.order_ref, o.order_units),
+                    "plannedUnits": o.order_units,
+                    "weightKg": o.order_weight_kg,
+                    "volumeM3": o.order_volume_m3,
+                    "tempRequirement": o.temp_requirement,
+                }
+                for o in outlet_orders
+            ],
+            "loadingNotes": [
+                {
+                    "orderRef": li.order_ref,
+                    "issueType": li.issue_type,
+                    "unitsAffected": li.units_affected,
+                    "status": li.status,
+                    "actionTaken": li.action_taken,
+                    "plannedUnits": next((o.order_units for o in outlet_orders if o.order_ref == li.order_ref), None),
+                    "effectiveUnits": effective_units.get(li.order_ref),
+                }
+                for o in outlet_orders
+                for li in loading_issues_by_order.get(o.order_ref, [])
+            ],
             "outlets": 1,
             "tempRequirement": ", ".join(temp_reqs),
             "units": total_units,
@@ -116,12 +155,12 @@ def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db), user: C
     driver trying to unlock a trip assigned to a different vehicle."""
     if user.vehicle_id and req.vehicle_id != user.vehicle_id:
         raise HTTPException(status_code=403, detail="You can only unlock a trip assigned to your own vehicle.")
-    return verify_driver_otp(db, req.trip_id, req.vehicle_id, req.otp_code)
+    return verify_driver_otp(db, req.trip_id, req.vehicle_id, req.otp_code, actor=user.display_name)
 
 @router.get("/progress", response_model=DriverRunProgressResponse)
 def api_get_driver_progress(trip_id: str, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
     """Get calculated progress (% completed, stops remaining)."""
-    return get_driver_run_progress(db, trip_id)
+    return get_driver_run_progress(db, trip_id, vehicle_id=user.vehicle_id)
 
 @router.post("/deliveries")
 def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
@@ -129,7 +168,7 @@ def api_record_delivery(record: LocalDeliveryRecordSchema, db: Session = Depends
     against a trip/vehicle the authenticated driver doesn't own."""
     if user.vehicle_id and record.vehicleId != user.vehicle_id:
         raise HTTPException(status_code=403, detail="You can only record deliveries for your own vehicle's trip.")
-    rec = record_driver_delivery(db, record)
+    rec = record_driver_delivery(db, record, actor=user.display_name)
     return {"success": True, "deliveryId": rec.id, "status": rec.status}
 
 @router.get("/history", response_model=List[LocalDeliveryRecordSchema])
@@ -181,6 +220,7 @@ def api_get_driver_history(db: Session = Depends(get_db), user: CurrentUser = De
             status=d.status,
             offlineCreated=d.offline_created,
             createdAt=d.recorded_at.isoformat(),
+            tripId=d.trip_id,
             syncedAt=d.synced_at.isoformat() if d.synced_at else None,
         ))
     return results

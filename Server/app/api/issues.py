@@ -25,9 +25,9 @@ def list_loading_issues(manifest_version: int = 1, db: Session = Depends(get_db)
 @router.post("/loading", response_model=LoadingIssueResponseSchema)
 def api_create_loading_issue(req: LoadingIssueCreateRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("loader"))):
     """Create a warehouse pre-departure loading issue."""
-    return create_loading_issue(db, req)
+    return create_loading_issue(db, req, reported_by=user.display_name)
 
 @router.post("/loading/{issue_id}/action", response_model=LoadingIssueResponseSchema)
 def api_resolve_loading_issue(issue_id: str, req: LoadingIssueActionRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("loader", "dispatcher"))):
     """Resolve or escalate a warehouse loading issue."""
-    return resolve_loading_issue(db, issue_id, req)
+    return resolve_loading_issue(db, issue_id, req, actor=user.display_name)

@@ -29,6 +29,8 @@ export interface DriverRunStop {
   isCompleted: boolean;
   outcome?: "full" | "discrepancy" | "none" | null;
   orders: string[];
+  orderDetails?: { orderRef: string; units: number; plannedUnits: number; weightKg?: number; volumeM3?: number; tempRequirement?: string }[];
+  loadingNotes?: { orderRef: string; issueType: string; unitsAffected: number; status: string; actionTaken?: string | null; plannedUnits?: number | null; effectiveUnits?: number | null }[];
   outlets: number;
   tempRequirement: string;
   units: number;

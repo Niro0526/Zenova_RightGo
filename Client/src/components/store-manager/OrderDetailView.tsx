@@ -46,7 +46,9 @@ export default function OrderDetailView({
 
   const isAwaitingPlanning = activeOrder.status === 'Awaiting Planning' || activeOrder.status === 'Queued';
   const isDeferred = activeOrder.status?.toLowerCase().includes('defer') || activeOrder.status?.toLowerCase().includes('escalat');
-  const isDelivered = activeOrder.status === 'Delivered';
+  const isDelivered = activeOrder.status === 'Delivered' || activeOrder.status === 'Received';
+  // The store can only sign off once the driver has recorded the delivery (not while merely in transit).
+  const canConfirmReceipt = activeOrder.status === 'Delivered';
   const isCancelled = activeOrder.status === 'Cancelled';
   const isOutForDelivery = activeOrder.status === 'Out for Delivery' || activeOrder.status === 'In Transit';
 
@@ -227,7 +229,7 @@ export default function OrderDetailView({
                 </>
               )}
 
-              {isOutForDelivery && (
+              {canConfirmReceipt && (
                 <button
                   type="button"
                   className="btn-orange-primary"

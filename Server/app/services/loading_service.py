@@ -18,11 +18,38 @@ def get_current_released_manifest(db: Session, scenario: str = "S1") -> Optional
         ReleasedManifest.is_active == True,
     ).order_by(ReleasedManifest.version.desc()).first()
 
-def acknowledge_manifest(db: Session, version: int, acknowledged_by: str = "Rizwan (Loader)") -> ReleasedManifest:
-    manifest = db.query(ReleasedManifest).filter(ReleasedManifest.version == version).first()
+def _ensure_trip_current(db: Session, trip: ReleasedTrip) -> None:
+    """A trip from a superseded manifest that has not departed is stale: the
+    loader must work from the current release, never an older one. Trips that
+    already departed stay live (their goods are on the road)."""
+    if trip.loading_status in ("departed", "completed"):
+        return
+    manifest = db.query(ReleasedManifest).filter(ReleasedManifest.id == trip.manifest_id).first()
+    if manifest and not manifest.is_active:
+        latest = get_current_released_manifest(db, trip.scenario)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Trip {trip.trip_id_str} belongs to superseded plan v{trip.manifest_version}"
+                   + (f"; the current plan is v{latest.version}." if latest else "."),
+        )
+
+
+def acknowledge_manifest(db: Session, version: int, acknowledged_by: str = "Rizwan (Loader)", scenario: str = "S1") -> ReleasedManifest:
+    manifest = db.query(ReleasedManifest).filter(
+        ReleasedManifest.version == version,
+        ReleasedManifest.scenario == scenario,
+    ).first()
     if not manifest:
         raise HTTPException(status_code=404, detail=f"Manifest version v{version} not found")
-
+    if not manifest.is_active:
+        latest = get_current_released_manifest(db, scenario)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Manifest v{version} has been superseded"
+                   + (f" by v{latest.version}. Acknowledge the current plan instead." if latest else "."),
+        )
+    if manifest.acknowledgement == "acknowledged":
+        return manifest  # idempotent: no second ledger entry or timestamp change
     manifest.acknowledgement = "acknowledged"
     manifest.acknowledged_at = datetime.now(timezone.utc)
     manifest.acknowledged_by = acknowledged_by
@@ -121,7 +148,7 @@ def mark_order_loaded(db: Session, trip_id: int, order_ref: str, loaded_units: O
     # Check departure gate: cannot modify after departed
     if trip.loading_status in ("departed", "completed"):
         raise HTTPException(status_code=409, detail="Cannot modify loading after vehicle departure")
-
+    _ensure_trip_current(db, trip)
     state = db.query(OrderLoadingState).filter(
         OrderLoadingState.released_trip_id == trip.id,
         OrderLoadingState.order_ref == order_ref,
@@ -129,9 +156,19 @@ def mark_order_loaded(db: Session, trip_id: int, order_ref: str, loaded_units: O
     if not state:
         raise HTTPException(status_code=404, detail="Order loading record not found on this trip")
 
+    if loaded_units is not None and (loaded_units < 0 or loaded_units > state.planned_units):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Loaded units must be between 0 and the planned {state.planned_units}.",
+        )
     state.is_loaded = True
     state.loaded_units = loaded_units if loaded_units is not None else state.planned_units
+    # What the store should expect never exceeds what was physically loaded.
+    state.effective_units = min(state.effective_units, state.loaded_units)
     state.loaded_at = datetime.now(timezone.utc)
+    load_order = db.query(Order).filter(Order.order_ref == order_ref).first()
+    if load_order and load_order.status in ("planned", "awaiting_planning", "loading"):
+        load_order.status = "loaded"
 
     if trip.loading_status == "planned":
         trip.loading_status = "loading"
@@ -163,18 +200,31 @@ def mark_order_loaded(db: Session, trip_id: int, order_ref: str, loaded_units: O
     db.refresh(state)
     return state
 
-def create_loading_issue(db: Session, req: LoadingIssueCreateRequest) -> LoadingIssue:
-    # Check that trip is not yet departed
+def create_loading_issue(db: Session, req: LoadingIssueCreateRequest, reported_by: Optional[str] = None) -> LoadingIssue:
     trip = db.query(ReleasedTrip).filter(
         ReleasedTrip.manifest_version == req.manifest_version,
         ReleasedTrip.vehicle_id == req.vehicle_id,
         ReleasedTrip.trip_no == req.trip_no,
     ).first()
-    if trip and trip.loading_status in ("departed", "completed"):
+    if not trip:
+        raise HTTPException(status_code=404, detail="No released trip matches that manifest version, vehicle and trip number.")
+    if trip.loading_status in ("departed", "completed"):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pre-departure loading issues cannot be created after vehicle departure.",
         )
+    _ensure_trip_current(db, trip)
+    state = db.query(OrderLoadingState).filter(
+        OrderLoadingState.released_trip_id == trip.id,
+        OrderLoadingState.order_ref == req.order_ref,
+    ).first()
+    if not state:
+        raise HTTPException(status_code=404, detail=f"Order {req.order_ref} is not on trip {trip.trip_id_str}.")
+    issue_order = db.query(Order).filter(Order.order_ref == req.order_ref).first()
+    if issue_order and issue_order.outlet_id != req.outlet_id:
+        raise HTTPException(status_code=400, detail=f"Order {req.order_ref} belongs to outlet {issue_order.outlet_id}, not {req.outlet_id}.")
+    if req.units_affected < 0 or req.units_affected > state.planned_units:
+        raise HTTPException(status_code=400, detail=f"Units affected must be between 0 and the planned {state.planned_units}.")
 
     issue = LoadingIssue(
         manifest_version=req.manifest_version,
@@ -187,12 +237,11 @@ def create_loading_issue(db: Session, req: LoadingIssueCreateRequest) -> Loading
         status="open",
         notes=req.notes,
         reported_at=datetime.now(timezone.utc),
-        reported_by=req.reported_by or "Rizwan (Loader)",
+        reported_by=reported_by or req.reported_by or "Loader",
     )
     db.add(issue)
-
     # Block readiness if was ready
-    if trip and trip.loading_status == "ready":
+    if trip.loading_status == "ready":
         trip.loading_status = "loading"
 
     db.commit()
@@ -209,33 +258,67 @@ def create_loading_issue(db: Session, req: LoadingIssueCreateRequest) -> Loading
 
     return issue
 
-def resolve_loading_issue(db: Session, issue_id: str, req: LoadingIssueActionRequest) -> LoadingIssue:
+def _issue_loading_state(db: Session, issue: LoadingIssue) -> Optional[OrderLoadingState]:
+    trip = db.query(ReleasedTrip).filter(
+        ReleasedTrip.manifest_version == issue.manifest_version,
+        ReleasedTrip.vehicle_id == issue.vehicle_id,
+        ReleasedTrip.trip_no == issue.trip_no,
+    ).first()
+    if not trip:
+        return None
+    return db.query(OrderLoadingState).filter(
+        OrderLoadingState.released_trip_id == trip.id,
+        OrderLoadingState.order_ref == issue.order_ref,
+    ).first()
+
+
+def resolve_loading_issue(db: Session, issue_id: str, req: LoadingIssueActionRequest, actor: Optional[str] = None) -> LoadingIssue:
     issue = db.query(LoadingIssue).filter(LoadingIssue.id == issue_id).first()
     if not issue:
         raise HTTPException(status_code=404, detail="Loading issue not found")
-
+    actor = actor or req.resolved_by or "Loader"
+    issue_trip = db.query(ReleasedTrip).filter(
+        ReleasedTrip.manifest_version == issue.manifest_version,
+        ReleasedTrip.vehicle_id == issue.vehicle_id,
+        ReleasedTrip.trip_no == issue.trip_no,
+    ).first()
+    if issue_trip and issue_trip.loading_status in ("departed", "completed"):
+        raise HTTPException(status_code=409, detail="This trip has already departed; the loading issue can no longer be changed.")
+    if issue_trip:
+        _ensure_trip_current(db, issue_trip)
     if req.action == "replace_from_stock":
         issue.status = "resolved"
         issue.action_taken = "replace_from_stock"
         issue.resolved_at = datetime.now(timezone.utc)
-        issue.resolved_by = req.resolved_by or "Rizwan (Loader)"
+        issue.resolved_by = actor
+        state = _issue_loading_state(db, issue)
+        if state:  # stock replaced: the store receives the full planned quantity
+            state.effective_units = state.planned_units
+            if state.is_loaded:
+                state.loaded_units = state.planned_units
     elif req.action == "send_to_dispatcher":
         issue.status = "escalated"
         issue.action_taken = "send_to_dispatcher"
+        create_notification(
+            db,
+            target_role="dispatcher",
+            kind="load_problem",
+            title=f"Loading Issue Escalated: {issue.vehicle_id} Trip {issue.trip_no}",
+            text=f"{issue.issue_type.upper()} on {issue.order_ref} ({issue.units_affected} units) needs a dispatcher decision.",
+            plan_version=issue.manifest_version,
+        )
     elif req.action == "apply_policy":
         # Shortfall policy application
         issue.status = "resolved"
         issue.action_taken = "apply_policy"
         issue.resolved_at = datetime.now(timezone.utc)
-        issue.resolved_by = req.resolved_by or "Rizwan (Loader)"
-
+        issue.resolved_by = actor
         # Update effective units on loading state
-        state = db.query(OrderLoadingState).filter(
-            OrderLoadingState.manifest_version == issue.manifest_version,
-            OrderLoadingState.order_ref == issue.order_ref,
-        ).first()
+        state = _issue_loading_state(db, issue)
         if state:
             state.effective_units = max(0, state.planned_units - issue.units_affected)
+            if state.is_loaded:
+                state.loaded_units = min(state.loaded_units, state.effective_units)
             create_notification(
                 db,
                 target_role="store_manager",
@@ -250,7 +333,9 @@ def resolve_loading_issue(db: Session, issue_id: str, req: LoadingIssueActionReq
         issue.action_taken = "undo"
         issue.resolved_at = None
         issue.resolved_by = None
-
+        state = _issue_loading_state(db, issue)
+        if state:  # a reverted shortfall policy no longer reduces the delivery
+            state.effective_units = state.planned_units
     if req.notes:
         issue.notes = f"{issue.notes or ''} | Action Note: {req.notes}".strip(" |")
 
@@ -273,12 +358,25 @@ def resolve_loading_issue(db: Session, issue_id: str, req: LoadingIssueActionReq
 
         if all(s.is_loaded for s in all_states) and open_issues == 0 and is_ack:
             trip.loading_status = "ready"
-
+        elif trip.loading_status == "ready":
+            trip.loading_status = "loading"  # e.g. an undone issue re-opens the gate
     db.commit()
     db.refresh(issue)
+    record_ledger_entry(
+        db,
+        action=f"loading_issue_{req.action}",
+        actor=actor,
+        order_ref=issue.order_ref,
+        outlet_id=issue.outlet_id,
+        vehicle_id=issue.vehicle_id,
+        trip_no=issue.trip_no,
+        reason_code=issue.issue_type,
+        reason_note=f"{issue.issue_type} ({issue.units_affected} units) on {issue.order_ref}: {req.action}.",
+        plan_version=issue.manifest_version,
+    )
     return issue
 
-def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
+def depart_trip(db: Session, trip_id: int, actor: Optional[str] = None) -> ReleasedTrip:
     """Departure gate: a trip may only depart once it has reached the "ready"
     loading status (per the documented planned -> loading -> ready ->
     in_transit state machine) - i.e. every order is loaded, the manifest is
@@ -290,7 +388,7 @@ def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
 
     if trip.loading_status in ("departed", "completed"):
         raise HTTPException(status_code=409, detail=f"Trip {trip.trip_id_str} has already departed.")
-
+    _ensure_trip_current(db, trip)
     open_issues = db.query(LoadingIssue).filter(
         LoadingIssue.manifest_version == trip.manifest_version,
         LoadingIssue.vehicle_id == trip.vehicle_id,
@@ -320,8 +418,20 @@ def depart_trip(db: Session, trip_id: int) -> ReleasedTrip:
 
     trip.loading_status = "departed"
     trip.departed_at = datetime.now(timezone.utc)
+    for dep_order in db.query(Order).filter(Order.order_ref.in_(list(trip.order_refs or []))).all():
+        if dep_order.status in ("planned", "loaded", "loading"):
+            dep_order.status = "in_transit"
     db.commit()
     db.refresh(trip)
+    record_ledger_entry(
+        db,
+        action="trip_departed",
+        actor=actor or "Loader",
+        vehicle_id=trip.vehicle_id,
+        trip_no=trip.trip_no,
+        reason_note=f"Trip {trip.trip_id_str} departed the warehouse.",
+        plan_version=trip.manifest_version,
+    )
 
     create_notification(
         db,

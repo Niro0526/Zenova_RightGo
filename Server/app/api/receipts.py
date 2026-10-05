@@ -7,7 +7,7 @@ from app.database.session import get_db
 from app.core.deps import require_role, CurrentUser
 from app.models.operations import ReceiptRecord
 from app.schemas.store_manager import ReceiptConfirmRequest, ReceiptResponseSchema
-from app.services.store_manager_service import confirm_store_receipt
+from app.services.store_manager_service import confirm_store_receipt, get_receipt_expectation
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 
@@ -20,6 +20,12 @@ def list_receipts(outlet_id: Optional[str] = None, db: Session = Depends(get_db)
     elif outlet_id:
         query = query.filter(ReceiptRecord.outlet_id == outlet_id)
     return query.order_by(ReceiptRecord.confirmed_at.desc()).all()
+
+@router.get("/expected")
+def receipt_expected(order_ref: str, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("store_manager"))):
+    """What the caller's outlet should expect to confirm for an order (real delivered quantity)."""
+    return get_receipt_expectation(db, order_ref, user.outlet_id)
+
 
 @router.post("/confirm", response_model=ReceiptResponseSchema)
 def confirm_receipt(req: ReceiptConfirmRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("store_manager"))):

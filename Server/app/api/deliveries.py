@@ -46,6 +46,7 @@ def to_schema(d: DeliveryRecord) -> LocalDeliveryRecordSchema:
         status=d.status,
         offlineCreated=d.offline_created,
         createdAt=d.recorded_at.isoformat(),
+        tripId=d.trip_id,
         syncedAt=d.synced_at.isoformat() if d.synced_at else None,
     )
 

@@ -35,7 +35,7 @@ def api_load_order(trip_id: int, req: LoadOrderRequest, db: Session = Depends(ge
 @router.post("/{trip_id}/depart")
 def api_depart_trip(trip_id: int, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("loader"))):
     """Departure gate: advance trip to departed state."""
-    trip = depart_trip(db, trip_id)
+    trip = depart_trip(db, trip_id, actor=user.display_name)
     return {"success": True, "tripId": trip.trip_id_str, "status": trip.loading_status, "departedAt": trip.departed_at}
 
 @router.get("/{trip_id}/readiness", response_model=TripReadinessResponseSchema)

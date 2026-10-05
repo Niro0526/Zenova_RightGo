@@ -143,7 +143,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ### Build and Run with Docker Compose:
 ```bash
-docker-compose up --build
+docker compose up --build   # run from the repo root; starts PostgreSQL + backend + frontend (see root README)
 ```
 Or run backend independently:
 ```bash

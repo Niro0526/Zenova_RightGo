@@ -31,7 +31,7 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
               role="Fleet Driver"
               initials="D"
               stationId={vehicleId || undefined}
-              stationName={vehicleId ? `Vehicle ${vehicleId} · Plan v2` : undefined}
+              stationName={vehicleId ? `Vehicle ${vehicleId}` : undefined}
               avatarColor="#F97316"
             />
           </div>

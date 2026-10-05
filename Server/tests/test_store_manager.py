@@ -61,7 +61,10 @@ def test_store_manager_flow(db_session):
     assert rcp.confirmed_units == 12
     assert rcp.has_issue is False
 
-    # 4. Acknowledge deferral
+    # 4. Acknowledge deferral (only an order the dispatcher actually deferred can be acknowledged)
+    from app.models.order import Order
+    db_session.query(Order).filter(Order.order_ref == "S1-000").one().status = "deferred"
+    db_session.commit()
     ack = acknowledge_deferral(
         db_session,
         DeferralAckRequest(

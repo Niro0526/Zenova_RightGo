@@ -28,10 +28,18 @@ import { useConnectivity } from "@/context/DriverConnectivityContext";
 import { useAuth } from "@/context/AuthContext";
 import { saveLocalDeliveryRecord, updateRecordSyncStatus, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
 import { getOutletContact } from "@/lib/driver/outlet-service";
-import { postDriverDelivery } from "@/lib/driver/driver-api";
+import { postDriverDelivery, fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
 import { NavigationPanel } from "@/components/driver/NavigationPanel";
 import { DriverCurrentStopMobileView } from "@/components/driver/current-stop/DriverCurrentStopMobileView";
-import type { Stop } from "@/components/driver/today-run/types";
+import { describeLoadingNote, describePlanChange, type Stop } from "@/components/driver/today-run/types";
+
+const DOCK_LABELS: Record<string, string> = { street: "Street Dock", rear_dock: "Rear Dock", mall_bay: "Mall Bay" };
+const PARKING_LABELS: Record<string, string> = { normal: "No restriction", van_only: "Van-only access", mall_dock: "Mall dock" };
+const UNLOAD_LABELS: Record<string, string> = {
+  street: "Manual unload at street level",
+  rear_dock: "Unload at rear dock",
+  mall_bay: "Unload at mall bay",
+};
 
 export type DiscrepancyType = "Quantity Short" | "Damaged" | "Wrong Item" | "Other";
 export type NotDeliveredReason =
@@ -59,7 +67,26 @@ const NOT_DELIVERED_REASONS: NotDeliveredReason[] = [
 export function DriverStopWorkflow({ initialStopRecorded = false }: { initialStopRecorded?: boolean }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const targetStopId = searchParams?.get("stopId") || "OUT001";
+  // The live run comes from the server; the stop is the one in the URL, else the next unfinished stop.
+  const [runInfo, setRunInfo] = useState<DriverRunResponse | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchDriverRun()
+      .then((r) => {
+        if (alive) setRunInfo(r);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const runStops = runInfo?.hasRun ? runInfo.stops : [];
+  const targetStopId = searchParams?.get("stopId") || runStops.find((s) => !s.isCompleted)?.stopId || "";
+  const runStop = runStops.find((s) => s.stopId === targetStopId) ?? null;
+  const nextRunStop = runStops.find((s) => !s.isCompleted && s.stopId !== targetStopId) ?? null;
+  const loadingNotes = runStop?.loadingNotes ?? [];
+  const planChanges = loadingNotes.map(describePlanChange).filter((x): x is string => !!x);
+  const orderRows = runStop?.orderDetails ?? [];
 
   const {
     isOnline,
@@ -73,6 +100,10 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const vehicleId = user?.vehicle_id ?? "";
 
   const storeContact = getOutletContact(targetStopId);
+  const stopName = runStop?.name || storeContact?.name || targetStopId;
+  const stopAddress = storeContact?.address || runStop?.address || "";
+  const dockType = runStop?.dockType ?? "";
+  const stopWindow = runStop?.timeWindow || storeContact?.windowTime || "";
 
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const discrepancyFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -96,6 +127,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const [isNavigating, setIsNavigating] = useState(false);
   const [completingDelivery, setCompletingDelivery] = useState(false);
   const [stopRecorded, setStopRecorded] = useState(initialStopRecorded);
+  const [recordedId, setRecordedId] = useState("");
   const [orderConfirmed, setOrderConfirmed] = useState(false);
 
   // Sync state for offline delivery status
@@ -126,14 +158,18 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const effectiveTimeStr = lastSyncedTime || confirmedTimeStr;
 
   // Outcome selection: 'full' | 'discrepancy' | 'none'
-  const [deliveryOutcome, setDeliveryOutcome] = useState<"full" | "discrepancy" | "none">("discrepancy");
+  const [deliveryOutcome, setDeliveryOutcome] = useState<"full" | "discrepancy" | "none">("full");
   const [photoFile, setPhotoFile] = useState<{ name: string; url: string } | null>(null);
   const [signatureFile, setSignatureFile] = useState<{ name: string; url: string } | null>(null);
 
   // Discrepancy workflow fields
   const [discrepancyType, setDiscrepancyType] = useState<DiscrepancyType>("Quantity Short");
-  const [expectedQty, setExpectedQty] = useState(80);
-  const [deliveredQty, setDeliveredQty] = useState("72");
+  const [expectedQty, setExpectedQty] = useState(0);
+  const [deliveredQty, setDeliveredQty] = useState("");
+  // Expected quantity is what the loader actually loaded for this stop (effective units).
+  useEffect(() => {
+    if (runStop) setExpectedQty(runStop.units);
+  }, [runStop?.stopId, runStop?.units]);
   const [discrepancyNotes, setDiscrepancyNotes] = useState("");
   const [discrepancyPhoto, setDiscrepancyPhoto] = useState<{ name: string; url: string } | null>(null);
 
@@ -397,12 +433,14 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       // Pending Sync. It is only flipped to Synced below once the backend
       // actually acknowledges the POST, never just because the browser
       // reports itself online.
-      const recordId = `DEL-S1-T001-${targetStopId}-${Date.now()}`;
+      const recordId = `DEL-${runInfo?.tripId || "TRIP"}-${targetStopId}-${Date.now()}`;
+      setRecordedId(recordId);
       const recordStatus: LocalDeliveryRecord["status"] = "Pending Sync";
       const localRecord: LocalDeliveryRecord = {
         id: recordId,
+        tripId: runInfo?.tripId,
         stopId: targetStopId,
-        stopName: storeContact.name || `${targetStopId} Outlet`,
+        stopName,
         vehicleId,
         outcome: deliveryOutcome,
         discrepancyDetails: deliveryOutcome === "discrepancy" ? {
@@ -587,10 +625,10 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                 {stopRecorded
                   ? "Stop Recorded - Delivery Successful"
                   : completingDelivery
-                  ? "Complete Delivery - OUT001 / Colpetty Retailer"
+                  ? `Complete Delivery - ${stopName}`
                   : deliveryStarted
-                  ? "Stop 1: OUT001 / Colpetty Retailer"
-                  : "OUT001 / Colpetty Retailer"}
+                  ? `Stop ${runStop?.stopNumber ?? ""}: ${stopName}`
+                  : stopName}
               </h1>
             </div>
           </div>
@@ -671,7 +709,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                     Delivery Recorded Successfully
                   </h2>
                   <p className="text-[#485563] font-medium text-sm mt-0.5 m-0">
-                    OUT001 / Colpetty Retailer • Galle Road, Colombo 03
+                    {stopName}{stopAddress ? ` • ${stopAddress}` : ""}
                   </p>
                 </div>
               </div>
@@ -716,7 +754,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                     <span>📋</span> DELIVERY RECEIPT
                   </span>
                   <span className="bg-white border border-[#CBD5E1] text-[#202D2D] font-mono font-bold text-xs px-2.5 py-0.5 rounded-md">
-                    DEL-S1-T001-001
+                    {recordedId}
                   </span>
                 </div>
 
@@ -1314,7 +1352,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                     Delivery record ID
                   </span>
                   <span className="text-[#202D2D] font-bold text-lg">
-                    DEL-S1-T001-001
+                    {recordedId}
                   </span>
                 </div>
               </div>
@@ -1476,7 +1514,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                   <div className="flex flex-col gap-1.5 bg-[#F8FAFC] p-3.5 rounded-xl border border-[#CBD5E1]">
                     <span className="text-xs font-bold text-[#202D2D]">Next Action</span>
                     <span className="text-xs text-[#485563]">
-                      Stop OUT001 will be marked unfulfilled. Next stop on manifest: <span className="font-bold text-[#202D2D]">OUT002 / Bambalapitiya Grocers</span>.
+                      Stop {targetStopId} will be marked unfulfilled. {nextRunStop ? <>Next stop on manifest: <span className="font-bold text-[#202D2D]">{nextRunStop.name}</span>.</> : "This is the last stop on the manifest."}
                     </span>
                   </div>
                 </div>
@@ -1693,7 +1731,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                       OUTLET DETAILS
                     </span>
                     <h2 className="text-[#202D2D] font-extrabold text-xl mt-0.5">
-                      OUT001 / Colpetty Retailer
+                      {stopName}
                     </h2>
                   </div>
                   {storeContact?.phone && (
@@ -1714,93 +1752,90 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                     <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">
                       DELIVERY WINDOW
                     </span>
-                    <span className="text-[#202D2D] font-bold text-sm">05:00 - 07:30</span>
+                    <span className="text-[#202D2D] font-bold text-sm">{stopWindow || "-"}</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-[#F9FAFB] p-3.5 rounded-xl border border-[#F1F5F9]">
                     <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">
                       ACCESS
                     </span>
-                    <span className="text-[#202D2D] font-bold text-sm">Street Dock</span>
+                    <span className="text-[#202D2D] font-bold text-sm">{DOCK_LABELS[dockType] ?? (dockType || "-")}</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-[#F9FAFB] p-3.5 rounded-xl border border-[#F1F5F9]">
                     <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">
                       VEHICLE RESTRICTION
                     </span>
-                    <span className="text-[#202D2D] font-bold text-sm">Van-only access</span>
+                    <span className="text-[#202D2D] font-bold text-sm">{PARKING_LABELS[runStop?.parkingConstraint ?? ""] ?? (runStop?.parkingConstraint || "-")}</span>
                   </div>
                   <div className="flex flex-col gap-1 bg-[#F9FAFB] p-3.5 rounded-xl border border-[#F1F5F9]">
                     <span className="text-[#485563] font-semibold text-[11px] uppercase tracking-wider">
                       UNLOADING
                     </span>
-                    <span className="text-[#202D2D] font-bold text-sm">Manual unload at street level</span>
+                    <span className="text-[#202D2D] font-bold text-sm">{UNLOAD_LABELS[dockType] ?? (dockType || "-")}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-[#FFF4ED] border border-[#F59E0B] rounded-2xl p-5 flex items-start gap-4">
-                <div className="w-9 h-9 rounded-xl bg-[#F59E0B]/15 border border-[#F59E0B]/30 flex items-center justify-center shrink-0">
-                  <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B]" />
+              {loadingNotes.length > 0 && (
+                <div className="bg-[#FFF4ED] border border-[#F59E0B] rounded-2xl p-5 flex items-start gap-4">
+                  <div className="w-9 h-9 rounded-xl bg-[#F59E0B]/15 border border-[#F59E0B]/30 flex items-center justify-center shrink-0">
+                    <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B]" />
+                  </div>
+                  <div className="flex flex-col gap-1 text-xs sm:text-sm">
+                    <h3 className="text-[#F59E0B] font-bold text-sm m-0 flex items-center gap-1.5">
+                      <span>✓</span> Loading Update
+                    </h3>
+                    {loadingNotes.map((n, i) => (
+                      <p key={i} className="text-[#D97706] font-medium m-0 mt-0.5">
+                        {describeLoadingNote(n)}
+                      </p>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-col gap-1 text-xs sm:text-sm">
-                  <h3 className="text-[#F59E0B] font-bold text-sm m-0 flex items-center gap-1.5">
-                    <span>✓</span> Loading Update — Resolved
-                  </h3>
-                  <p className="text-[#D97706] font-medium m-0 mt-0.5">
-                    Loading issue reported for order S1-001 at OUT001 / Colpetty Retailer.
-                  </p>
-                  <p className="text-[#D97706] font-medium m-0">
-                    8 damaged units were replaced before departure. Final quantity verified by the Loader.
-                  </p>
-                  <p className="text-[#D97706] font-bold m-0 mt-1">No action required.</p>
-                </div>
-              </div>
+              )}
 
-              <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#CBD5E1] flex flex-col gap-2">
-                <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
-                  ACKNOWLEDGED PLAN CHANGES
-                </span>
-                <p className="text-[#485563] font-medium text-sm leading-relaxed">
-                  Plan v2: 8 units of S1-001 replaced due to loading shortfall. Original 80 units → replacement stock loaded. Quantity verified by loader.
-                </p>
-              </div>
+              {planChanges.length > 0 && (
+                <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#CBD5E1] flex flex-col gap-2">
+                  <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
+                    PLAN CHANGES
+                  </span>
+                  {planChanges.map((text, i) => (
+                    <p key={i} className="text-[#485563] font-medium text-sm leading-relaxed">
+                      {text}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="lg:col-span-5 flex flex-col gap-6">
               <div className="bg-white rounded-2xl p-6 shadow-sm border border-[#CBD5E1] flex flex-col gap-4">
                 <div className="flex items-center justify-between">
                   <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider">
-                    EXPECTED ORDERS (2)
+                    EXPECTED ORDERS ({orderRows.length})
                   </span>
                   <span className="text-[#485563] font-semibold text-xs">
-                    2 orders for 1 outlet visit
+                    {orderRows.length} order{orderRows.length === 1 ? "" : "s"} for 1 outlet visit
                   </span>
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-[#202D2D] font-bold text-base">S1-000</span>
-                      <span className="text-[#485563] font-medium text-xs">12 ambient units</span>
-                    </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[#202D2D] font-bold text-base">97.8 kg</span>
-                      <span className="text-[#485563] font-semibold text-xs">0.500 m³</span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
-                    <div className="flex items-center gap-3">
-                      <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B] shrink-0" />
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[#202D2D] font-bold text-base">S1-001</span>
-                        <span className="text-[#485563] font-medium text-xs">80 chilled units</span>
+                  {orderRows.map((o) => (
+                    <div key={o.orderRef} className="flex items-center justify-between bg-[#F9FAFB] p-4 rounded-xl border border-[#F1F5F9]">
+                      <div className="flex items-center gap-3">
+                        {o.units < o.plannedUnits && <AlertTriangleIcon className="w-5 h-5 text-[#F59E0B] shrink-0" />}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[#202D2D] font-bold text-base">{o.orderRef}</span>
+                          <span className="text-[#485563] font-medium text-xs">
+                            {o.units} {o.tempRequirement ?? ""} units{o.units < o.plannedUnits ? ` (planned ${o.plannedUnits})` : ""}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="text-[#202D2D] font-bold text-base">{o.weightKg != null ? `${o.weightKg.toFixed(1)} kg` : ""}</span>
+                        <span className="text-[#485563] font-semibold text-xs">{o.volumeM3 != null ? `${o.volumeM3.toFixed(3)} m³` : ""}</span>
                       </div>
                     </div>
-                    <div className="flex flex-col items-end gap-1">
-                      <span className="text-[#202D2D] font-bold text-base">448.6 kg</span>
-                      <span className="text-[#485563] font-semibold text-xs">2.445 m³</span>
-                    </div>
-                  </div>
+                  ))}
                 </div>
               </div>
 
@@ -1844,26 +1879,28 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
       <div className="md:hidden flex items-start justify-center w-full min-h-full bg-[#F6F8FB]">
         <DriverCurrentStopMobileView
           stop={{
-            id: 1,
+            id: runStop?.id ?? 1,
             stopId: targetStopId,
             code: targetStopId,
-            name: storeContact?.name || `${targetStopId} / Colpetty Retailer`,
-            address: storeContact?.address || "Galle Road, Colombo 03",
-            district: "Colombo",
-            depot: "Peliyagoda",
-            dockType: "Rear Dock",
-            parkingConstraint: "Standard",
-            managerName: storeContact?.managerName || "Store Manager",
-            managerPhone: storeContact?.phone || "+94 11 257 3489",
+            name: stopName,
+            address: stopAddress,
+            district: runStop?.district,
+            depot: runStop?.depot,
+            dockType: DOCK_LABELS[dockType] ?? dockType,
+            parkingConstraint: PARKING_LABELS[runStop?.parkingConstraint ?? ""] ?? runStop?.parkingConstraint,
+            managerName: storeContact?.managerName || runStop?.managerName || "",
+            managerPhone: storeContact?.phone || runStop?.managerPhone || "",
             outlets: 1,
-            orders: ["S1-000", "S1-001"],
+            orders: runStop?.orders ?? [],
+            orderDetails: runStop?.orderDetails,
+            loadingNotes: runStop?.loadingNotes,
             status: stopStatus === "ARRIVED" ? "next" : "upcoming",
-            timeWindow: "06:00 – 08:00",
-            windowOpen: "06:00",
-            windowClose: "08:00",
+            timeWindow: stopWindow,
+            windowOpen: runStop?.windowOpen,
+            windowClose: runStop?.windowClose,
           }}
-          totalStopsCount={4}
-          currentStopIndex={1}
+          totalStopsCount={runStops.length || 1}
+          currentStopIndex={Math.max(1, (runStop?.stopNumber ?? 1))}
           deliveryStarted={deliveryStarted}
           completingDelivery={completingDelivery}
           stopRecorded={stopRecorded}

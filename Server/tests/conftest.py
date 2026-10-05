@@ -17,7 +17,14 @@ from app.database.session import get_db
 from app.services.reference_service import seed_reference_data
 from app.main import app
 
-TEST_DB_URL = "sqlite:///:memory:"
+# Tests always run against an isolated database: in-memory SQLite by default, or a *local*
+# throw-away PostgreSQL given in RIGHTGO_TEST_DATABASE_URL (to check Postgres parity). The
+# schema is dropped after every test, so it must never point at a shared/production database.
+TEST_DB_URL = os.environ.get("RIGHTGO_TEST_DATABASE_URL", "sqlite:///:memory:")
+if not TEST_DB_URL.startswith("sqlite"):
+    from sqlalchemy.engine import make_url
+    if make_url(TEST_DB_URL).host not in ("localhost", "127.0.0.1", "::1"):
+        raise RuntimeError("RIGHTGO_TEST_DATABASE_URL must point at a local throw-away database (schema is dropped after each test).")
 
 @pytest.fixture(scope="function")
 def db_engine():
@@ -32,13 +39,22 @@ def db_engine():
     # than the fixture setup, and a plain sqlite:///:memory: engine hands out
     # a brand new, empty database per connection/thread without it - pinning
     # a single shared connection is what makes it one database for the test.
-    engine = create_engine(
-        TEST_DB_URL,
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
-    )
+    if TEST_DB_URL.startswith("sqlite"):
+        engine = create_engine(
+            TEST_DB_URL,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    else:
+        from app.database.session import sanitize_db_url
+        engine = create_engine(sanitize_db_url(TEST_DB_URL))
+        Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
     yield engine
+    if not TEST_DB_URL.startswith("sqlite"):
+        engine.dispose()
+        engine = create_engine(sanitize_db_url(TEST_DB_URL))
+        Base.metadata.drop_all(bind=engine)
     engine.dispose()
 
 @pytest.fixture(scope="function")

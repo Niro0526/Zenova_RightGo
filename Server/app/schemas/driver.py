@@ -43,6 +43,7 @@ class LocalDeliveryRecordSchema(BaseModel):
     offlineCreated: bool = False
     createdAt: str
     syncedAt: Optional[str] = None
+    tripId: Optional[str] = None  # the run this outcome belongs to (filled in by the server)
 
 class IssueCategoryItem(BaseModel):
     id: str
