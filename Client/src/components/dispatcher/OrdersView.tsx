@@ -7,6 +7,12 @@ type StatusFilter = 'All' | 'Fresh' | 'Tech' | 'Style';
 
 function statusLabel(orderStatus: string, decision: string | undefined): { label: string; className: string } {
   if (orderStatus === 'cancelled') return { label: 'Cancelled', className: 'bg-gray-200 text-gray-600 border-gray-300' };
+  if (orderStatus === 'received') return { label: 'Received (Store Confirmed)', className: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  if (orderStatus === 'delivered') return { label: 'Delivered (Pending Receipt)', className: 'bg-teal-50 text-teal-700 border-teal-200' };
+  if (orderStatus === 'delivered_short') return { label: 'Delivered Short', className: 'bg-amber-100 text-amber-800 border-amber-300' };
+  if (orderStatus === 'in_transit') return { label: 'In Transit', className: 'bg-indigo-50 text-indigo-700 border-indigo-200' };
+  if (orderStatus === 'ready') return { label: 'Trip Ready', className: 'bg-cyan-50 text-cyan-700 border-cyan-200' };
+  if (orderStatus === 'loading') return { label: 'Loading', className: 'bg-purple-50 text-purple-700 border-purple-200' };
   if (orderStatus === 'planned') return { label: 'Scheduled', className: 'bg-blue-50 text-blue-700 border-blue-200' };
   if (decision === 'deferred' || orderStatus === 'deferred') return { label: 'Deferred', className: 'bg-amber-50 text-amber-700 border-amber-300' };
   if (decision === 'served') return { label: 'Assigned (draft)', className: 'bg-orange-50 text-orange-700 border-orange-300' };
@@ -20,7 +26,7 @@ function toCsv(rows: { ref: string; brand: string; outlet: string; temp: string;
 }
 
 export default function Orders() {
-  const { orders, assignments, isLoading, error } = useDispatcherPlan();
+  const { orders, assignments, isLoading, error, ordersClosed, closeOrders, isSaving } = useDispatcherPlan();
   const router = useRouter();
   const [activeFilter, setActiveFilter] = useState<StatusFilter>('All');
   const [fromDate, setFromDate] = useState('');
@@ -63,6 +69,11 @@ export default function Orders() {
     URL.revokeObjectURL(url);
   }
 
+  async function handleCloseOrders() {
+    const ok = await closeOrders();
+    if (ok) router.push('/dispatcher/planning');
+  }
+
   function openInPlanning(orderRef: string) {
     router.push(`/dispatcher/planning?orderRef=${encodeURIComponent(orderRef)}`);
   }
@@ -78,9 +89,19 @@ export default function Orders() {
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center w-full gap-4 sm:gap-0">
           <div className="flex flex-col gap-1.5">
             <h1 className="font-bold text-[24px] sm:text-[28px] text-[#202D2D] leading-tight sm:leading-[42px] m-0">Orders</h1>
-            <h2 className="font-medium text-[11px] text-[#485563] uppercase tracking-wider m-0">{counts.All} orders (scenario S1)</h2>
+            <h2 className="font-medium text-[11px] text-[#485563] uppercase tracking-wider m-0">
+              {counts.All} active orders
+              {ordersClosed ? ' · Closed for planning' : ' · Open intake (4 PM cutoff sets run date)'}
+            </h2>
           </div>
           <div className="flex flex-row gap-2 sm:gap-3 w-full sm:w-auto">
+            <button
+              onClick={() => void handleCloseOrders()}
+              disabled={isSaving}
+              className="flex-1 sm:flex-none flex flex-row items-center justify-center px-4 py-2 bg-white border border-[#CBD5E1] rounded-lg gap-2 font-semibold text-sm text-[#202D2D] cursor-pointer hover:bg-gray-50 disabled:opacity-50"
+            >
+              {isSaving ? 'Closing…' : ordersClosed ? 'Re-close & Auto-Plan' : 'Close Orders & Auto-Plan'}
+            </button>
             <button onClick={handleExportCsv} className="flex-1 sm:flex-none flex flex-row items-center justify-center px-4 py-2 bg-[#F97316] rounded-lg gap-2 font-semibold text-sm text-white cursor-pointer">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
               Export CSV
@@ -105,8 +126,7 @@ export default function Orders() {
             ))}
           </div>
 
-          {/* Date Range Filter - filters on run_date (4PM Asia/Colombo cutoff eligibility date); legacy seed
-              rows have no run_date and are excluded once either bound is set, shown honestly below instead of guessed. */}
+          {/* Date Range Filter */}
           <div className="flex flex-row flex-wrap items-center gap-2 sm:gap-3 w-full lg:w-auto">
             <span className="font-semibold text-[13px] text-[#485563]">Run date:</span>
             <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="flex-1 lg:flex-none py-1 px-3 border border-[#CBD5E1] rounded-lg text-[13px] text-[#485563] outline-none focus:border-[#F97316]" />
@@ -134,7 +154,15 @@ export default function Orders() {
 
           {/* Table Rows */}
           {filteredOrders.length === 0 ? (
-            <div className="py-10 text-center text-sm text-gray-400">No orders match these filters.</div>
+            <div className="py-12 text-center text-sm text-gray-500 flex flex-col items-center justify-center gap-2">
+              <span className="text-2xl">📋</span>
+              <span className="font-semibold text-gray-700">No orders in database</span>
+              <span className="text-xs text-gray-400">
+                {orders.length === 0
+                  ? "Store replenishment orders will automatically populate here when placed."
+                  : "No orders match the selected filters."}
+              </span>
+            </div>
           ) : filteredOrders.map((order) => {
             const a = assignments[order.orderRef];
             const st = statusLabel(order.status, a?.decision);
@@ -159,7 +187,7 @@ export default function Orders() {
                   )}
                 </div>
                 <div className="w-[110px] flex-shrink-0 font-semibold text-sm text-[#202D2D]">
-                  {order.runDate ?? <span className="text-gray-400 font-normal italic text-xs">n/a (seed)</span>}
+                  {order.runDate || (order.createdAt ? order.createdAt.slice(0, 10) : '—')}
                 </div>
                 <div className="w-[100px] flex-shrink-0">
                   <button onClick={() => openInPlanning(order.orderRef)} className="text-xs font-semibold text-orange-600 hover:underline">

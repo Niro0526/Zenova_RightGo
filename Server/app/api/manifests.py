@@ -28,6 +28,8 @@ def build_manifest_schema(db: Session, manifest: ReleasedManifest) -> ManifestRe
             orderRefs=t.order_refs or [],
             loadingStatus=t.loading_status,
             otpUnlocked=t.otp_unlocked,
+            driverUsername=t.driver_username,
+            driverName=t.driver_name,
         )
         for t in trip_rows
     ]

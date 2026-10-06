@@ -100,7 +100,7 @@ export function DriverReportMobileView({
       >
         <span
           className="text-[#ED5214] font-bold text-[21px] leading-[25px] tracking-tight cursor-pointer"
-          onClick={() => router.push("/driver/today-run")}
+          onClick={() => router.push("/driver/current-stop")}
         >
           RightGo
         </span>

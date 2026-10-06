@@ -413,6 +413,63 @@ def resolve_loading_issue(db: Session, issue_id: str, req: LoadingIssueActionReq
     )
     return issue
 
+def mark_trip_ready(db: Session, trip_id: int, actor: Optional[str] = None) -> ReleasedTrip:
+    """Readiness gate: Loader verifies all orders are loaded, manifest is acknowledged,
+    and all issues resolved, then marks trip Ready so the driver can receive and start it."""
+    trip = db.query(ReleasedTrip).filter(ReleasedTrip.id == trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    _ensure_trip_current(db, trip)
+    if trip.loading_status in ("departed", "completed"):
+        return trip
+
+    states = db.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all()
+    unloaded = sum(1 for s in states if not s.is_loaded)
+    if unloaded > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot mark Ready: {unloaded} order(s) not yet loaded onto vehicle {trip.vehicle_id}.",
+        )
+    open_issues = db.query(LoadingIssue).filter(
+        LoadingIssue.manifest_version == trip.manifest_version,
+        LoadingIssue.vehicle_id == trip.vehicle_id,
+        LoadingIssue.trip_no == trip.trip_no,
+        LoadingIssue.status.in_(["open", "escalated"]),
+    ).count()
+    if open_issues > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot mark Ready: {open_issues} open loading issue(s) remain on vehicle {trip.vehicle_id}.",
+        )
+    manifest = db.query(ReleasedManifest).filter(ReleasedManifest.id == trip.manifest_id).first()
+    if manifest and manifest.acknowledgement != "acknowledged":
+        manifest.acknowledgement = "acknowledged"
+        manifest.acknowledged_at = datetime.now(timezone.utc)
+        manifest.acknowledged_by = actor or "Rizwan (Loader)"
+
+    trip.loading_status = "ready"
+    db.commit()
+    db.refresh(trip)
+
+    record_ledger_entry(
+        db,
+        action="trip_ready",
+        actor=actor or "Rizwan (Loader)",
+        vehicle_id=trip.vehicle_id,
+        trip_no=trip.trip_no,
+        plan_version=trip.manifest_version,
+        reason_note=f"Trip {trip.trip_id_str} marked Ready by Loader. Departure gate cleared.",
+    )
+    create_notification(
+        db,
+        target_role="driver",
+        kind="loading_complete",
+        title=f"Trip {trip.trip_id_str} Ready for Departure",
+        text=f"Vehicle {trip.vehicle_id} loaded successfully. Driver may start the trip.",
+        plan_version=trip.manifest_version,
+    )
+    return trip
+
 def depart_trip(db: Session, trip_id: int, actor: Optional[str] = None) -> ReleasedTrip:
     """Departure gate: a trip may only depart once it has reached the "ready"
     loading status (per the documented planned -> loading -> ready ->

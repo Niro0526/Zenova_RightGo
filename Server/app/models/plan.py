@@ -12,7 +12,9 @@ class DraftPlan(Base):
     scenario = Column(String(32), nullable=False, default="S1", unique=True)
     draft_revision = Column(Integer, default=0, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
-    updated_by = Column(String(128), default="Sarah Jenkins", nullable=False)
+    updated_by = Column(String(128), default="Dilani Perera (Chief Dispatcher)", nullable=False)
+    # Booklet "Close orders" step: dispatcher locks intake for this planning run and triggers auto-plan.
+    orders_closed_at = Column(DateTime(timezone=True), nullable=True)
 
 class DraftAssignment(Base):
     __tablename__ = "draft_assignments"
@@ -45,6 +47,8 @@ class DraftTripMeta(Base):
     vehicle_id = Column(String(32), nullable=False)
     trip_no = Column(Integer, nullable=False)
     planned_departure_time = Column(String(16), nullable=True) # e.g. "03:30"
+    driver_username = Column(String(64), nullable=True)
+    driver_name = Column(String(128), nullable=True)
     locked = Column(Boolean, default=False, nullable=False) # manual departure - greedy re-suggest must not overwrite
 
 class DraftVehicleFuelInput(Base):
@@ -65,7 +69,7 @@ class ReleasedManifest(Base):
     scenario = Column(String(32), nullable=False, default="S1", index=True)
     published_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     published_at_str = Column(String(16), nullable=False) # "03:15"
-    decision_maker = Column(String(128), default="Sarah Jenkins", nullable=False)
+    decision_maker = Column(String(128), default="Dilani Perera (Chief Dispatcher)", nullable=False)
     shortfall_policy = Column(String(64), default="ship_good_tell_store", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     acknowledgement = Column(String(32), default="pending", nullable=False) # pending, acknowledged
@@ -94,6 +98,8 @@ class ReleasedTrip(Base):
     otp_attempts = Column(Integer, default=0, nullable=False)
     otp_unlocked = Column(Boolean, default=False, nullable=False)
     otp_unlocked_at = Column(DateTime(timezone=True), nullable=True)
+    driver_username = Column(String(64), nullable=True, index=True)
+    driver_name = Column(String(128), nullable=True)
     departed_at = Column(DateTime(timezone=True), nullable=True)
     completed_at = Column(DateTime(timezone=True), nullable=True)
 

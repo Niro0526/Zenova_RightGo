@@ -17,19 +17,19 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
   return (
     <DriverConnectivityProvider>
       <div
-        className="flex flex-col md:flex-row h-screen w-full overflow-hidden bg-[#F1F5F9]"
+        className="flex flex-col md:flex-row min-h-screen md:h-screen w-full bg-[#F1F5F9] overflow-x-hidden md:overflow-hidden"
         style={{ fontFamily: "'Poppins', sans-serif" }}
       >
         {/* Sidebar — visible md+ */}
         <DriverSidebar pathname={pathname} />
 
         {/* Main content column with RoleTopBar & OfflineBanner */}
-        <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-h-screen md:h-full md:min-h-0 md:overflow-hidden">
           <div className="hidden md:block">
             <RoleTopBar
-              name="Driver"
+              name={user?.display_name || "Driver"}
               role="Fleet Driver"
-              initials="D"
+              initials={user?.display_name ? user.display_name.split(' ').map((p: string) => p[0]).join('').slice(0, 2) : "D"}
               stationId={vehicleId || undefined}
               stationName={vehicleId ? `Vehicle ${vehicleId}` : undefined}
               avatarColor="#F97316"
@@ -39,9 +39,9 @@ export default function DriverLayout({ children }: { children: ReactNode }) {
           <main
             className="
               flex-1 flex flex-col
-              h-full min-h-0
+              w-full min-h-0
               overflow-y-auto
-              pb-[72px] md:pb-0
+              pb-[84px] md:pb-6
             "
           >
             {children}

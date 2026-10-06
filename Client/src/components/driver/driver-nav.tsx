@@ -12,10 +12,10 @@ import { fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api"
 /* ─── Nav item definition ─────────────────────────────────── */
 export const DRIVER_NAV_ITEMS = [
   {
-    label: "My Run",
+    label: "Today's Run",
     href: "/driver/today-run",
     icon: Route,
-    id: "nav-my-run",
+    id: "nav-today-run",
   },
   {
     label: "Current Stop",
@@ -91,6 +91,11 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
           </div>
           <span className="text-white font-bold text-sm">{navRun?.tripId || "No active run"}</span>
           <span className="text-gray-400 text-[11px]">Vehicle: {user?.vehicle_id || "-"}{navRun ? ` · Trip ${navRun.tripNo}` : ""}</span>
+          {!navRun && (
+            <span className="text-amber-400/90 text-[10px] mt-0.5">
+              Appears after loader marks Ready
+            </span>
+          )}
         </div>
 
         <button
@@ -108,7 +113,8 @@ export function DriverSidebar({ pathname }: { pathname: string }) {
 
 /* ─── Fixed Bottom Bar (mobile only) ─────────────────────── */
 export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
-  const isMyRunActive = pathname === "/driver" || pathname.startsWith("/driver/today-run");
+  const isTodayRunActive =
+    pathname === "/driver" || pathname.startsWith("/driver/today-run");
   const isCurrentStopActive = pathname.startsWith("/driver/current-stop");
   const isHistoryActive = pathname.startsWith("/driver/history");
 
@@ -130,18 +136,18 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
       }}
     >
       <div className="grid grid-cols-3 w-full h-full max-w-[430px] mx-auto items-center px-1">
-        {/* 1. My Run */}
+        {/* 1. Today's Run */}
         <Link
-          id="tab-nav-my-run"
+          id="tab-nav-today-run"
           href="/driver/today-run"
-          aria-current={isMyRunActive ? "page" : undefined}
-          aria-label="My Run"
+          aria-current={isTodayRunActive ? "page" : undefined}
+          aria-label="Today's Run"
           className="flex flex-col items-center justify-center gap-1 h-full py-1 no-underline transition-all active:scale-95 cursor-pointer"
         >
           <div className="w-5 h-5 flex items-center justify-center">
             <svg
               className={`w-5 h-5 transition-colors ${
-                isMyRunActive ? "text-[#ED5214]" : "text-[#455263]"
+                isTodayRunActive ? "text-[#ED5214]" : "text-[#455263]"
               }`}
               viewBox="0 0 24 24"
               fill="none"
@@ -157,10 +163,10 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
           </div>
           <span
             className={`text-[11px] leading-[13px] tracking-tight transition-colors ${
-              isMyRunActive ? "font-bold text-[#ED5214]" : "font-medium text-[#455263]"
+              isTodayRunActive ? "font-bold text-[#ED5214]" : "font-medium text-[#455263]"
             }`}
           >
-            My Run
+            Today&apos;s Run
           </span>
         </Link>
 
@@ -233,3 +239,4 @@ export function DriverMobileBottomNav({ pathname }: { pathname: string }) {
     </nav>
   );
 }
+

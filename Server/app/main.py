@@ -7,6 +7,7 @@ from app.core.config import settings
 from app.database.base import Base
 from app.database.session import engine, SessionLocal
 from app.services.reference_service import seed_reference_data
+from app.database.migrations import sync_schema_columns
 import app.models # ensure all models are registered
 
 # Import API Routers
@@ -38,6 +39,7 @@ async def lifespan(app: FastAPI):
         Base.metadata.create_all(bind=engine)
         db = SessionLocal()
         try:
+            sync_schema_columns(db)
             seed_reference_data(db)
             storage_service.migrate_all_legacy_base64_records(db)
         finally:
@@ -60,7 +62,15 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:8000", "http://127.0.0.1:8000", "*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

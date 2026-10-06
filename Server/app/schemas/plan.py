@@ -40,6 +40,12 @@ class SetTripDepartureRequest(BaseModel):
     trip_no: TripNo
     departure_time: Optional[str] = None # e.g. "03:30"
 
+class SetTripDriverRequest(BaseModel):
+    vehicle_id: str
+    trip_no: TripNo
+    driver_username: str
+    driver_name: Optional[str] = None
+
 class SetVehicleFuelInputRequest(BaseModel):
     vehicle_id: str
     prior_weekly_fuel_usage_l: Optional[float] = None
@@ -90,6 +96,8 @@ class PublishPlanRequest(BaseModel):
 class DraftPlanResponse(BaseModel):
     scenario: str
     draftRevision: int
+    ordersClosed: bool = False
+    ordersClosedAt: Optional[str] = None
     assignments: Dict[str, OrderAssignmentSchema]
     stopSequences: Dict[str, List[str]]
     stopSequenceLocks: Dict[str, bool] = {}

@@ -1,7 +1,7 @@
 """Order schemas for intake, placement, cancellation, and list responses."""
 
 from datetime import datetime, date
-from typing import Optional
+from typing import Optional, List, Any
 from pydantic import BaseModel, Field, ConfigDict
 
 class OrderSchema(BaseModel):
@@ -27,6 +27,7 @@ class OrderSchema(BaseModel):
     status: str = "awaiting_planning"
     placed_by: Optional[str] = None
     notes: Optional[str] = None
+    items_json: Optional[Any] = None
     created_at: Optional[datetime] = None
     # Operating day this order is eligible for planning on (4 PM Asia/Colombo cutoff
     # + operating calendar). None = legacy/seed row, always eligible for the current run.
@@ -75,15 +76,33 @@ class OrderSchema(BaseModel):
     @property
     def runDate(self) -> Optional[date]:
         return self.run_date
+    @property
+    def items(self) -> Optional[Any]:
+        return self.items_json
+
+class OrderItemInput(BaseModel):
+    id: Optional[str] = None
+    sku: Optional[str] = None
+    name: str
+    qty: int = Field(ge=1, default=1)
+    unit: Optional[str] = "units"
+    unit_weight: Optional[float] = 5.0
+    unit_vol: Optional[float] = 0.01
+    temp: Optional[str] = "Ambient"
+    is_chilled: Optional[bool] = False
+    price: Optional[float] = 0.0
+    image: Optional[str] = None
 
 class CreateOrderRequest(BaseModel):
     outlet_id: str
     brand: str
-    units: int = Field(ge=1, le=500)
+    units: Optional[int] = Field(default=None, ge=1, le=5000)
     temp_requirement: Optional[str] = None # defaults to outlet brand / catalog standard
     notes: Optional[str] = None
     placed_by: Optional[str] = "Store Manager"
+    items: Optional[List[OrderItemInput]] = None
 
 class CancelOrderRequest(BaseModel):
     reason: str
     cancelled_by: Optional[str] = "Store Manager"
+

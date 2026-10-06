@@ -487,7 +487,7 @@ export function DriverHistoryMobileView({
       <header className="relative w-[390px] h-[70px] bg-white flex items-center justify-between px-5 border-b border-[#E2E8F0] shrink-0 z-10">
         <span
           className="text-[#ED5214] font-bold text-[21px] leading-[25px] tracking-tight cursor-pointer"
-          onClick={() => router.push("/driver/today-run")}
+          onClick={() => router.push("/driver/current-stop")}
         >
           RightGo
         </span>

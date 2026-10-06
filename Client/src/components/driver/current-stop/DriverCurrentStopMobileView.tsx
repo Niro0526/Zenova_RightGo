@@ -200,14 +200,14 @@ export function DriverCurrentStopMobileView({
               </span>
             </div>
 
-            <Link
+            <button
+              type="button"
               id="btn-proceed-next-stop-mobile"
-              href="/driver/today-run"
               onClick={onProceedToNextStop}
-              className="w-full h-[46px] bg-[#ED5214] hover:bg-[#d8460d] active:scale-[0.98] rounded-[10px] text-white font-bold text-[13px] flex items-center justify-center transition-all no-underline shadow-md mt-2 cursor-pointer"
+              className="w-full h-[46px] bg-[#ED5214] hover:bg-[#d8460d] active:scale-[0.98] rounded-[10px] text-white font-bold text-[13px] flex items-center justify-center transition-all no-underline shadow-md mt-2 cursor-pointer border-none"
             >
-              Proceed to Today&apos;s Run →
-            </Link>
+              Proceed to Next Stop →
+            </button>
           </div>
         </main>
       </div>

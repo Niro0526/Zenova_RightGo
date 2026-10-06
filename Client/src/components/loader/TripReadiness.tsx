@@ -15,6 +15,7 @@ import {
   fetchLoadingIssues,
   fetchLatestManifest,
   postDepartTrip,
+  postMarkTripReady,
   postAckManifest,
   type TripReadiness as TripReadinessData,
   type LoadingIssue,
@@ -122,21 +123,22 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
     }
   };
 
-  const handleDepart = async () => {
+  const handleMarkReady = async () => {
     if (tripDbId === null) return;
     setIsDeparting(true);
     try {
-      await postDepartTrip(tripDbId);
+      await postMarkTripReady(tripDbId);
       await load(tripDbId);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : "Failed to depart trip.");
+      setLoadError(err instanceof ApiError ? err.message : "Failed to mark trip ready.");
     } finally {
       setIsDeparting(false);
     }
   };
 
+  const isTripReady = readiness?.loadingStatus === "ready";
   const alreadyDeparted = readiness?.loadingStatus === "departed" || readiness?.loadingStatus === "completed";
-  const canDepart = isReady && !alreadyDeparted;
+  const canMarkReady = isReady && !isTripReady && !alreadyDeparted;
 
   return (
     <main className="w-full max-w-full overflow-x-hidden bg-[#F9FAFB] flex flex-col box-border">
@@ -275,8 +277,8 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
               <div className="bg-white border border-[#CBD5E1] rounded-xl p-5 lg:p-6 flex flex-col gap-3 shadow-sm">
                 <div className="flex justify-between items-center pb-2.5 border-b border-[#F1F5F9]">
                   <span className="text-xs font-bold text-[#485563] uppercase tracking-wide">Gate Departure Release</span>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${canDepart ? "text-[#059669] bg-[#ECFDF5]" : "text-[#EF4444] bg-[#FEF2F2]"}`}>
-                    {alreadyDeparted ? "DEPARTED" : canDepart ? "GATE OPEN" : "GATE LOCKED"}
+                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded ${alreadyDeparted || isTripReady ? "text-[#059669] bg-[#ECFDF5]" : canMarkReady ? "text-[#0284C7] bg-[#F0F9FF]" : "text-[#EF4444] bg-[#FEF2F2]"}`}>
+                    {alreadyDeparted ? "DEPARTED" : isTripReady ? "TRIP READY" : canMarkReady ? "READY TO MARK" : "GATE LOCKED"}
                   </span>
                 </div>
 
@@ -308,22 +310,36 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
                 <div className="flex flex-col gap-2 mt-2">
                   <button
                     type="button"
-                    disabled={!canDepart || isDeparting}
-                    onClick={() => void handleDepart()}
+                    disabled={!canMarkReady || isDeparting}
+                    onClick={() => void handleMarkReady()}
                     className={`w-full py-3.5 rounded-xl font-bold text-sm text-center flex items-center justify-center gap-2 transition-colors ${
-                      canDepart && !isDeparting
-                        ? "bg-[#22C55E] hover:bg-[#16A34A] text-white cursor-pointer"
+                      canMarkReady && !isDeparting
+                        ? "bg-[#22C55E] hover:bg-[#16A34A] text-white cursor-pointer shadow-sm"
+                        : isTripReady
+                        ? "bg-[#ECFDF5] border border-[#22C55E] text-[#15803D] cursor-default"
                         : "bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed select-none"
                     }`}
                   >
-                    <span>{alreadyDeparted ? "Already Departed" : isDeparting ? "Departing..." : "Ready for Departure"}</span>
+                    <span>
+                      {alreadyDeparted
+                        ? "Trip Departed (On Road)"
+                        : isTripReady
+                        ? "Trip Ready (Handed off to Driver)"
+                        : isDeparting
+                        ? "Marking Ready..."
+                        : "Mark Trip Ready"}
+                    </span>
                   </button>
-                  <p className="text-[11px] text-[#EF4444] font-medium leading-4 text-center m-0">
-                    {alreadyDeparted
-                      ? "This trip has already departed."
-                      : canDepart
-                      ? "All readiness checks passed. Trip may depart."
-                      : "Cannot depart until readiness checks are complete."}
+                  <p className="text-[11px] font-medium leading-4 text-center m-0">
+                    {alreadyDeparted ? (
+                      <span className="text-[#64748B]">This trip has departed and is currently in transit.</span>
+                    ) : isTripReady ? (
+                      <span className="text-[#15803D]">Trip marked ready! Assigned driver can now start trip in Current Stop flow.</span>
+                    ) : canMarkReady ? (
+                      <span className="text-[#15803D]">All readiness checks passed. Ready to mark trip ready for driver.</span>
+                    ) : (
+                      <span className="text-[#EF4444]">Cannot mark ready until all checklist items are complete.</span>
+                    )}
                   </p>
                 </div>
               </div>
@@ -375,16 +391,34 @@ export default function TripReadiness({ onNavigate }: TripReadinessProps) {
             <div className="flex flex-col gap-2 pt-2">
               <button
                 type="button"
-                disabled={!canDepart || isDeparting}
-                onClick={() => void handleDepart()}
+                disabled={!canMarkReady || isDeparting}
+                onClick={() => void handleMarkReady()}
                 className={`w-full h-12 rounded-full font-bold text-[15px] flex items-center justify-center shadow-sm ${
-                  canDepart && !isDeparting ? "bg-[#22C55E] text-white" : "bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed select-none"
+                  canMarkReady && !isDeparting
+                    ? "bg-[#22C55E] text-white cursor-pointer"
+                    : isTripReady
+                    ? "bg-[#ECFDF5] border border-[#22C55E] text-[#15803D] cursor-default"
+                    : "bg-[#E5E7EB] text-[#9CA3AF] cursor-not-allowed select-none"
                 }`}
               >
-                {alreadyDeparted ? "Already Departed" : isDeparting ? "Departing..." : "Ready for Departure"}
+                {alreadyDeparted
+                  ? "Trip Departed (On Road)"
+                  : isTripReady
+                  ? "Trip Ready (Handed off to Driver)"
+                  : isDeparting
+                  ? "Marking Ready..."
+                  : "Mark Trip Ready"}
               </button>
-              <p className="text-[13px] font-medium text-[#485563] text-center leading-5 m-0">
-                {canDepart ? "All readiness checks passed." : "Cannot depart until readiness checks are complete."}
+              <p className="text-[13px] font-medium text-center leading-5 m-0">
+                {alreadyDeparted ? (
+                  <span className="text-[#64748B]">This trip has departed and is currently in transit.</span>
+                ) : isTripReady ? (
+                  <span className="text-[#15803D]">Trip marked ready! Assigned driver can start trip now.</span>
+                ) : canMarkReady ? (
+                  <span className="text-[#15803D]">All readiness checks passed. Ready to mark trip ready.</span>
+                ) : (
+                  <span className="text-[#EF4444]">Cannot mark ready until all checklist items are complete.</span>
+                )}
               </p>
             </div>
           </div>

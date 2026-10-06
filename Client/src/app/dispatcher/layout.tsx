@@ -10,9 +10,9 @@ export default function DispatcherLayout({ children }: { children: React.ReactNo
         <DispatcherSidebar />
         <div className="flex flex-1 flex-col min-h-0 overflow-y-auto">
           <RoleTopBar
-            name="Sarah Jenkins"
+            name="Dilani Perera"
             role="Chief Dispatcher"
-            initials="SJ"
+            initials="DP"
             stationId="DISP-01"
             stationName="Peliyagoda Logistics Hub"
             avatarColor="#2563EB"

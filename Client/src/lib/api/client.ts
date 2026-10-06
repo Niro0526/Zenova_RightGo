@@ -74,17 +74,74 @@ function buildUrl(path: string, query?: ApiFetchOptions['query']): string {
   return url.toString();
 }
 
+const ROLE_DEMO_CREDENTIALS: Record<string, { email: string; password: string }> = {
+  dispatcher: { email: 'dilani@rightgo.lk', password: 'Dispatch@2026' },
+  loader: { email: 'rizwan@rightgo.lk', password: 'Loader@2026' },
+  driver: { email: 'sunil@rightgo.lk', password: 'Driver@2026' },
+  'store-manager': { email: 'kavitha@rightgo.lk', password: 'Store@2026' },
+};
+
+export function getRoleFromLocation(): string | null {
+  if (typeof window === 'undefined') return null;
+  const path = window.location.pathname;
+  if (path.startsWith('/dispatcher')) return 'dispatcher';
+  if (path.startsWith('/loader')) return 'loader';
+  if (path.startsWith('/driver')) return 'driver';
+  if (path.startsWith('/store-manager')) return 'store-manager';
+  return null;
+}
+
+let autoLoginPromise: Promise<string | null> | null = null;
+
+export async function autoAuthenticateDemoRole(roleKey?: string): Promise<string | null> {
+  if (typeof window === 'undefined') return null;
+  const key = roleKey ?? getRoleFromLocation();
+  if (!key || !ROLE_DEMO_CREDENTIALS[key]) return null;
+
+  if (autoLoginPromise) return autoLoginPromise;
+
+  autoLoginPromise = (async () => {
+    try {
+      const creds = ROLE_DEMO_CREDENTIALS[key];
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ email: creds.email, password: creds.password }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.access_token) {
+          setAuthToken(data.access_token);
+          sessionStorage.setItem('rightgo_user', JSON.stringify(data.profile));
+          return data.access_token as string;
+        }
+      }
+    } catch {
+      // offline or backend unreachable
+    } finally {
+      autoLoginPromise = null;
+    }
+    return null;
+  })();
+
+  return autoLoginPromise;
+}
+
 /**
  * Core request function. Throws ApiError on any non-2xx response or network
  * failure, so callers can distinguish "server rejected this" (4xx/5xx with a
  * real message) from "couldn't reach the server at all" and show the right
  * message instead of a generic failure.
  */
-export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): Promise<T> {
+export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}, isRetry = false): Promise<T> {
   const { method = 'GET', body, query, signal } = options;
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const token = getAuthToken();
+
+  let token = getAuthToken();
+  if (!token && typeof window !== 'undefined' && !path.startsWith('/auth')) {
+    token = await autoAuthenticateDemoRole();
+  }
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
   let res: Response;
@@ -97,6 +154,15 @@ export async function apiFetch<T>(path: string, options: ApiFetchOptions = {}): 
     });
   } catch {
     throw new ApiError(0, 'Cannot reach the RightGo server. Make sure the backend is running.', null);
+  }
+
+  // If token is invalid or expired, attempt a single transparent auto-reauth for role routes
+  if (res.status === 401 && !isRetry && !path.startsWith('/auth') && typeof window !== 'undefined') {
+    setAuthToken(null);
+    const newToken = await autoAuthenticateDemoRole();
+    if (newToken) {
+      return apiFetch<T>(path, options, true);
+    }
   }
 
   // 204 / empty-body responses

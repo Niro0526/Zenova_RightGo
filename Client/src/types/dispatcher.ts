@@ -175,6 +175,8 @@ export interface PassportResult {
 export interface TripMeta {
   plannedDepartureTime: string | null; // "HH:MM", Asia/Colombo, dispatcher-entered (Fresh trips are pre-filled with a suggested 03:30, editable)
   locked?: boolean;
+  driverUsername?: string | null;
+  driverName?: string | null;
 }
 
 /** Per-vehicle dispatcher-confirmed prior fuel usage. null = not yet confirmed (never defaulted to 0). */
@@ -204,6 +206,8 @@ export interface ManifestTripSnapshot {
   orderRefs: string[];
   loadingStatus?: string | null; // planned, loading, ready, departed, completed
   otpUnlocked?: boolean;
+  driverUsername?: string | null;
+  driverName?: string | null;
 }
 
 export interface Manifest {

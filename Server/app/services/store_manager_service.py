@@ -26,12 +26,23 @@ def place_store_order(
     if not outlet:
         raise HTTPException(status_code=404, detail="Outlet not found")
 
-    temp_req = req.temp_requirement or ("chilled" if req.brand == "Fresh" else "ambient")
     order_ref = f"ORD-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:4].upper()}"
 
-    # Standard weight/volume estimation per unit for catalog replenishment
-    weight_kg = round(req.units * (5.5 if req.brand == "Fresh" else (0.8 if req.brand == "Style" else 15.0)), 1)
-    volume_m3 = round(req.units * (0.025 if req.brand == "Fresh" else (0.005 if req.brand == "Style" else 0.12)), 3)
+    if req.items and len(req.items) > 0:
+        total_units = sum(int(i.qty) for i in req.items)
+        weight_kg = round(sum(int(i.qty) * (float(i.unit_weight) if i.unit_weight is not None else 5.0) for i in req.items), 1)
+        volume_m3 = round(sum(int(i.qty) * (float(i.unit_vol) if i.unit_vol is not None else 0.01) for i in req.items), 3)
+        has_chilled = any(bool(i.is_chilled) or (bool(i.temp) and "chill" in str(i.temp).lower()) for i in req.items)
+        temp_req = req.temp_requirement or ("chilled" if has_chilled else "ambient")
+        items_json = [i.model_dump() for i in req.items]
+        summary_notes = req.notes or ", ".join(f"{i.name} x{i.qty}" for i in req.items)
+    else:
+        total_units = req.units or 1
+        weight_kg = round(total_units * (5.5 if req.brand == "Fresh" else (0.8 if req.brand == "Style" else 15.0)), 1)
+        volume_m3 = round(total_units * (0.025 if req.brand == "Fresh" else (0.005 if req.brand == "Style" else 0.12)), 3)
+        temp_req = req.temp_requirement or ("chilled" if req.brand == "Fresh" else "ambient")
+        items_json = None
+        summary_notes = req.notes
 
     confirmed_at = datetime.now(timezone.utc)
     # 4 PM Asia/Colombo cutoff: an order confirmed at/after the cutoff (or on a
@@ -51,14 +62,15 @@ def place_store_order(
         window_open_time=outlet.window_open_time,
         window_close_time=outlet.window_close_time,
         temp_requirement=temp_req,
-        order_units=req.units,
+        order_units=total_units,
         order_weight_kg=weight_kg,
         order_volume_m3=volume_m3,
         deferred_yesterday=False,
         days_since_last_served=1,
         status="awaiting_planning",
         placed_by=placed_by or req.placed_by or "Store Manager",
-        notes=req.notes,
+        notes=summary_notes,
+        items_json=items_json,
         created_at=confirmed_at,
         run_date=run_date,
     )
@@ -72,7 +84,7 @@ def place_store_order(
         actor=placed_by or req.placed_by or "Store Manager",
         order_ref=order_ref,
         outlet_id=req.outlet_id,
-        reason_note=f"Placed replenishment order for {req.units} units of {req.brand}.",
+        reason_note=f"Placed replenishment order for {total_units} units ({weight_kg} kg, {volume_m3} m3) of {req.brand}.",
     )
 
     create_notification(
@@ -80,7 +92,7 @@ def place_store_order(
         target_role="dispatcher",
         kind="order_placed",
         title=f"New Order Placed: {order_ref}",
-        text=f"{outlet.name} placed an order for {req.units} units of {req.brand}.",
+        text=f"{outlet.name} placed order {order_ref} ({total_units} units of {req.brand}).",
     )
 
     return order

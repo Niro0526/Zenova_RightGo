@@ -45,19 +45,23 @@ def next_operating_day(d: date, calendar: Dict[date, bool], max_lookahead: int =
 
 def compute_run_date(confirmed_at_utc: datetime, calendar: Dict[date, bool]) -> date:
     """Given a UTC confirmation timestamp, return the operating-calendar date
-    (Asia/Colombo) this order is eligible to be planned on."""
+    (Asia/Colombo) this order is eligible to be planned on.
+    Cutoff rule:
+    - Before 4 PM cutoff: eligible for the current operating day's planning run.
+    - At or after 4 PM cutoff: rolls to the next operating day.
+    """
     if confirmed_at_utc.tzinfo is None:
         confirmed_at_utc = confirmed_at_utc.replace(tzinfo=timezone.utc)
     local = confirmed_at_utc.astimezone(COLOMBO_TZ)
-    candidate_day = local.date()
-    if local.hour >= CUTOFF_HOUR:
-        candidate_day = candidate_day + timedelta(days=1)
+    offset = 1 if local.hour >= CUTOFF_HOUR else 0
+    candidate_day = local.date() + timedelta(days=offset)
     return next_operating_day(candidate_day, calendar)
 
 
 def current_run_date(db: Session) -> date:
-    """The run date that an order confirmed right now would join - i.e. the
-    boundary used to decide which already-placed orders are eligible for the
-    *current* planning draft."""
+    """The operating day targeted by the current planning run."""
     calendar = load_operating_calendar(db)
-    return compute_run_date(datetime.now(timezone.utc), calendar)
+    local = colombo_now()
+    offset = 1 if local.hour >= CUTOFF_HOUR else 0
+    target_day = local.date() + timedelta(days=offset)
+    return next_operating_day(target_day, calendar)

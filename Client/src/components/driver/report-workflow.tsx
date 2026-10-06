@@ -397,7 +397,7 @@ export function DriverReportWorkflow() {
   };
 
   const handleProceedNextStop = () => {
-    router.push("/driver/today-run");
+    router.push("/driver/current-stop");
   };
 
   // Filtered reports for history tab

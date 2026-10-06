@@ -74,11 +74,18 @@ function mapOrder(w: WireOrder): DispatcherOrder {
   };
 }
 
-function mapVehicle(w: WireVehicle): FleetVehicle {
+function mapVehicle(w: any): FleetVehicle {
+  if (!w) return {} as FleetVehicle;
   return {
-    vehicleId: w.vehicle_id, type: w.type as Vehicle['type'], temp: w.temp as Vehicle['temp'],
-    weightCapKg: w.weight_cap_kg, volumeCapM3: w.volume_cap_m3, fuelType: w.fuel_type, kmPerL: w.km_per_l,
-    weeklyFuelQuotaL: w.weekly_fuel_quota_l, depot: w.depot,
+    vehicleId: w.vehicleId ?? w.vehicle_id ?? '',
+    type: (w.type as Vehicle['type']) ?? '10T',
+    temp: (w.temp as Vehicle['temp']) ?? 'ambient',
+    weightCapKg: Number(w.weightCapKg ?? w.weight_cap_kg ?? 0),
+    volumeCapM3: Number(w.volumeCapM3 ?? w.volume_cap_m3 ?? 0),
+    fuelType: w.fuelType ?? w.fuel_type ?? 'Diesel',
+    kmPerL: Number(w.kmPerL ?? w.km_per_l ?? 3.5),
+    weeklyFuelQuotaL: Number(w.weeklyFuelQuotaL ?? w.weekly_fuel_quota_l ?? 0),
+    depot: w.depot ?? 'Peliyagoda',
     status: (w.status as FleetStatus['status']) ?? 'available',
   };
 }
@@ -98,14 +105,94 @@ function mapTravel(w: WireDistrictTravel): DistrictTravel {
 // --- Reference data ---------------------------------------------------------
 
 export const getOrders = (scenario = 'S1') => apiGet<WireOrder[]>('/orders', { scenario }).then((rows) => rows.map(mapOrder));
+export interface ProductRecord {
+  id: string;
+  sku: string;
+  name: string;
+  brand: string;
+  category: string;
+  temp: string;
+  is_chilled: boolean;
+  isChilled: boolean;
+  unit: string;
+  unit_weight: number;
+  unitWeight: number;
+  unit_vol: number;
+  unitVol: number;
+  price: number;
+  stock_quantity: number;
+  stockQuantity: number;
+  stock_status: string;
+  stockStatus: string;
+  image: string | null;
+  description: string | null;
+}
+
+export const getProducts = (query?: { brand?: string; category?: string; temp?: string; search?: string; in_stock_only?: boolean }) =>
+  apiGet<ProductRecord[]>('/reference/products', query).then((rows) =>
+    rows.map((r) => ({
+      ...r,
+      isChilled: r.isChilled ?? r.is_chilled ?? false,
+      unitWeight: r.unitWeight ?? r.unit_weight ?? 5.0,
+      unitVol: r.unitVol ?? r.unit_vol ?? 0.01,
+      stockStatus: r.stockStatus ?? r.stock_status ?? 'in_stock',
+      stockQuantity: r.stockQuantity ?? r.stock_quantity ?? 500,
+    }))
+  );
+
 export const getOutlets = () => apiGet<OutletRecord[]>('/reference/outlets');
 export const getFleetVehicles = (scenario = 'S1') => apiGet<WireVehicle[]>('/fleet', { scenario }).then((rows) => rows.map(mapVehicle));
 export const getServiceAllowances = () => apiGet<WireServiceAllowance[]>('/reference/allowances').then((rows) => rows.map(mapAllowance));
 export const getDistrictTravel = () => apiGet<WireDistrictTravel[]>('/reference/travel').then((rows) => rows.map(mapTravel));
 
-export interface CreateOrderInput { outletId: string; brand: string; units: number; notes?: string }
+/** Dispatcher: fetch awaiting_planning orders for the current run_date from the DB (confirmed-order queue). */
+export const getConfirmedQueue = (scenario = 'S1') =>
+  apiGet<WireOrder[]>('/orders/confirmed-queue', { scenario }).then((rows) => rows.map(mapOrder));
+
+export interface CutoffStatus {
+  cutoffPassed: boolean;
+  localTime: string;   // "HH:MM" Asia/Colombo
+  cutoffHour: number;  // 16
+  runDate: string;     // "YYYY-MM-DD"
+  confirmedCount: number;
+  brandCounts: Record<string, number>;
+  newestOrderAt: string | null;
+}
+
+/** Dispatcher: returns 4 PM cutoff state and confirmed-queue counts. Safe to poll every 30s. */
+export const getCutoffStatus = (scenario = 'S1') =>
+  apiGet<CutoffStatus>('/orders/cutoff-status', { scenario });
+
+export interface OrderItemPayload {
+  id?: string;
+  sku?: string;
+  name: string;
+  qty: number;
+  unit?: string;
+  unit_weight?: number;
+  unit_vol?: number;
+  temp?: string;
+  is_chilled?: boolean;
+  price?: number;
+  image?: string | null;
+}
+
+export interface CreateOrderInput {
+  outletId: string;
+  brand: string;
+  units?: number;
+  notes?: string;
+  items?: OrderItemPayload[];
+}
+
 export const createOrder = (input: CreateOrderInput) =>
-  apiPost<WireOrder>('/orders', { outlet_id: input.outletId, brand: input.brand, units: input.units, notes: input.notes }).then(mapOrder);
+  apiPost<WireOrder>('/orders', {
+    outlet_id: input.outletId,
+    brand: input.brand,
+    units: input.units,
+    notes: input.notes,
+    items: input.items,
+  }).then(mapOrder);
 
 export const cancelOrder = (orderRef: string, reason: string) =>
   apiPost<WireOrder>(`/orders/${orderRef}/cancel`, { reason }).then(mapOrder);
@@ -115,6 +202,8 @@ export const cancelOrder = (orderRef: string, reason: string) =>
 export interface DraftPlanResponse {
   scenario: string;
   draftRevision: number;
+  ordersClosed?: boolean;
+  ordersClosedAt?: string | null;
   assignments: Record<string, OrderAssignment>;
   stopSequences: Record<string, string[]>;
   stopSequenceLocks: Record<string, boolean>;
@@ -141,10 +230,27 @@ export const reorderTrip = (vehicleId: string, tripNo: 1 | 2, newOutletOrder: st
 export const setTripDeparture = (vehicleId: string, tripNo: 1 | 2, departureTime: string | null, scenario = 'S1') =>
   apiPost<DraftPlanResponse>('/plan/departure', { vehicle_id: vehicleId, trip_no: tripNo, departure_time: departureTime }, { scenario });
 
+export const setTripDriver = (
+  vehicleId: string,
+  tripNo: 1 | 2,
+  driverUsername: string,
+  driverName?: string,
+  scenario = 'S1'
+) =>
+  apiPost<DraftPlanResponse>('/plan/trip-driver', {
+    vehicle_id: vehicleId,
+    trip_no: tripNo,
+    driver_username: driverUsername,
+    driver_name: driverName,
+  }, { scenario });
+
 export const setVehicleFuelInput = (vehicleId: string, priorWeeklyFuelUsageL: number | null, scenario = 'S1') =>
   apiPost<DraftPlanResponse>('/plan/fuel-input', { vehicle_id: vehicleId, prior_weekly_fuel_usage_l: priorWeeklyFuelUsageL }, { scenario });
 
 export const suggestPlan = (scenario = 'S1') => apiPost<DraftPlanResponse>('/plan/suggest', undefined, { scenario });
+
+/** Close the confirmed-order window and auto-generate a draft allocation (booklet Close-orders step). */
+export const closeOrders = (scenario = 'S1') => apiPost<DraftPlanResponse>('/plan/close-orders', undefined, { scenario });
 
 export interface ValidationChecklistRow { label: string; kind: 'checker_pass' | 'checker_fail' | 'unverified'; group: string; detail: string }
 export interface ValidateResponse { checklist: ValidationChecklistRow[]; checkerFeasible: boolean; operationalFeasible: boolean | null }
@@ -222,8 +328,36 @@ export const getLedger = () => apiGet<LedgerEntry[]>('/ledger');
 
 // --- Deliveries / Receipts (Reports) --------------------------------------------
 
-interface WireDeliveryRecord { id: string; stopId: string; vehicleId: string; outcome: string; status: string }
-export const getDeliveries = () => apiGet<WireDeliveryRecord[]>('/deliveries');
+export interface DeliveryRecordDetail {
+  id: string;
+  stopId: string;
+  stopName?: string;
+  vehicleId: string;
+  outcome: string;
+  status: string;
+  tripId?: string;
+  createdAt?: string;
+  discrepancyDetails?: {
+    type?: string;
+    expectedQty?: number;
+    deliveredQty?: number;
+    notes?: string;
+    photoName?: string;
+  } | null;
+  notDeliveredDetails?: {
+    reason?: string;
+    notes?: string;
+    photoName?: string;
+  } | null;
+  podDetails?: {
+    photoName?: string;
+    photoUrl?: string;
+    signerName?: string;
+    hasSignature?: boolean;
+    signatureUrl?: string;
+  } | null;
+}
+export const getDeliveries = () => apiGet<DeliveryRecordDetail[]>('/deliveries');
 
 interface WireReceiptRecord {
   id: string; order_ref: string; outlet_id: string; confirmed_units: number; has_issue: boolean;

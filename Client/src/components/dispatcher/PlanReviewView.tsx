@@ -20,7 +20,7 @@ function ResultIcon({ kind }: { kind: 'checker_pass' | 'checker_fail' | 'unverif
 export default function PlanReview() {
   const {
     orders, assignments, counts, planChecklist, draftRevision, manifests, publishPlan,
-    fleetVehicles, getTripDeparture, setTripDeparture, getVehicleFuelInput, setVehicleFuelInput,
+    fleetVehicles, getTripDeparture, setTripDeparture, getTripDriver, setTripDriver, getVehicleFuelInput, setVehicleFuelInput,
     getTripStops, getTripSchedule, getVehicleDistanceKm, reorderTrip, deferOrder, isSaving, error,
   } = useDispatcherPlan();
 
@@ -217,6 +217,8 @@ export default function PlanReview() {
                   getTripSchedule={getTripSchedule}
                   getTripDeparture={getTripDeparture}
                   setTripDeparture={setTripDeparture}
+                  getTripDriver={getTripDriver}
+                  setTripDriver={setTripDriver}
                   reorderTrip={reorderTrip}
                   onReassign={setReassignRef}
                   onDefer={setDeferRef}
@@ -247,7 +249,18 @@ export default function PlanReview() {
         </div>
       )}
 
-      {reassignRef && <ReassignDialog orderRef={reassignRef} onCancel={() => setReassignRef(null)} onDone={() => setReassignRef(null)} />}
+      {reassignRef && (
+        <ReassignDialog
+          orderRef={reassignRef}
+          onCancel={() => setReassignRef(null)}
+          onDone={() => setReassignRef(null)}
+          onOpenDefer={() => {
+            const ref = reassignRef;
+            setReassignRef(null);
+            setDeferRef(ref);
+          }}
+        />
+      )}
       {deferRef && (
         <DeferDialog
           orderRef={deferRef}
@@ -263,7 +276,7 @@ export default function PlanReview() {
 }
 
 function TripCard({
-  vehicleId, tripNo, orders, getTripStops, getTripSchedule, getTripDeparture, setTripDeparture, reorderTrip, onReassign, onDefer,
+  vehicleId, tripNo, orders, getTripStops, getTripSchedule, getTripDeparture, setTripDeparture, getTripDriver, setTripDriver, reorderTrip, onReassign, onDefer,
 }: {
   vehicleId: string;
   tripNo: 1 | 2;
@@ -272,6 +285,8 @@ function TripCard({
   getTripSchedule: ReturnType<typeof useDispatcherPlan>['getTripSchedule'];
   getTripDeparture: ReturnType<typeof useDispatcherPlan>['getTripDeparture'];
   setTripDeparture: ReturnType<typeof useDispatcherPlan>['setTripDeparture'];
+  getTripDriver: ReturnType<typeof useDispatcherPlan>['getTripDriver'];
+  setTripDriver: ReturnType<typeof useDispatcherPlan>['setTripDriver'];
   reorderTrip: ReturnType<typeof useDispatcherPlan>['reorderTrip'];
   onReassign: (orderRef: string) => void;
   onDefer: (orderRef: string) => void;
@@ -279,6 +294,7 @@ function TripCard({
   const stops = getTripStops(vehicleId, tripNo);
   const schedule = getTripSchedule(vehicleId, tripNo);
   const departure = getTripDeparture(vehicleId, tripNo);
+  const driver = getTripDriver(vehicleId, tripNo);
   const ordersByRef = new Map(orders.map(o => [o.orderRef, o]));
   const allOrderRefs = stops.flatMap(s => s.orderRefs);
   const allOrders = allOrderRefs.map(r => ordersByRef.get(r)!);
@@ -300,7 +316,12 @@ function TripCard({
   return (
     <div className="p-4 border-b border-gray-100 last:border-0 flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <span className="font-semibold text-sm text-[#202D2D]">Trip {tripNo} · {allOrderRefs.length} order row(s) / {stops.length} physical stop(s)</span>
+        <div className="flex items-center gap-3">
+          <span className="font-semibold text-sm text-[#202D2D]">Trip {tripNo} · {allOrderRefs.length} order row(s) / {stops.length} physical stop(s)</span>
+          <span className="text-[11px] font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+            Driver: {driver?.name || (driver?.username ? `@${driver.username}` : 'Sunil Driver')}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           <label className="text-xs text-gray-500">Planned departure</label>
           <input

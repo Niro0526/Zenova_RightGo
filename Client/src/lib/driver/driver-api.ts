@@ -43,6 +43,8 @@ export interface DriverRunResponse {
   hasRun: boolean;
   tripId: string;
   vehicleId: string;
+  driverUsername?: string;
+  driverName?: string;
   tripNo: number;
   brand: string;
   district: string;
@@ -92,6 +94,21 @@ export async function fetchDriverRun(): Promise<DriverRunResponse> {
 export async function verifyDriverOtp(tripId: string, vehicleId: string, otpCode: string) {
   try {
     return await apiPost("/driver/otp/verify", { trip_id: tripId, vehicle_id: vehicleId, otp_code: otpCode });
+  } catch (err) {
+    if (err instanceof ApiError) throw new Error(err.message);
+    throw err;
+  }
+}
+
+/**
+ * Start driver trip when loader has marked it ready
+ */
+export async function postStartTrip(tripId: string, otpCode?: string) {
+  try {
+    return await apiPost<{ success: boolean; tripId: string; status: string }>(
+      "/driver/start-trip",
+      { trip_id: tripId, otp_code: otpCode }
+    );
   } catch (err) {
     if (err instanceof ApiError) throw new Error(err.message);
     throw err;

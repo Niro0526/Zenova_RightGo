@@ -2,6 +2,7 @@
 
 import { TodayRunWorkflow } from "@/components/driver/today-run-workflow";
 
-export default function TodayRunPage() {
+export default function DriverTodayRunPage() {
   return <TodayRunWorkflow />;
 }
+

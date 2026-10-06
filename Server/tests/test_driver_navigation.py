@@ -12,7 +12,9 @@ def confirm_fuel_for_used_vehicles(db_session, draft, scenario="S1"):
     for vid in vehicle_ids:
         suggested = set_vehicle_fuel_input(db_session, vid, 0.0, scenario=scenario)
     return suggested if vehicle_ids else draft
-from app.models.plan import ReleasedTrip
+
+from app.models.plan import ReleasedTrip, OrderLoadingState
+from app.services.loading_service import acknowledge_manifest, mark_order_loaded, depart_trip
 
 def test_outlet_coordinates_persistence(db_session):
     """Test that outlet model stores and retrieves float latitude/longitude coordinates."""
@@ -73,6 +75,10 @@ def test_driver_my_run_includes_coordinates(client, db_session, driver_auth):
         ReleasedTrip.vehicle_id == "VEH036",
     ).first()
     assert trip is not None, "Expected driver Sunil's own vehicle (VEH036) to have a released trip"
+    acknowledge_manifest(db_session, manifest.version)
+    for st in db_session.query(OrderLoadingState).filter(OrderLoadingState.released_trip_id == trip.id).all():
+        mark_order_loaded(db_session, trip.id, st.order_ref)
+    depart_trip(db_session, trip.id)
 
     # /api/driver/my-run always resolves via the authenticated driver's own
     # assigned vehicle, never a client-supplied trip id.

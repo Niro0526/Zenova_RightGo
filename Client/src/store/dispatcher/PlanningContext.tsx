@@ -10,7 +10,7 @@ import {
 import type {
   DeferReasonCode, DistrictTravel, Manifest, OrderAssignment, S1Order, ServiceAllowance,
 } from '@/types/dispatcher';
-import type { DispatcherOrder, RankedCandidate, ValidationChecklistRow } from '@/lib/api/dispatcher';
+import type { DispatcherOrder, RankedCandidate, ValidationChecklistRow, CutoffStatus } from '@/lib/api/dispatcher';
 
 function tripKey(vehicleId: string, tripNo: 1 | 2): string {
   return `${vehicleId}-${tripNo}`;
@@ -19,11 +19,17 @@ function tripKey(vehicleId: string, tripNo: 1 | 2): string {
 interface DispatcherPlanValue {
   // Server-authoritative state - fetched from the backend, never invented locally.
   orders: DispatcherOrder[];
+  /** Confirmed order queue: awaiting_planning orders eligible for the current run (from DB). */
+  confirmedQueue: DispatcherOrder[];
+  /** 4 PM cutoff status + per-brand confirmed counts. */
+  cutoffStatus: CutoffStatus | null;
   fleetVehicles: FleetVehicle[];
   assignments: Record<string, OrderAssignment>;
   draftRevision: number;
   manifests: (Manifest & { version: number })[];
   counts: { total: number; served: number; deferred: number; unresolved: number };
+  ordersClosed: boolean;
+  ordersClosedAt: string | null;
   planChecklist: ValidationChecklistRow[];
   checkerFeasible: boolean;
   operationalFeasible: boolean | null;
@@ -33,11 +39,14 @@ interface DispatcherPlanValue {
   isSaving: boolean; // a mutation is in flight - callers should disable the triggering control
   error: string | null;
   refresh: () => Promise<void>;
+  /** Lightweight refresh of only the confirmed queue + cutoff status (safe to poll every 30s). */
+  refreshQueue: () => Promise<void>;
 
   // Presentational helpers (pure, computed client-side from the fetched state - these
   // never gate a decision, only render a preview of it).
   ordersOnTrip: (vehicleId: string, tripNo: 1 | 2) => S1Order[];
   getTripDeparture: (vehicleId: string, tripNo: 1 | 2) => string | null;
+  getTripDriver: (vehicleId: string, tripNo: 1 | 2) => { username?: string | null; name?: string | null };
   getVehicleFuelInput: (vehicleId: string) => number | null;
   getTripStops: (vehicleId: string, tripNo: 1 | 2) => TripStop[];
   getTripSchedule: (vehicleId: string, tripNo: 1 | 2) => StopSchedule[] | null;
@@ -51,8 +60,10 @@ interface DispatcherPlanValue {
   deferOrder: (orderRef: string, reasonCode: DeferReasonCode, reasonNote: string) => Promise<boolean>;
   reorderTrip: (vehicleId: string, tripNo: 1 | 2, newOutletOrder: string[]) => Promise<boolean>;
   setTripDeparture: (vehicleId: string, tripNo: 1 | 2, departureTime: string | null) => Promise<boolean>;
+  setTripDriver: (vehicleId: string, tripNo: 1 | 2, driverUsername: string, driverName?: string) => Promise<boolean>;
   setVehicleFuelInput: (vehicleId: string, priorWeeklyFuelUsageL: number | null) => Promise<boolean>;
   suggestPlan: () => Promise<boolean>;
+  closeOrders: () => Promise<boolean>;
   publishPlan: () => Promise<boolean>;
   acknowledgeManifest: (version: number) => Promise<boolean>;
   compatibleCandidates: (orderRef: string) => Promise<RankedCandidate[]>;
@@ -64,6 +75,8 @@ const emptyCounts = { total: 0, served: 0, deferred: 0, unresolved: 0 };
 
 export function PlanningProvider({ children }: { children: React.ReactNode }) {
   const [orders, setOrders] = useState<DispatcherOrder[]>([]);
+  const [confirmedQueue, setConfirmedQueue] = useState<DispatcherOrder[]>([]);
+  const [cutoffStatus, setCutoffStatus] = useState<CutoffStatus | null>(null);
   const [fleetVehicles, setFleetVehicles] = useState<FleetVehicle[]>([]);
   const [allowances, setAllowances] = useState<ServiceAllowance[]>([]);
   const [districtTravel, setDistrictTravel] = useState<DistrictTravel[]>([]);
@@ -92,13 +105,28 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  /** Lightweight poll: fetch only confirmed queue + cutoff status (no draft re-fetch). */
+  const refreshQueue = useCallback(async () => {
+    try {
+      const [queueRes, cutoffRes] = await Promise.all([
+        api.getConfirmedQueue(),
+        api.getCutoffStatus(),
+      ]);
+      setConfirmedQueue(queueRes);
+      setCutoffStatus(cutoffRes);
+    } catch {
+      // Non-fatal: queue display degrades gracefully; the full refresh path will surface hard errors.
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     const seq = ++requestSeq.current;
     setError(null);
     try {
-      const [ordersRes, fleetRes, allowRes, travelRes, draftRes, manifestsRes] = await Promise.all([
+      const [ordersRes, fleetRes, allowRes, travelRes, draftRes, manifestsRes, queueRes, cutoffRes] = await Promise.all([
         api.getOrders(), api.getFleetVehicles(), api.getServiceAllowances(), api.getDistrictTravel(),
         api.getDraft(), api.listManifests(),
+        api.getConfirmedQueue(), api.getCutoffStatus(),
       ]);
       if (seq !== requestSeq.current) return; // a newer refresh already landed
       setOrders(ordersRes);
@@ -107,6 +135,8 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
       setDistrictTravel(travelRes);
       setDraft(draftRes);
       setManifests(manifestsRes);
+      setConfirmedQueue(queueRes);
+      setCutoffStatus(cutoffRes);
       await refreshChecklist();
     } catch (err) {
       if (seq !== requestSeq.current) return;
@@ -117,6 +147,13 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
   }, [refreshChecklist]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Poll the confirmed-queue every 30 s so newly placed store orders appear
+  // in the Dispatcher's planning screen without a full page refresh.
+  useEffect(() => {
+    const id = setInterval(() => { void refreshQueue(); }, 30_000);
+    return () => clearInterval(id);
+  }, [refreshQueue]);
 
   const ordersByRef = useMemo(() => new Map(orders.map((o) => [o.orderRef, o])), [orders]);
   const assignments = draft?.assignments ?? {};
@@ -133,6 +170,13 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
   }, [orders, assignmentsMap]);
 
   const getTripDeparture = useCallback((vehicleId: string, tripNo: 1 | 2) => tripMeta[tripKey(vehicleId, tripNo)]?.plannedDepartureTime ?? null, [tripMeta]);
+  const getTripDriver = useCallback((vehicleId: string, tripNo: 1 | 2) => {
+    const meta = tripMeta[tripKey(vehicleId, tripNo)];
+    return {
+      username: meta?.driverUsername ?? null,
+      name: meta?.driverName ?? null,
+    };
+  }, [tripMeta]);
   const getVehicleFuelInput = useCallback((vehicleId: string) => vehicleFuelInputs[vehicleId] ?? null, [vehicleFuelInputs]);
 
   const getTripStops = useCallback((vehicleId: string, tripNo: 1 | 2): TripStop[] => {
@@ -192,9 +236,12 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
     runMutation(() => api.reorderTrip(vehicleId, tripNo, newOutletOrder)), [runMutation]);
   const setTripDeparture = useCallback((vehicleId: string, tripNo: 1 | 2, departureTime: string | null) =>
     runMutation(() => api.setTripDeparture(vehicleId, tripNo, departureTime)), [runMutation]);
+  const setTripDriver = useCallback((vehicleId: string, tripNo: 1 | 2, driverUsername: string, driverName?: string) =>
+    runMutation(() => api.setTripDriver(vehicleId, tripNo, driverUsername, driverName)), [runMutation]);
   const setVehicleFuelInput = useCallback((vehicleId: string, priorWeeklyFuelUsageL: number | null) =>
     runMutation(() => api.setVehicleFuelInput(vehicleId, priorWeeklyFuelUsageL)), [runMutation]);
   const suggestPlan = useCallback(() => runMutation(() => api.suggestPlan()), [runMutation]);
+  const closeOrders = useCallback(() => runMutation(() => api.closeOrders()), [runMutation]);
 
   const publishPlan = useCallback(async (): Promise<boolean> => {
     if (isSaving || !draft) return false;
@@ -232,12 +279,14 @@ export function PlanningProvider({ children }: { children: React.ReactNode }) {
   const compatibleCandidates = useCallback((orderRef: string) => api.getCandidates(orderRef), []);
 
   const value: DispatcherPlanValue = {
-    orders, fleetVehicles, assignments, draftRevision, manifests, counts,
+    orders, confirmedQueue, cutoffStatus, fleetVehicles, assignments, draftRevision, manifests, counts,
+    ordersClosed: Boolean(draft?.ordersClosed),
+    ordersClosedAt: draft?.ordersClosedAt ?? null,
     planChecklist, checkerFeasible, operationalFeasible,
-    isLoading, isSaving, error, refresh,
-    ordersOnTrip, getTripDeparture, getVehicleFuelInput, getTripStops, getTripSchedule, getVehicleDistanceKm,
-    assignOrder, reassignOrder, deferOrder, reorderTrip, setTripDeparture, setVehicleFuelInput,
-    suggestPlan, publishPlan, acknowledgeManifest, compatibleCandidates,
+    isLoading, isSaving, error, refresh, refreshQueue,
+    ordersOnTrip, getTripDeparture, getTripDriver, getVehicleFuelInput, getTripStops, getTripSchedule, getVehicleDistanceKm,
+    assignOrder, reassignOrder, deferOrder, reorderTrip, setTripDeparture, setTripDriver, setVehicleFuelInput,
+    suggestPlan, closeOrders, publishPlan, acknowledgeManifest, compatibleCandidates,
   };
 
   return <DispatcherPlanContext.Provider value={value}>{children}</DispatcherPlanContext.Provider>;

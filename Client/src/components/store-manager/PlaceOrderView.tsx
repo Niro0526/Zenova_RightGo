@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { createOrder } from '@/lib/api/dispatcher';
+import React, { useState, useEffect, useMemo } from 'react';
+import { createOrder, getProducts, type ProductRecord } from '@/lib/api/dispatcher';
 import { ApiError } from '@/lib/api/client';
 import { 
   Plus, 
@@ -58,10 +58,12 @@ export default function PlaceOrderView({
   const [justAddedId, setJustAddedId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [masterCatalog, setMasterCatalog] = useState<ProductRecord[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState<boolean>(true);
 
-  // Backend-backed generic replenishment units. No mock product catalog or fake item images are used here.
+  // Backend-backed replenishment units. Real products loaded from database catalog.
   const [orderItems, setOrderItems] = useState<any[]>(editingOrder?.items || [
-    { id: 'backend-units', name: `${selectedOutlet.brand} replenishment units`, qty: 1, unit: 'units', temp: 'Ambient', isChilled: false }
+    { id: 'backend-units', name: `${selectedOutlet.brand || 'Store'} replenishment units`, qty: 1, unit: 'units', temp: 'Ambient', isChilled: false }
   ]);
 
   useEffect(() => {
@@ -70,29 +72,92 @@ export default function PlaceOrderView({
     }
   }, [editingOrder]);
 
-  const allDryItems: any[] = [];
-  const allChilledItems: any[] = [];
-  const masterCatalog: any[] = [];
+  // Fetch verified product catalog directly from backend DB for this brand
+  useEffect(() => {
+    let active = true;
+    setIsLoadingCatalog(true);
+    getProducts({ brand: brand || undefined })
+      .then((items) => {
+        if (!active) return;
+        setMasterCatalog(items);
+        if (!editingOrder && items.length > 0 && orderItems.length === 1 && orderItems[0].id === 'backend-units') {
+          const first = items[0];
+          setOrderItems([
+            {
+              id: first.id,
+              sku: first.sku,
+              name: first.name,
+              qty: 1,
+              unit: first.unit || 'units',
+              unitWeight: Number(first.unitWeight) || 5.0,
+              unitVol: Number(first.unitVol) || 0.01,
+              temp: first.isChilled ? 'Chilled (+4°C)' : 'Ambient',
+              isChilled: Boolean(first.isChilled),
+              price: Number(first.price) || 0,
+              image: first.image,
+            }
+          ]);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load products from backend:', err);
+      })
+      .finally(() => {
+        if (active) setIsLoadingCatalog(false);
+      });
+    return () => { active = false; };
+  }, [brand, editingOrder]);
+
+  const allDryItems = useMemo(() => masterCatalog.filter((i) => !i.isChilled), [masterCatalog]);
+  const allChilledItems = useMemo(() => masterCatalog.filter((i) => i.isChilled), [masterCatalog]);
+
+  // Adaptive Category Tabs based on Outlet Brand
+  const categoryTabs = useMemo(() => {
+    if (brand === 'Tech') {
+      return [
+        { id: 'all', label: '🌟 All Tech Items', count: masterCatalog.length },
+        { id: 'Smartphones', label: '📱 Smartphones & Mobile', count: masterCatalog.filter(i => i.category.toLowerCase().includes('phone') || i.category.toLowerCase().includes('mobile')).length },
+        { id: 'Audio', label: '🎧 Audio & Accessories', count: masterCatalog.filter(i => i.category.toLowerCase().includes('audio') || i.category.toLowerCase().includes('earbud')).length },
+        { id: 'Computing', label: '💻 Computing & Hardware', count: masterCatalog.filter(i => i.category.toLowerCase().includes('computing') || i.category.toLowerCase().includes('laptop') || i.category.toLowerCase().includes('keyboard')).length },
+        { id: 'Accessories', label: '⚡ Accessories & Power', count: masterCatalog.filter(i => i.category.toLowerCase().includes('accessories') || i.category.toLowerCase().includes('charger') || i.category.toLowerCase().includes('power')).length },
+      ];
+    }
+    if (brand === 'Style') {
+      return [
+        { id: 'all', label: '🌟 All Style Items', count: masterCatalog.length },
+        { id: 'Tops', label: '👕 Apparel & Tops', count: masterCatalog.filter(i => i.category.toLowerCase().includes('top') || i.category.toLowerCase().includes('shirt') || i.category.toLowerCase().includes('linen')).length },
+        { id: 'Bottoms', label: '👖 Apparel & Bottoms', count: masterCatalog.filter(i => i.category.toLowerCase().includes('bottom') || i.category.toLowerCase().includes('jean') || i.category.toLowerCase().includes('denim')).length },
+        { id: 'Footwear', label: '👟 Footwear', count: masterCatalog.filter(i => i.category.toLowerCase().includes('footwear') || i.category.toLowerCase().includes('sneaker')).length },
+        { id: 'Bags', label: '🎒 Bags & Luggage', count: masterCatalog.filter(i => i.category.toLowerCase().includes('bag') || i.category.toLowerCase().includes('luggage') || i.category.toLowerCase().includes('duffel')).length },
+        { id: 'Accessories', label: '🕶️ Fashion Accessories', count: masterCatalog.filter(i => i.category.toLowerCase().includes('accessories') || i.category.toLowerCase().includes('sunglass')).length },
+      ];
+    }
+    return [
+      { id: 'all', label: '🌟 All Fresh Items', count: masterCatalog.length },
+      { id: 'chilled', label: '❄️ Chilled Perishables (+4°C)', count: allChilledItems.length },
+      { id: 'ambient', label: '📦 Ambient Dry Goods', count: allDryItems.length },
+      { id: 'dairy', label: '🥛 Chilled Dairy', count: masterCatalog.filter(i => i.category.toLowerCase().includes('dairy')).length },
+      { id: 'poultry', label: '🍗 Poultry & Meats', count: masterCatalog.filter(i => i.category.toLowerCase().includes('poultry') || i.category.toLowerCase().includes('meat')).length },
+      { id: 'grains', label: '🌾 Grains & Staples', count: masterCatalog.filter(i => i.category.toLowerCase().includes('grain') || i.category.toLowerCase().includes('pantry')).length },
+      { id: 'beverages', label: '☕ Beverages & Spices', count: masterCatalog.filter(i => i.category.toLowerCase().includes('beverage') || i.category.toLowerCase().includes('spice')).length },
+    ];
+  }, [brand, masterCatalog, allChilledItems, allDryItems]);
 
   // Filter Catalog
-  const filteredCatalog = masterCatalog.filter((item: any) => {
-    const matchesSearch = item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          item.category.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                          (item.sku && item.sku.toLowerCase().includes(searchQuery.toLowerCase()));
+  const filteredCatalog = useMemo(() => masterCatalog.filter((item: any) => {
+    const q = searchQuery.trim().toLowerCase();
+    const matchesSearch = !q ||
+      item.name.toLowerCase().includes(q) ||
+      item.category.toLowerCase().includes(q) ||
+      (item.sku && item.sku.toLowerCase().includes(q));
     
     let matchesCategory = true;
     if (activeCategory === 'chilled') {
       matchesCategory = item.isChilled === true;
     } else if (activeCategory === 'ambient') {
       matchesCategory = !item.isChilled;
-    } else if (activeCategory === 'dairy') {
-      matchesCategory = item.category.toLowerCase().includes('dairy');
-    } else if (activeCategory === 'poultry') {
-      matchesCategory = item.category.toLowerCase().includes('poultry') || item.category.toLowerCase().includes('meat');
-    } else if (activeCategory === 'grains') {
-      matchesCategory = item.category.toLowerCase().includes('grain') || item.category.toLowerCase().includes('pantry') || item.category.toLowerCase().includes('cooking');
-    } else if (activeCategory === 'beverages') {
-      matchesCategory = item.category.toLowerCase().includes('beverage') || item.category.toLowerCase().includes('spice');
+    } else if (activeCategory !== 'all') {
+      matchesCategory = item.category.toLowerCase().includes(activeCategory.toLowerCase());
     }
 
     let matchesStock = true;
@@ -101,7 +166,7 @@ export default function PlaceOrderView({
     }
 
     return matchesSearch && matchesCategory && matchesStock;
-  });
+  }), [masterCatalog, searchQuery, activeCategory, inStockOnly]);
 
   // Adjust Quantity
   const handleQtyChange = (id: string, delta: number) => {
@@ -229,6 +294,19 @@ export default function PlaceOrderView({
         brand,
         units: totalUnits,
         notes: itemsSummary,
+        items: orderItems.map((i: any) => ({
+          id: i.id,
+          sku: i.sku || `SKU-${i.id}`,
+          name: i.name,
+          qty: Number(i.qty) || 1,
+          unit: i.unit || 'units',
+          unit_weight: Number(i.unitWeight) || 5.0,
+          unit_vol: Number(i.unitVol) || 0.01,
+          temp: i.temp || (i.isChilled ? 'Chilled (+4°C)' : 'Ambient'),
+          is_chilled: Boolean(i.isChilled),
+          price: Number(i.price) || 0.0,
+          image: i.image || null,
+        })),
       });
       // The server's run_date is the authoritative eligible planning date -
       // it reflects the real 4 PM cutoff and operating calendar, which this
@@ -377,15 +455,7 @@ export default function PlaceOrderView({
 
         {/* Category Filter Pills (Daraz / Amazon Fresh Category Tabs) */}
         <div style={{ display: 'flex', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
-          {[
-            { id: 'all', label: '🌟 All Fresh Items', count: masterCatalog.length },
-            { id: 'chilled', label: '❄️ Chilled Perishables (+4°C)', count: allChilledItems.length },
-            { id: 'ambient', label: '📦 Ambient Dry Goods', count: allDryItems.length },
-            { id: 'dairy', label: '🥛 Chilled Dairy', count: masterCatalog.filter(i => i.category.toLowerCase().includes('dairy')).length },
-            { id: 'poultry', label: '🍗 Poultry & Meats', count: masterCatalog.filter(i => i.category.toLowerCase().includes('poultry')).length },
-            { id: 'grains', label: '🌾 Grains & Pantry Staples', count: masterCatalog.filter(i => i.category.toLowerCase().includes('grain') || i.category.toLowerCase().includes('pantry')).length },
-            { id: 'beverages', label: '☕ Beverages & Spices', count: masterCatalog.filter(i => i.category.toLowerCase().includes('beverage') || i.category.toLowerCase().includes('spice')).length },
-          ].map((tab) => (
+          {categoryTabs.map((tab) => (
             <button
               key={tab.id}
               type="button"

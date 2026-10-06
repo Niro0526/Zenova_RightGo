@@ -51,7 +51,7 @@ class LedgerEntry(Base):
     id = Column(String(64), primary_key=True, default=lambda: f"LEDGER-{uuid.uuid4().hex[:12].upper()}")
     timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     action = Column(String(64), nullable=False, index=True)
-    actor = Column(String(128), default="Sarah Jenkins", nullable=False)
+    actor = Column(String(128), default="Dilani Perera (Chief Dispatcher)", nullable=False)
     order_ref = Column(String(64), nullable=True, index=True)
     outlet_id = Column(String(64), nullable=True, index=True)
     vehicle_id = Column(String(32), nullable=True)

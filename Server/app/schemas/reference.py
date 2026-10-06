@@ -62,3 +62,44 @@ class DistrictTravelSchema(BaseModel):
     depot_to_district_freeflow_min: float
     inter_stop_km: float
     inter_stop_freeflow_min: float
+
+class ProductSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    sku: str
+    name: str
+    brand: str
+    category: str
+    temp: str = "ambient"
+    is_chilled: bool = False
+    unit: str = "units"
+    unit_weight: float = 5.0
+    unit_vol: float = 0.01
+    price: float = 1000.0
+    stock_quantity: int = 500
+    stock_status: str = "in_stock"
+    image: Optional[str] = None
+    description: Optional[str] = None
+
+    # Wire/Frontend aliases
+    @property
+    def isChilled(self) -> bool:
+        return self.is_chilled
+
+    @property
+    def unitWeight(self) -> float:
+        return self.unit_weight
+
+    @property
+    def unitVol(self) -> float:
+        return self.unit_vol
+
+    @property
+    def stockStatus(self) -> str:
+        return self.stock_status
+
+    @property
+    def stockQuantity(self) -> int:
+        return self.stock_quantity
+

@@ -1,7 +1,7 @@
 """Order database model."""
 
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, Date, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, Boolean, Text, DateTime, Date, ForeignKey, JSON
 from app.database.base import Base
 
 class Order(Base):
@@ -31,4 +31,6 @@ class Order(Base):
     status = Column(String(32), default="awaiting_planning", nullable=False, index=True)
     placed_by = Column(String(128), nullable=True)
     notes = Column(Text, nullable=True)
+    items_json = Column(JSON, nullable=True) # Structured requisition line items
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+

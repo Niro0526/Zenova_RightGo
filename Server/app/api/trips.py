@@ -12,6 +12,7 @@ from app.schemas.loading import TripReadinessResponseSchema
 from app.services.loading_service import (
     get_trip_loading_sequence,
     mark_order_loaded,
+    mark_trip_ready,
     depart_trip,
     refresh_trip_readiness,
 )
@@ -32,6 +33,12 @@ def api_load_order(trip_id: int, req: LoadOrderRequest, db: Session = Depends(ge
     """Mark an order loaded onto the vehicle."""
     state = mark_order_loaded(db, trip_id, req.order_ref, req.loaded_units)
     return {"success": True, "orderRef": state.order_ref, "isLoaded": state.is_loaded, "loadedUnits": state.loaded_units}
+
+@router.post("/{trip_id}/mark-ready")
+def api_mark_trip_ready(trip_id: int, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("loader"))):
+    """Readiness gate: advance trip to ready state so driver can receive it."""
+    trip = mark_trip_ready(db, trip_id, actor=user.display_name)
+    return {"success": True, "tripId": trip.trip_id_str, "status": trip.loading_status, "otpCode": trip.otp_code}
 
 @router.post("/{trip_id}/depart")
 def api_depart_trip(trip_id: int, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("loader"))):

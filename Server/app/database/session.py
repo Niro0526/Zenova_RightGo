@@ -40,7 +40,8 @@ def get_engine_args(url: str):
     if url.startswith("sqlite"):
         args["connect_args"] = {"check_same_thread": False}
     else:
-        # PostgreSQL / Supabase settings
+        # PostgreSQL / Supabase pooler (PgBouncer) settings
+        args["connect_args"] = {"prepare_threshold": None}
         args["pool_size"] = 10
         args["max_overflow"] = 20
         args["pool_pre_ping"] = True

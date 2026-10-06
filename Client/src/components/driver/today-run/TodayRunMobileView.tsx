@@ -60,7 +60,7 @@ export function TodayRunMobileView({
   return (
     <div
       id="driver-today-run-mobile"
-      className="font-inter w-full max-w-[390px] mx-auto min-h-[844px] bg-[#F8FAFC] pb-28 relative flex flex-col shadow-xl sm:rounded-[24px] overflow-hidden border border-slate-200"
+      className="font-inter w-full max-w-[430px] mx-auto min-h-full bg-[#F8FAFC] pb-28 relative flex flex-col sm:shadow-xl sm:rounded-[24px] border border-slate-200"
       style={{ fontFamily: "'Inter', sans-serif" }}
     >
       {/* ════════════════════════════════════════════════════════════════════

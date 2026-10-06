@@ -11,6 +11,7 @@ from app.schemas.plan import (
     DeferOrderRequest,
     ReorderTripRequest,
     SetTripDepartureRequest,
+    SetTripDriverRequest,
     SetVehicleFuelInputRequest,
     PublishPlanRequest,
     DraftPlanResponse,
@@ -24,8 +25,10 @@ from app.services.planning_service import (
     defer_order,
     reorder_trip_stops,
     set_trip_departure,
+    set_trip_driver,
     set_vehicle_fuel_input,
     suggest_plan_greedy,
+    close_orders_and_suggest,
     release_plan,
     get_validation_engine,
 )
@@ -62,6 +65,11 @@ def api_set_trip_departure(req: SetTripDepartureRequest, scenario: str = "S1", d
     """Set planned departure time for a trip."""
     return set_trip_departure(db, req.vehicle_id, req.trip_no, req.departure_time, scenario=scenario, actor=user.display_name)
 
+@router.post("/trip-driver", response_model=DraftPlanResponse)
+def api_set_trip_driver(req: SetTripDriverRequest, scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher"))):
+    """Manually assign/change driver for a trip."""
+    return set_trip_driver(db, req.vehicle_id, req.trip_no, req.driver_username, req.driver_name, scenario=scenario, actor=user.display_name)
+
 @router.post("/fuel-input", response_model=DraftPlanResponse)
 def api_set_vehicle_fuel_input(req: SetVehicleFuelInputRequest, scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher"))):
     """Set confirmed prior weekly fuel usage for a vehicle."""
@@ -71,6 +79,17 @@ def api_set_vehicle_fuel_input(req: SetVehicleFuelInputRequest, scenario: str = 
 def api_suggest_plan(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher"))):
     """Run transparent heuristic greedy plan generator."""
     return suggest_plan_greedy(db, scenario=scenario, actor=user.display_name)
+
+@router.post("/close-orders", response_model=DraftPlanResponse)
+def api_close_orders(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher"))):
+    """Close the confirmed-order window for this planning run and auto-generate a draft allocation.
+
+    Booklet workflow: Place order (Store) → Close orders (Dispatcher) → Plan/allocate.
+    The 4 PM Asia/Colombo cutoff still decides which orders are eligible via run_date;
+    this step records the dispatcher taking that queue into planning and runs the greedy allocator.
+    Manual assign/defer/reorder remains available on the returned draft before release.
+    """
+    return close_orders_and_suggest(db, scenario=scenario, actor=user.display_name)
 
 @router.get("/validate")
 def api_validate_plan(scenario: str = "S1", db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("dispatcher"))):
@@ -133,6 +152,8 @@ def api_publish_plan(req: PublishPlanRequest, scenario: str = "S1", db: Session 
             orderRefs=t.order_refs or [],
             loadingStatus=t.loading_status,
             otpUnlocked=t.otp_unlocked,
+            driverUsername=t.driver_username,
+            driverName=t.driver_name,
         )
         for t in trip_rows
     ]

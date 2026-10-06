@@ -74,3 +74,24 @@ class OperatingCalendarDay(Base):
     is_operating = Column(Boolean, nullable=False)
     is_weekend = Column(Boolean, nullable=False, default=False)
     is_holiday = Column(Boolean, nullable=False, default=False)
+
+class Product(Base):
+    """Central Depot Product Catalog for store manager replenishment requisitions."""
+    __tablename__ = "products"
+
+    id = Column(String(64), primary_key=True) # e.g. PRD-FR-001
+    sku = Column(String(64), nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    brand = Column(String(32), nullable=False, index=True) # Fresh, Tech, Style
+    category = Column(String(64), nullable=False, index=True)
+    temp = Column(String(32), default="ambient", nullable=False) # ambient, chilled
+    is_chilled = Column(Boolean, default=False, nullable=False)
+    unit = Column(String(32), default="units", nullable=False) # crate, tray, tub, box, bag, pack
+    unit_weight = Column(Float, default=5.0, nullable=False) # kg
+    unit_vol = Column(Float, default=0.01, nullable=False) # m3
+    price = Column(Float, default=1000.0, nullable=False) # LKR
+    stock_quantity = Column(Integer, default=500, nullable=False)
+    stock_status = Column(String(32), default="in_stock", nullable=False) # in_stock, low_stock, out_of_stock
+    image = Column(String(512), nullable=True)
+    description = Column(String(256), nullable=True)
+

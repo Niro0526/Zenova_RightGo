@@ -48,14 +48,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // never be trusted as an authenticated identity.
     (async () => {
       try {
-        const storedUser = sessionStorage.getItem('rightgo_user');
         const storedToken = sessionStorage.getItem('rightgo_token');
-        if (storedUser && storedToken) {
+        if (storedToken) {
           setAuthToken(storedToken);
-          const profile = await apiGet<UserProfile>('/auth/me');
-          setUser(profile);
-          sessionStorage.setItem('rightgo_user', JSON.stringify(profile));
         }
+        const profile = await apiGet<UserProfile>('/auth/me');
+        setUser(profile);
+        sessionStorage.setItem('rightgo_user', JSON.stringify(profile));
       } catch (err) {
         if (err instanceof ApiError && err.status === 401) {
           // The server says this session is invalid/expired - clear it rather than keep a stale profile.

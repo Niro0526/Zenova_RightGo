@@ -22,6 +22,8 @@ export interface ManifestTripSnapshot {
   orderRefs: string[];
   loadingStatus: string;
   otpUnlocked: boolean;
+  driverUsername?: string | null;
+  driverName?: string | null;
 }
 
 export interface ManifestResponse {
@@ -126,6 +128,12 @@ export async function postLoadOrder(tripId: number, orderRef: string, loadedUnit
 export async function postDepartTrip(tripId: number) {
   return apiPost<{ success: boolean; tripId: string; status: string; departedAt: string | null }>(
     `/trips/${tripId}/depart`
+  );
+}
+
+export async function postMarkTripReady(tripId: number) {
+  return apiPost<{ success: boolean; tripId: string; status: string; isReady: boolean }>(
+    `/trips/${tripId}/mark-ready`
   );
 }
 

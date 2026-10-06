@@ -94,87 +94,342 @@ function PlanningInner() {
 }
 
 function PrepareStage({ onGenerated, onManual }: { onGenerated: () => void; onManual: () => void }) {
-  const { orders, fleetVehicles, counts, draftRevision, suggestPlan, isSaving, error } = useDispatcherPlan();
+  const {
+    orders,
+    confirmedQueue,
+    cutoffStatus,
+    fleetVehicles,
+    counts,
+    draftRevision,
+    ordersClosed,
+    closeOrders,
+    suggestPlan,
+    refreshQueue,
+    isSaving,
+    error,
+  } = useDispatcherPlan();
+
+  const [brandFilter, setBrandFilter] = useState<'ALL' | 'Fresh' | 'Style' | 'Tech'>('ALL');
+  const [queueSearch, setQueueSearch] = useState('');
+  const [isRefreshingQueue, setIsRefreshingQueue] = useState(false);
+
   const availableFleet = fleetVehicles.filter(v => v.status === 'available').length;
   const draftExists = draftRevision > 0;
+
+  async function handleCloseAndPlan() {
+    const ok = await closeOrders();
+    if (ok) onGenerated();
+  }
 
   async function handleGenerate() {
     const ok = await suggestPlan();
     if (ok) onGenerated();
   }
 
+  async function handleManualRefreshQueue() {
+    setIsRefreshingQueue(true);
+    try {
+      await refreshQueue();
+    } finally {
+      setIsRefreshingQueue(false);
+    }
+  }
+
+  const queueToDisplay = (confirmedQueue.length > 0 ? confirmedQueue : orders.filter(o => o.status === 'awaiting_planning'))
+    .filter(o => {
+      if (brandFilter !== 'ALL' && o.brand !== brandFilter) return false;
+      if (queueSearch) {
+        const q = queueSearch.toLowerCase();
+        return o.orderRef.toLowerCase().includes(q) ||
+          o.outletId.toLowerCase().includes(q) ||
+          o.district.toLowerCase().includes(q);
+      }
+      return true;
+    });
+
+  const freshCount = cutoffStatus?.brandCounts?.Fresh ?? confirmedQueue.filter(o => o.brand === 'Fresh').length;
+  const styleCount = cutoffStatus?.brandCounts?.Style ?? confirmedQueue.filter(o => o.brand === 'Style').length;
+  const techCount = cutoffStatus?.brandCounts?.Tech ?? confirmedQueue.filter(o => o.brand === 'Tech').length;
+  const totalConfirmed = cutoffStatus?.confirmedCount ?? confirmedQueue.length;
+
   return (
     <div className="flex flex-col gap-6 animate-in fade-in duration-300">
       <div className="bg-white border border-[#CBD5E1] rounded-[10px] p-4 md:p-8 flex flex-col gap-6 shadow-sm">
 
-        <div className="flex flex-col sm:flex-row justify-between items-start gap-4 sm:gap-0">
-          <div className="flex flex-col gap-1">
+        {/* Top Header & Cutoff Status */}
+        <div className="flex flex-col lg:flex-row justify-between items-start gap-4">
+          <div className="flex flex-col gap-1.5 max-w-2xl">
             <h2 className="font-bold text-xl sm:text-2xl text-gray-900 m-0">Prepare Planning Run</h2>
-            <p className="text-sm text-gray-500 m-0">Review inputs before generating a suggested draft allocation.</p>
+            <p className="text-sm text-gray-600 m-0 leading-relaxed">
+              Store Manager replenishment orders are saved to the database as confirmed (<code className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-800">awaiting_planning</code>). The 4:00 PM Asia/Colombo cutoff locks the intake window for next-day planning. Click <strong>Close Orders &amp; Auto-Plan</strong> to run the constraint-based engine.
+            </p>
           </div>
-          <div className="flex flex-col text-left sm:text-right gap-0.5 bg-gray-50 p-3 rounded-lg border border-gray-200 w-full sm:w-auto">
-            <span className="font-semibold text-sm text-gray-900">Peliyagoda Depot</span>
-            <span className="text-xs text-gray-500">Scenario S1 · Draft revision {draftRevision}</span>
+
+          <div className="flex flex-col items-start lg:items-end gap-2 bg-gray-50 p-3.5 rounded-lg border border-gray-200 w-full lg:w-auto">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-sm text-gray-900">Peliyagoda Central Depot</span>
+              <span className="text-xs bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-mono font-medium">Scenario S1</span>
+            </div>
+            
+            {/* Cutoff Status Badge */}
+            {cutoffStatus && (
+              <div className={`flex items-center gap-2 px-2.5 py-1 rounded-md text-xs font-semibold ${
+                cutoffStatus.cutoffPassed
+                  ? 'bg-emerald-50 border border-emerald-300 text-emerald-800'
+                  : 'bg-amber-50 border border-amber-300 text-amber-800'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${cutoffStatus.cutoffPassed ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'}`} />
+                {cutoffStatus.cutoffPassed ? (
+                  <span>4:00 PM Cutoff Passed · Ready for Next-Day Auto-Plan ({cutoffStatus.runDate})</span>
+                ) : (
+                  <span>Before 4:00 PM Cutoff ({cutoffStatus.localTime} Colombo) · Orders Live</span>
+                )}
+              </div>
+            )}
+
+            {ordersClosed && (
+              <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 6L9 17l-5-5"/></svg>
+                Planning window closed for Draft Rev {draftRevision}
+              </span>
+            )}
           </div>
         </div>
 
-        {error && <div className="py-2.5 px-4 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-600">{error}</div>}
+        {error && (
+          <div className="py-2.5 px-4 bg-red-50 border border-red-200 rounded-lg text-xs font-semibold text-red-600">
+            {error}
+          </div>
+        )}
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
-          <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col">
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">Eligible Orders</span>
-            <span className="text-3xl font-black text-gray-900">{orders.length}</span>
+        {/* Metrics Grid */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col shadow-xs">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Confirmed Queue</span>
+            <span className="text-3xl font-black text-gray-900">{totalConfirmed}</span>
+            <span className="text-xs text-gray-500 mt-1">Awaiting vehicle assignment</span>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col">
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">Available Fleet</span>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col shadow-xs">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Available Fleet</span>
             <span className="text-3xl font-black text-gray-900">{availableFleet}</span>
-            <span className="text-xs text-gray-500 mt-1">of {fleetVehicles.length} total</span>
+            <span className="text-xs text-gray-500 mt-1">of {fleetVehicles.length} total vehicles</span>
           </div>
-          <div className={`rounded-lg p-5 flex flex-col border ${counts.unresolved > 0 ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200'}`}>
-            <span className={`text-[11px] font-bold uppercase tracking-wider mb-2 ${counts.unresolved > 0 ? 'text-red-600' : 'text-gray-500'}`}>Needs Decision</span>
-            <span className={`text-3xl font-black ${counts.unresolved > 0 ? 'text-red-700' : 'text-gray-900'}`}>{counts.unresolved}</span>
-            <span className="text-xs mt-1 font-medium text-gray-500">Unresolved orders</span>
+
+          <div className={`rounded-lg p-5 flex flex-col border shadow-xs ${counts.unresolved > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}`}>
+            <span className={`text-[11px] font-bold uppercase tracking-wider mb-1 ${counts.unresolved > 0 ? 'text-amber-700' : 'text-gray-500'}`}>Needs Decision</span>
+            <span className={`text-3xl font-black ${counts.unresolved > 0 ? 'text-amber-800' : 'text-gray-900'}`}>{counts.unresolved}</span>
+            <span className="text-xs mt-1 font-medium text-gray-500">Unallocated orders</span>
           </div>
-          <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col">
-            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-2">Draft Status</span>
-            <span className="text-lg font-bold text-gray-900 mt-1">{draftExists ? `Revision ${draftRevision}` : 'No draft yet'}</span>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-5 flex flex-col shadow-xs">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider mb-1">Draft Revision</span>
+            <span className="text-2xl font-black text-gray-900 mt-0.5">{draftExists ? `Rev ${draftRevision}` : 'Not Started'}</span>
             <span className="text-xs text-gray-500 mt-1">{counts.served} assigned · {counts.deferred} deferred</span>
           </div>
         </div>
 
-        <details className="group border border-gray-200 rounded-lg mt-4 bg-gray-50">
+        {/* Confirmed Order Queue Live Panel */}
+        <div className="border border-[#CBD5E1] rounded-lg bg-white overflow-hidden shadow-xs">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-gray-50 border-b border-gray-200 gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-orange-100 text-orange-700 rounded-lg">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-bold text-base text-gray-900 m-0">Confirmed Store Orders Queue</h3>
+                  <span className="px-2 py-0.5 bg-blue-100 text-blue-800 text-[11px] font-bold rounded-full">
+                    {queueToDisplay.length} orders
+                  </span>
+                </div>
+                <p className="text-xs text-gray-500 m-0 mt-0.5">
+                  Live database feed of confirmed store orders waiting for automated routing.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 w-full sm:w-auto justify-between sm:justify-end">
+              {cutoffStatus?.newestOrderAt && (
+                <span className="text-[11px] text-gray-500 hidden md:inline">
+                  Last order: {new Date(cutoffStatus.newestOrderAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+              <button
+                onClick={handleManualRefreshQueue}
+                disabled={isRefreshingQueue}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
+                title="Refresh order queue from DB"
+              >
+                <svg className={`w-3.5 h-3.5 ${isRefreshingQueue ? 'animate-spin text-orange-600' : 'text-gray-500'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                {isRefreshingQueue ? 'Refreshing…' : 'Refresh Feed'}
+              </button>
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="p-3 border-b border-gray-200 bg-white flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setBrandFilter('ALL')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${brandFilter === 'ALL' ? 'bg-white text-gray-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                All ({totalConfirmed})
+              </button>
+              <button
+                onClick={() => setBrandFilter('Fresh')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${brandFilter === 'Fresh' ? 'bg-[#ECFDF5] text-emerald-800 shadow-xs font-bold' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Fresh ({freshCount})
+              </button>
+              <button
+                onClick={() => setBrandFilter('Style')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${brandFilter === 'Style' ? 'bg-[#FFF4ED] text-orange-800 shadow-xs font-bold' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Style ({styleCount})
+              </button>
+              <button
+                onClick={() => setBrandFilter('Tech')}
+                className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${brandFilter === 'Tech' ? 'bg-[#F3E8FF] text-purple-800 shadow-xs font-bold' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Tech ({techCount})
+              </button>
+            </div>
+
+            <div className="flex items-center px-2.5 py-1.5 border border-gray-300 rounded-md text-xs w-full sm:w-64 bg-gray-50 focus-within:bg-white focus-within:border-orange-500">
+              <SearchIcon />
+              <input
+                type="text"
+                placeholder="Search ref, outlet, district…"
+                value={queueSearch}
+                onChange={e => setQueueSearch(e.target.value)}
+                className="ml-2 bg-transparent border-none outline-none w-full text-xs text-gray-800"
+              />
+            </div>
+          </div>
+
+          {/* Orders Table */}
+          <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-gray-100 text-gray-600 font-semibold uppercase tracking-wider sticky top-0 border-b border-gray-200">
+                <tr>
+                  <th className="py-2.5 px-4">Order Ref</th>
+                  <th className="py-2.5 px-3">Outlet</th>
+                  <th className="py-2.5 px-3">Brand</th>
+                  <th className="py-2.5 px-3">Units &amp; Weight</th>
+                  <th className="py-2.5 px-3">Temp Zone</th>
+                  <th className="py-2.5 px-3">Delivery Window</th>
+                  <th className="py-2.5 px-3">District</th>
+                  <th className="py-2.5 px-3">Placed By</th>
+                  <th className="py-2.5 px-4 text-right">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {queueToDisplay.map((ord) => (
+                  <tr key={ord.orderRef} className="hover:bg-orange-50/50 transition-colors">
+                    <td className="py-2.5 px-4 font-mono font-bold text-gray-900">
+                      {ord.orderRef}
+                    </td>
+                    <td className="py-2.5 px-3 font-semibold text-gray-800">
+                      {ord.outletId}
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                        ord.brand === 'Fresh'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : ord.brand === 'Style'
+                          ? 'bg-orange-100 text-orange-800'
+                          : 'bg-purple-100 text-purple-800'
+                      }`}>
+                        {ord.brand}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-700">
+                      <span className="font-semibold">{ord.orderUnits} units</span>
+                      <span className="text-gray-400 text-[11px] block">{ord.orderWeightKg.toFixed(1)} kg · {ord.orderVolumeM3.toFixed(3)} m³</span>
+                    </td>
+                    <td className="py-2.5 px-3">
+                      <span className={`inline-flex items-center gap-1 font-medium ${ord.tempRequirement === 'chilled' ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {ord.tempRequirement === 'chilled' ? <SnowflakeIcon /> : <SunIcon />}
+                        <span className="capitalize">{ord.tempRequirement}</span>
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-600 font-mono text-[11px]">
+                      {ord.windowOpenTime} - {ord.windowCloseTime}
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-600">
+                      {ord.district}
+                    </td>
+                    <td className="py-2.5 px-3 text-gray-500 text-[11px]">
+                      {ord.placedBy ?? 'Store Manager'}
+                    </td>
+                    <td className="py-2.5 px-4 text-right">
+                      <span className="inline-block px-2 py-0.5 rounded bg-blue-50 border border-blue-200 text-blue-700 font-semibold text-[10px] uppercase">
+                        Awaiting Plan
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {queueToDisplay.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="py-8 text-center text-gray-400 text-xs">
+                      No matching confirmed orders found in queue.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Planning Priorities & Rules Dropdown */}
+        <details className="group border border-gray-200 rounded-lg bg-gray-50">
           <summary className="flex cursor-pointer items-center justify-between p-4 font-semibold text-gray-900 text-sm marker:content-none">
             <div className="flex items-center gap-2">
               <svg className="w-5 h-5 text-gray-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
-              Planning Priorities &amp; Rules
+              Automated Planning Rules &amp; DB Constraints
             </div>
             <svg className="w-5 h-5 text-gray-500 transition group-open:rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
           </summary>
           <div className="p-5 pt-2 text-sm text-gray-600 border-t border-gray-200 bg-white rounded-b-lg">
             <ul className="list-disc pl-5 space-y-2">
-              <li>Respect vehicle and outlet constraints (e.g. Van-only access, Reefer required).</li>
-              <li>Respect cumulative Fresh 270-minute / Style+Tech 480-minute trip-time budgets per vehicle.</li>
-              <li>Prioritize previously deferred outlets and tightest delivery windows first.</li>
-              <li>Manual assignments, stop sequences, departure times, and confirmed fuel are preserved across regeneration.</li>
+              <li><strong>Temperature Zone Fit:</strong> Reefer trucks are allocated for Chilled Fresh orders; Ambient vehicles for Dry/Style/Tech.</li>
+              <li><strong>Physical Outlet Constraints:</strong> Enforces Van-only access restrictions and dock-type matching.</li>
+              <li><strong>Trip Time Budget:</strong> Maximum cumulative 270 minutes for Fresh and 480 minutes for Style/Tech per vehicle.</li>
+              <li><strong>Priority Heuristic:</strong> Outlets deferred from yesterday and tightest delivery windows are scheduled first.</li>
+              <li><strong>Manual Overrides:</strong> Manual assignments, reassignments, departure times, and locked fuel values are strictly preserved on regeneration.</li>
             </ul>
           </div>
         </details>
 
-        <div className="flex flex-col sm:flex-row justify-end gap-4 mt-6 pt-6 border-t border-gray-100">
-          <button onClick={onManual} className="py-2.5 px-6 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+        {/* Action Controls */}
+        <div className="flex flex-col sm:flex-row justify-end gap-3 pt-4 border-t border-gray-100">
+          <button
+            onClick={onManual}
+            className="py-2.5 px-6 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+          >
             Manual Assignment
           </button>
+          {!ordersClosed && (
+            <button
+              onClick={handleGenerate}
+              disabled={isSaving}
+              className="py-2.5 px-6 border border-gray-300 rounded-lg font-semibold text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              Regenerate Draft Only
+            </button>
+          )}
           <button
-            onClick={handleGenerate}
+            onClick={handleCloseAndPlan}
             disabled={isSaving}
-            className="flex items-center justify-center min-w-[200px] gap-2 py-2.5 px-6 bg-[#F97316] hover:bg-orange-600 disabled:bg-orange-400 rounded-lg font-semibold text-sm text-white transition-colors"
+            className="flex items-center justify-center min-w-[240px] gap-2 py-2.5 px-6 bg-[#F97316] hover:bg-orange-600 disabled:bg-orange-400 rounded-lg font-semibold text-sm text-white transition-colors shadow-sm"
           >
             {isSaving ? (
               <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
             ) : (
               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polygon points="10 8 16 12 10 16 10 8"></polygon></svg>
             )}
-            {isSaving ? 'Generating Draft Plan…' : 'Generate Draft Plan'}
+            {isSaving ? 'Closing & Planning…' : ordersClosed ? 'Re-run Auto Plan' : 'Close Orders & Auto-Plan'}
           </button>
         </div>
       </div>
@@ -509,7 +764,7 @@ function ManualAssignmentWorkspace({ onBack, initialSelectedRef }: { onBack: () 
                 </div>
                 <div className="flex flex-col p-4 bg-gray-50 rounded-lg border border-gray-100">
                   <span className="font-semibold text-[11px] text-gray-500 uppercase mb-1">RUN DATE</span>
-                  <span className="font-bold text-sm text-gray-900">{selectedOrder.runDate ?? 'n/a (seed)'}</span>
+                  <span className="font-bold text-sm text-gray-900">{selectedOrder.runDate || (selectedOrder.createdAt ? selectedOrder.createdAt.slice(0, 10) : '—')}</span>
                 </div>
                 <div className="flex flex-col p-4 bg-gray-50 rounded-lg border border-gray-100">
                   <span className="font-semibold text-[11px] text-gray-500 uppercase mb-1">TOTAL WEIGHT</span>
@@ -558,7 +813,12 @@ function ManualAssignmentWorkspace({ onBack, initialSelectedRef }: { onBack: () 
       </div>
 
       {showAssignDialog && selectedRef && (
-        <ReassignDialog orderRef={selectedRef} onCancel={() => setShowAssignDialog(false)} onDone={() => setShowAssignDialog(false)} />
+        <ReassignDialog
+          orderRef={selectedRef}
+          onCancel={() => setShowAssignDialog(false)}
+          onDone={() => setShowAssignDialog(false)}
+          onOpenDefer={() => setShowDeferDialog(true)}
+        />
       )}
       {showDeferDialog && selectedRef && (
         <DeferDialog

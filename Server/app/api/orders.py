@@ -1,6 +1,7 @@
 """Orders API endpoints for intake, placement, cancellation, and store manager view."""
 
 from typing import List, Optional
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database.session import get_db
@@ -8,6 +9,7 @@ from app.core.deps import require_role, CurrentUser
 from app.models.order import Order
 from app.schemas.order import OrderSchema, CreateOrderRequest, CancelOrderRequest
 from app.services.store_manager_service import place_store_order, cancel_store_order
+from app.services.scheduling_service import current_run_date, colombo_now, CUTOFF_HOUR
 
 router = APIRouter(prefix="/orders", tags=["Orders"])
 
@@ -32,6 +34,103 @@ def list_orders(
     if status:
         query = query.filter(Order.status == status)
     return query.order_by(Order.order_ref).all()
+
+@router.get("/confirmed-queue", response_model=List[OrderSchema])
+def get_confirmed_queue(
+    scenario: str = "S1",
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_role("dispatcher")),
+):
+    """Dispatcher-only: return all awaiting_planning orders for the current
+    planning run_date. These are the confirmed store orders that the
+    dispatcher's planning screen should display and schedule.
+
+    Includes both:
+    - Legacy/seed rows (run_date IS NULL) with status awaiting_planning
+    - New store-placed orders (run_date <= current_run_date) with status awaiting_planning
+    """
+    run_date = current_run_date(db)
+    return (
+        db.query(Order)
+        .filter(
+            Order.scenario == scenario,
+            Order.status == "awaiting_planning",
+        )
+        .filter(
+            (Order.run_date.is_(None)) | (Order.run_date <= run_date)
+        )
+        .order_by(Order.created_at.asc(), Order.order_ref.asc())
+        .all()
+    )
+
+@router.get("/cutoff-status")
+def get_cutoff_status(
+    scenario: str = "S1",
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_role("dispatcher")),
+):
+    """Return 4 PM cutoff status and the current confirmed-order queue counts.
+    The dispatcher planning screen polls this to decide whether to show
+    'cutoff has passed - auto-plan available' UI state.
+    """
+    local_now = colombo_now()
+    cutoff_passed = local_now.hour >= CUTOFF_HOUR
+    run_date = current_run_date(db)
+
+    # Count eligible awaiting_planning orders
+    confirmed_count = (
+        db.query(Order)
+        .filter(
+            Order.scenario == scenario,
+            Order.status == "awaiting_planning",
+        )
+        .filter(
+            (Order.run_date.is_(None)) | (Order.run_date <= run_date)
+        )
+        .count()
+    )
+
+    # Per-brand breakdown
+    brand_counts = {}
+    for brand in ["Fresh", "Style", "Tech"]:
+        cnt = (
+            db.query(Order)
+            .filter(
+                Order.scenario == scenario,
+                Order.status == "awaiting_planning",
+                Order.brand == brand,
+            )
+            .filter(
+                (Order.run_date.is_(None)) | (Order.run_date <= run_date)
+            )
+            .count()
+        )
+        if cnt > 0:
+            brand_counts[brand] = cnt
+
+    # Newest order placed timestamp
+    newest = (
+        db.query(Order)
+        .filter(
+            Order.scenario == scenario,
+            Order.status == "awaiting_planning",
+        )
+        .filter(
+            (Order.run_date.is_(None)) | (Order.run_date <= run_date)
+        )
+        .order_by(Order.created_at.desc())
+        .first()
+    )
+
+    return {
+        "cutoffPassed": cutoff_passed,
+        "localTime": local_now.strftime("%H:%M"),
+        "cutoffHour": CUTOFF_HOUR,
+        "runDate": run_date.isoformat(),
+        "confirmedCount": confirmed_count,
+        "brandCounts": brand_counts,
+        "newestOrderAt": newest.created_at.isoformat() if newest and newest.created_at else None,
+    }
 
 @router.post("", response_model=OrderSchema)
 def create_order(req: CreateOrderRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("store_manager"))):

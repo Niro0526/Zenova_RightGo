@@ -10,7 +10,7 @@ export default function LoaderLayout({ children }: { children: React.ReactNode }
 
       {/* 2. Main Content Area */}
       <div className="flex-1 flex flex-col h-full md:pl-[220px] lg:pl-[240px] overflow-hidden">
-        
+
         {/* Fixed TopBar (Never Scrolls Away) */}
         <RoleTopBar
           name="Rohan Kulatunga"

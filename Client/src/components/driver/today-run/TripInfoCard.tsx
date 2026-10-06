@@ -8,8 +8,8 @@ interface TripInfoCardProps {
 
 export default function TripInfoCard({
   vehicleId = "",
-  tripPlanId = "S1-T001",
-  planVersion = "Plan v2",
+  tripPlanId = "",
+  planVersion = "",
 }: TripInfoCardProps) {
   return (
     <div
@@ -30,18 +30,20 @@ export default function TripInfoCard({
       {/* Values row */}
       <div className="flex flex-row justify-between items-center" style={{ width: 351, height: 27 }}>
         <span className="text-[#202D2D] font-bold" style={{ fontSize: 18, lineHeight: "27px" }}>
-          {vehicleId}
+          {vehicleId || "—"}
         </span>
         <div className="flex flex-row items-center" style={{ gap: 8 }}>
           <span className="text-[#202D2D] font-bold" style={{ fontSize: 16, lineHeight: "24px" }}>
-            {tripPlanId}
+            {tripPlanId || "—"}
           </span>
-          <span
-            className="flex items-start bg-[#F9FAFB] rounded text-[#485563] font-semibold"
-            style={{ padding: "2px 6px", fontSize: 11, lineHeight: "16px" }}
-          >
-            {planVersion}
-          </span>
+          {planVersion ? (
+            <span
+              className="flex items-start bg-[#F9FAFB] rounded text-[#485563] font-semibold"
+              style={{ padding: "2px 6px", fontSize: 11, lineHeight: "16px" }}
+            >
+              {planVersion}
+            </span>
+          ) : null}
         </div>
       </div>
     </div>

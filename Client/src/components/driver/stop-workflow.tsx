@@ -29,7 +29,7 @@ import { useAuth } from "@/context/AuthContext";
 import { saveLocalDeliveryRecord, updateRecordSyncStatus, queueLocalArrival, getLocalArrivals, type LocalDeliveryRecord } from "@/lib/driver/driver-offline-db";
 import { ApiError, refusalInfo } from "@/lib/api/client";
 import { getOutletContact } from "@/lib/driver/outlet-service";
-import { postDriverDelivery, postDriverArrival, fetchDriverRun, type DriverRunResponse } from "@/lib/driver/driver-api";
+import { postDriverDelivery, postDriverArrival, fetchDriverRun, verifyDriverOtp, postStartTrip, type DriverRunResponse } from "@/lib/driver/driver-api";
 import { NavigationPanel } from "@/components/driver/NavigationPanel";
 import { DriverCurrentStopMobileView } from "@/components/driver/current-stop/DriverCurrentStopMobileView";
 import { describeLoadingNote, describePlanChange, type Stop } from "@/components/driver/today-run/types";
@@ -70,24 +70,117 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
   const searchParams = useSearchParams();
   // The live run comes from the server; the stop is the one in the URL, else the next unfinished stop.
   const [runInfo, setRunInfo] = useState<DriverRunResponse | null>(null);
+  const [runLoading, setRunLoading] = useState(true);
+  const [runLoadError, setRunLoadError] = useState<string | null>(null);
+  const [otpInput, setOtpInput] = useState("");
+  const [otpBusy, setOtpBusy] = useState(false);
+  const [otpError, setOtpError] = useState<string | null>(null);
+
+  const loadRun = () => {
+    setRunLoadError(null);
+    return fetchDriverRun()
+      .then((r) => {
+        setRunInfo(r);
+        return r;
+      })
+      .catch((err) => {
+        setRunLoadError(err instanceof Error ? err.message : "Could not load your run.");
+        return null;
+      })
+      .finally(() => setRunLoading(false));
+  };
+
   useEffect(() => {
     let alive = true;
-    fetchDriverRun()
-      .then((r) => {
-        if (alive) setRunInfo(r);
-      })
-      .catch(() => {});
+    setRunLoading(true);
+    loadRun().then(() => {
+      if (!alive) return;
+    });
+    // Poll while waiting for loader Ready so the trip appears without a manual refresh.
+    const timer = window.setInterval(() => {
+      void fetchDriverRun()
+        .then((r) => {
+          if (alive) setRunInfo(r);
+        })
+        .catch(() => {});
+    }, 15000);
     return () => {
       alive = false;
+      window.clearInterval(timer);
     };
   }, []);
+
   const runStops = runInfo?.hasRun ? runInfo.stops : [];
-  const targetStopId = searchParams?.get("stopId") || runStops.find((s) => !s.isCompleted)?.stopId || "";
+  const targetStopId = searchParams?.get("stopId") || runStops.find((s) => !s.isCompleted)?.stopId || runStops[0]?.stopId || "";
   const runStop = runStops.find((s) => s.stopId === targetStopId) ?? null;
   const nextRunStop = runStops.find((s) => !s.isCompleted && s.stopId !== targetStopId) ?? null;
   const loadingNotes = runStop?.loadingNotes ?? [];
   const planChanges = loadingNotes.map(describePlanChange).filter((x): x is string => !!x);
   const orderRows = runStop?.orderDetails ?? [];
+  const isTripReady = !!(runInfo?.hasRun && (runInfo.loadingStatus === "ready" || (!runInfo.isUnlocked && runInfo.loadingStatus !== "departed" && runInfo.loadingStatus !== "completed")));
+  const allStopsCompleted = !!(runInfo?.hasRun && runStops.length > 0 && runStops.every((s) => s.isCompleted));
+
+  const [startTripBusy, setStartTripBusy] = useState(false);
+  const [startTripError, setStartTripError] = useState<string | null>(null);
+
+  const handleStartTrip = async () => {
+    if (!runInfo?.tripId) return;
+    setStartTripBusy(true);
+    setStartTripError(null);
+    try {
+      await postStartTrip(runInfo.tripId, otpInput.trim() || undefined);
+      setOtpInput("");
+      await loadRun();
+      setToast({
+        id: Date.now().toString(),
+        type: "success",
+        title: "Trip Started",
+        message: "Trip is now in transit! You can now proceed with your stops in sequence.",
+        duration: 4000,
+      });
+    } catch (err) {
+      setStartTripError(err instanceof Error ? err.message : "Could not start trip.");
+    } finally {
+      setStartTripBusy(false);
+    }
+  };
+
+  const handleProceedToNextStop = () => {
+    const next = runStops.find((s) => !s.isCompleted && s.stopId !== targetStopId);
+    if (next) {
+      setStopRecorded(false);
+      setCompletingDelivery(false);
+      setDeliveryStarted(false);
+      setStopStatus("EN_ROUTE");
+      setArrivalTimestamp(null);
+      setArrivalIso(null);
+      setPhotoFile(null);
+      setSignatureFile(null);
+      setDiscrepancyPhoto(null);
+      setNotDeliveredPhoto(null);
+      setDiscrepancyNotes("");
+      setNotDeliveredNotes("");
+      setDeliveryOutcome("full");
+      router.push(`/driver/current-stop?stopId=${next.stopId}`);
+    } else {
+      void loadRun();
+    }
+  };
+
+  const handleUnlock = async () => {
+    if (!runInfo?.tripId || !runInfo.vehicleId) return;
+    setOtpBusy(true);
+    setOtpError(null);
+    try {
+      await verifyDriverOtp(runInfo.tripId, runInfo.vehicleId, otpInput.trim());
+      setOtpInput("");
+      await loadRun();
+    } catch (err) {
+      setOtpError(err instanceof Error ? err.message : "Could not verify the unlock code.");
+    } finally {
+      setOtpBusy(false);
+    }
+  };
 
   const {
     isOnline,
@@ -566,8 +659,8 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         duration: 4000,
       });
     } else {
-      // Proceed to Next Stop -> navigate back to Today Run
-      router.push("/driver/today-run");
+      // Proceed to Next Stop
+      handleProceedToNextStop();
     }
   };
 
@@ -603,32 +696,213 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
         className="hidden"
       />
 
-      {/* ══════════════════════════════════════════
-          DESKTOP layout  (md+) — fluid, full-width
-          ══════════════════════════════════════════ */}
-      <div className="hidden md:flex flex-col gap-6 p-6 lg:p-8 min-h-full">
-        {/* Navigation / Header Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-[#E2E8F0]">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/driver/today-run"
-              className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-[#202D2D] hover:bg-[#E2E8F0] transition-colors"
-              aria-label="Back to Today's Run"
-            >
-              <ArrowLeftIcon className="w-5 h-5" />
-            </Link>
-            <div>
-              <div className="flex items-center gap-3">
-                <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider bg-green-50 px-2.5 py-1 rounded-md border border-green-200">
-                  {stopRecorded
-                    ? "Stop Recorded"
-                    : completingDelivery
-                    ? "Complete Delivery"
-                    : deliveryStarted
-                    ? "In Progress"
-                    : "Current Stop"}
-                </span>
-                <span className="text-[#485563] font-bold text-sm">Stop 1 of 4</span>
+      {/* Dynamic Status Gate Views */}
+      {runLoading && !runInfo ? (
+        <div className="flex flex-col items-center justify-center min-h-[450px] p-8 text-center">
+          <RefreshCwIcon className="w-8 h-8 text-[#22C55E] animate-spin mb-4" />
+          <h2 className="text-xl font-bold text-slate-900">Loading Assigned Trip...</h2>
+          <p className="text-sm text-slate-500 mt-1">Checking active manifests from dispatch</p>
+        </div>
+      ) : !runInfo?.hasRun ? (
+        <div className="flex flex-col items-center justify-center min-h-[480px] p-6 text-center max-w-xl mx-auto my-12 bg-white rounded-2xl border border-slate-200 shadow-sm">
+          <div className="w-16 h-16 rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-4 border border-amber-200">
+            <RouteIcon className="w-8 h-8" />
+          </div>
+          <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-100 text-amber-800 mb-2">
+            Awaiting Warehouse Loading
+          </span>
+          <h2 className="text-2xl font-extrabold text-slate-900">No Active Run Departed Yet</h2>
+          <p className="text-sm text-slate-600 mt-2 max-w-md leading-relaxed">
+            {runInfo?.message || "Your assigned trip is being loaded and verified at the warehouse. Once the loader marks it Ready, your trip manifest and stop sequence will appear here automatically."}
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-4 text-xs text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-200 w-full text-left">
+            <div><span className="text-slate-400 font-semibold block">Driver</span>{user?.display_name || user?.username}</div>
+            <div><span className="text-slate-400 font-semibold block">Vehicle</span>{user?.vehicle_id || runInfo?.vehicleId || "Assigned on release"}</div>
+            {runInfo?.tripId && <div><span className="text-slate-400 font-semibold block">Trip ID</span>{runInfo.tripId}</div>}
+            {runInfo?.loadingStatus && <div><span className="text-slate-400 font-semibold block">Warehouse Status</span><span className="font-bold text-amber-700 capitalize">{runInfo.loadingStatus}</span></div>}
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadRun()}
+            className="mt-6 px-6 py-3 rounded-xl bg-[#22C55E] hover:bg-[#16A34A] text-white font-bold text-sm transition-colors shadow-sm cursor-pointer flex items-center gap-2"
+          >
+            <RefreshCwIcon className="w-4 h-4" />
+            <span>Check Trip Status</span>
+          </button>
+        </div>
+      ) : isTripReady ? (
+        <div className="w-full max-w-4xl mx-auto p-4 md:p-8 flex flex-col gap-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 md:p-8 flex flex-col gap-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-slate-100">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                    Ready for Departure
+                  </span>
+                  <span className="text-xs font-semibold text-slate-500">
+                    {runInfo.manifestVersion}
+                  </span>
+                </div>
+                <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900">
+                  Assigned Trip: {runInfo.tripId}
+                </h1>
+                <p className="text-sm text-slate-500 mt-1">
+                  Vehicle: <strong className="text-slate-800">{runInfo.vehicleId}</strong> · Depot: <strong className="text-slate-800">{runInfo.depot}</strong> · District: <strong className="text-slate-800">{runInfo.district}</strong>
+                </p>
+              </div>
+              <div className="flex flex-col md:items-end text-left md:text-right">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Planned Departure</span>
+                <span className="text-xl font-black text-slate-900">{runInfo.plannedDepartureTime || "05:00 AM"}</span>
+                <span className="text-xs text-emerald-600 font-medium">Warehouse loaded & verified</span>
+              </div>
+            </div>
+
+            {/* Stop Sequence Overview */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700">
+                  Delivery Stop Sequence ({runStops.length} Stops)
+                </h3>
+                <span className="text-xs text-slate-500">LIFO loaded in reverse sequence</span>
+              </div>
+              <div className="flex flex-col gap-2">
+                {runStops.map((stop, idx) => (
+                  <div
+                    key={stop.stopId}
+                    className="flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-slate-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="w-8 h-8 rounded-full bg-slate-900 text-white font-bold text-xs flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <div>
+                        <h4 className="font-bold text-sm text-slate-900">{stop.name} ({stop.code})</h4>
+                        <p className="text-xs text-slate-500">{stop.address}</p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-xs font-semibold text-slate-800 block">{stop.timeWindow}</span>
+                      <span className="text-xs text-slate-500">{stop.units} units · {stop.weightKg} kg</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Gate Departure / OTP Unlock & Start Trip */}
+            <div className="bg-slate-900 text-white rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-md">
+              <div className="flex-1 w-full">
+                <h3 className="text-lg font-bold">Start Trip & Depart Depot</h3>
+                <p className="text-xs text-slate-300 mt-1 max-w-md">
+                  Confirm departure from warehouse depot. This marks your orders in-transit and activates your stop route.
+                </p>
+                {!runInfo.isUnlocked && (
+                  <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <input
+                      type="text"
+                      value={otpInput}
+                      onChange={(e) => setOtpInput(e.target.value)}
+                      placeholder="6-digit gate code (optional)"
+                      maxLength={6}
+                      className="px-3.5 py-2 rounded-lg bg-slate-800 border border-slate-700 text-white text-sm placeholder-slate-400 focus:outline-none focus:border-emerald-500 w-56 tracking-wider"
+                    />
+                    <span className="text-xs text-slate-400">from warehouse loader</span>
+                  </div>
+                )}
+                {startTripError && (
+                  <p className="text-xs text-rose-400 font-medium mt-2">{startTripError}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                disabled={startTripBusy}
+                onClick={() => void handleStartTrip()}
+                className="w-full md:w-auto px-8 py-4 rounded-xl bg-[#22C55E] hover:bg-[#16A34A] text-white font-bold text-base transition-all shadow-lg active:scale-98 cursor-pointer flex items-center justify-center gap-3 shrink-0 disabled:opacity-50"
+              >
+                {startTripBusy ? (
+                  <>
+                    <RefreshCwIcon className="w-5 h-5 animate-spin" />
+                    <span>Starting Trip...</span>
+                  </>
+                ) : (
+                  <>
+                    <PlayIcon className="w-5 h-5" />
+                    <span>Start Trip & Begin Run</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : allStopsCompleted ? (
+        <div className="w-full max-w-2xl mx-auto p-4 md:p-8 flex flex-col items-center text-center my-8">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-8 flex flex-col items-center w-full">
+            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mb-4">
+              <CheckCircleIcon className="w-8 h-8" />
+            </div>
+            <span className="px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 mb-2">
+              Trip Completed
+            </span>
+            <h2 className="text-2xl md:text-3xl font-extrabold text-slate-900">All Stops Successfully Delivered!</h2>
+            <p className="text-sm text-slate-600 mt-2 max-w-md">
+              Trip <strong>{runInfo?.tripId}</strong> is complete. All {runStops.length} stops have been serviced with proof of delivery recorded.
+            </p>
+
+            <div className="mt-6 w-full flex flex-col gap-2 text-left">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Delivered Stops Summary</h4>
+              {runStops.map((stop) => (
+                <div key={stop.stopId} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <div className="flex items-center gap-2">
+                    <CheckIcon className="w-4 h-4 text-emerald-600" />
+                    <span className="text-sm font-semibold text-slate-900">{stop.name}</span>
+                  </div>
+                  <span className="text-xs font-bold text-slate-600">
+                    {stop.outcome === "full" ? "Delivered in Full" : stop.outcome === "discrepancy" ? "Discrepancy POD" : "Completed"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-8 flex items-center gap-4">
+              <Link
+                href="/driver/history"
+                className="px-6 py-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm transition-colors shadow-sm"
+              >
+                View Delivery History
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* ══════════════════════════════════════════
+              DESKTOP layout  (md+) — fluid, full-width
+              ══════════════════════════════════════════ */}
+          <div className="hidden md:flex flex-col gap-6 p-6 lg:p-8 min-h-full">
+            {/* Navigation / Header Row */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl shadow-sm border border-[#E2E8F0]">
+              <div className="flex items-center gap-4">
+                <Link
+                  href="/driver/current-stop"
+                  className="flex items-center justify-center w-10 h-10 rounded-xl bg-[#F8FAFC] border border-[#CBD5E1] text-[#202D2D] hover:bg-[#E2E8F0] transition-colors"
+                  aria-label="Current Run"
+                >
+                  <ArrowLeftIcon className="w-5 h-5" />
+                </Link>
+                <div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[#22C55E] font-bold text-xs uppercase tracking-wider bg-green-50 px-2.5 py-1 rounded-md border border-green-200">
+                      {stopRecorded
+                        ? "Stop Recorded"
+                        : completingDelivery
+                        ? "Complete Delivery"
+                        : deliveryStarted
+                        ? "In Progress"
+                        : "Current Stop"}
+                    </span>
+                    <span className="text-[#485563] font-bold text-sm">
+                      Stop {runStop?.stopNumber ?? 1} of {runStops.length || 1}
+                    </span>
                 <div
                   id="desktop-stop-connectivity-pill"
                   className={`flex items-center gap-1.5 px-3 py-1 rounded-full border transition-all ${
@@ -997,10 +1271,10 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
                   </button>
 
                   <Link
-                    href="/driver/today-run"
+                    href="/driver/current-stop"
                     className="flex items-center justify-center py-2 text-[#485563] hover:text-[#202D2D] font-bold text-xs transition-colors no-underline text-center"
                   >
-                    ← Return to Today&apos;s Run Overview
+                    ← Return to Current Run Overview
                   </Link>
                 </div>
               </div>
@@ -1948,7 +2222,7 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           onProceedToComplete={() => setCompletingDelivery(true)}
           onBackToOverview={() => setCompletingDelivery(false)}
           onSubmitStopRecord={handlePrimaryAction}
-          onProceedToNextStop={() => router.push("/driver/today-run")}
+          onProceedToNextStop={handleProceedToNextStop}
           deliveryOutcome={deliveryOutcome}
           onChangeDeliveryOutcome={(outcome) => {
             setDeliveryOutcome(outcome);
@@ -1994,6 +2268,8 @@ export function DriverStopWorkflow({ initialStopRecorded = false }: { initialSto
           storeContact={storeContact}
         />
       </div>
+    </>
+  )}
 
       {/* Toastify-style Notification */}
       <Toast toast={toast} onDismiss={() => setToast(null)} />

@@ -18,6 +18,8 @@ class ManifestTripSnapshotSchema(BaseModel):
     orderRefs: List[str]
     loadingStatus: Optional[str] = "planned"
     otpUnlocked: Optional[bool] = False
+    driverUsername: Optional[str] = None
+    driverName: Optional[str] = None
 
 class ManifestResponseSchema(BaseModel):
     id: int

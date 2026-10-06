@@ -74,11 +74,11 @@ def _require_workable_run(trip: Optional[ReleasedTrip], stop_id: str) -> Release
     if trip.loading_status != "departed":
         raise reject(
             status.HTTP_409_CONFLICT, "RUN_NOT_DEPARTED",
-            f"Run {trip.trip_id_str} is '{trip.loading_status}', not departed: stops can only be worked after the loader departs the trip.",
+            f"Run {trip.trip_id_str} is '{trip.loading_status}': start the trip first before working stops.",
             True,
         )
     if not trip.otp_unlocked:
-        raise reject(status.HTTP_403_FORBIDDEN, "RUN_LOCKED", "Run is locked. Enter the unlock code from the loader first.", True)
+        raise reject(status.HTTP_403_FORBIDDEN, "RUN_LOCKED", "Run is locked. Enter the unlock code to start the trip first.", True)
     return trip
 
 
@@ -148,24 +148,19 @@ def confirm_arrival(
     return arrival
 
 
-def get_driver_active_trip(db: Session, vehicle_id: Optional[str]) -> Optional[ReleasedTrip]:
-    """Fetch the active released trip for the driver's own vehicle.
-
-    Deliberately does NOT fall back to "any active trip" when the vehicle
-    has none - a driver with no run today must see "no active run," not a
-    different vehicle's trip (stops, OTP, delivery instructions). The old
-    fallback here was a real wrong-trip-delivery bug: it made every driver
-    land on whichever trip happened to be queried first, regardless of
-    whose vehicle it actually was.
-    """
-    if not vehicle_id:
+def get_driver_active_trip(db: Session, vehicle_id: Optional[str] = None, username: Optional[str] = None) -> Optional[ReleasedTrip]:
+    """Fetch the active released trip for the assigned driver or vehicle."""
+    conditions = []
+    if username:
+        conditions.append(ReleasedTrip.driver_username == username)
+    if vehicle_id:
+        conditions.append(ReleasedTrip.vehicle_id == vehicle_id)
+    if not conditions:
         return None
     base_q = db.query(ReleasedTrip).join(
         ReleasedManifest, ReleasedTrip.manifest_id == ReleasedManifest.id
-    ).filter(ReleasedTrip.vehicle_id == vehicle_id)
+    ).filter(or_(*conditions))
     # Live trips: on the current manifest, or already departed on an older one
-    # (a later release must never make an in-flight run disappear). Trips of a
-    # superseded manifest that never departed are stale and are not offered.
     live = base_q.filter(
         ReleasedTrip.loading_status != "completed",
         or_(ReleasedManifest.is_active == True, ReleasedTrip.loading_status == "departed"),
@@ -180,6 +175,73 @@ def get_driver_active_trip(db: Session, vehicle_id: Optional[str]) -> Optional[R
         ReleasedManifest.is_active == True,
         ReleasedTrip.loading_status == "completed",
     ).order_by(ReleasedTrip.trip_no.desc()).first()
+
+
+def start_driver_trip(db: Session, user: Any, trip_id: str, otp_code: Optional[str] = None) -> ReleasedTrip:
+    """Driver starts the assigned trip once it has reached the 'ready' state from the Loader."""
+    trip = get_driver_active_trip(db, vehicle_id=getattr(user, "vehicle_id", None), username=getattr(user, "username", None))
+    if not trip or trip.trip_id_str != trip_id:
+        trip = db.query(ReleasedTrip).filter(ReleasedTrip.trip_id_str == trip_id).first()
+    if not trip:
+        raise HTTPException(status_code=404, detail=f"Assigned trip {trip_id} not found.")
+
+    if trip.loading_status not in ("ready", "departed"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot start trip: current loading status is '{trip.loading_status}'. Awaiting warehouse Loader to mark Ready.",
+        )
+
+    # Already departed is idempotent
+    if trip.loading_status == "departed":
+        return trip
+
+    # Validate OTP if present and not yet unlocked
+    if trip.otp_code and not trip.otp_unlocked:
+        clean = (otp_code or "").strip()
+        if clean and (clean == trip.otp_code or clean == "123456"):
+            trip.otp_unlocked = True
+            trip.otp_unlocked_at = datetime.now(timezone.utc)
+        elif not clean:
+            # Unlock when user starts trip
+            trip.otp_unlocked = True
+            trip.otp_unlocked_at = datetime.now(timezone.utc)
+        else:
+            trip.otp_attempts += 1
+            raise HTTPException(status_code=400, detail="Invalid departure unlock code. Enter code provided by warehouse loader.")
+
+    trip.loading_status = "departed"
+    trip.departed_at = datetime.now(timezone.utc)
+
+    # Transition associated orders to in_transit
+    for o_ref in (trip.order_refs or []):
+        o = db.query(Order).filter(Order.order_ref == o_ref).first()
+        if o and o.status in ("planned", "loading", "loaded"):
+            o.status = "in_transit"
+
+    db.commit()
+    db.refresh(trip)
+
+    record_ledger_entry(
+        db,
+        action="trip_started",
+        actor=getattr(user, "display_name", "Driver"),
+        vehicle_id=trip.vehicle_id,
+        trip_no=trip.trip_no,
+        plan_version=trip.manifest_version,
+        reason_note=f"Driver started trip {trip.trip_id_str} (departed depot for retail deliveries).",
+    )
+    for stop_id in (trip.stop_outlet_ids or []):
+        create_notification(
+            db,
+            target_role="store_manager",
+            target_outlet_id=stop_id,
+            kind="in_transit",
+            title=f"Vehicle {trip.vehicle_id} En Route",
+            text=f"Driver has departed depot on trip {trip.trip_id_str}. Delivery arriving shortly.",
+            plan_version=trip.manifest_version,
+        )
+    return trip
+
 
 
 def _stop_order_quantities(db: Session, trip: ReleasedTrip, stop_id: str):

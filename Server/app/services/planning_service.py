@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from fastapi import HTTPException, status
 from app.models.reference import Outlet, Vehicle, ScenarioFleetEntry, ServiceAllowance, DistrictTravel
 from app.models.order import Order
+from app.models.user import User
 from app.models.plan import (
     DraftPlan,
     DraftAssignment,
@@ -152,7 +153,12 @@ def get_draft_state(db: Session, scenario: str = "S1") -> Dict[str, Any]:
 
     trip_meta_rows = db.query(DraftTripMeta).filter(DraftTripMeta.scenario == scenario).all()
     trip_meta = {
-        f"{m.vehicle_id}-{m.trip_no}": {"plannedDepartureTime": m.planned_departure_time, "locked": m.locked}
+        f"{m.vehicle_id}-{m.trip_no}": {
+            "plannedDepartureTime": m.planned_departure_time,
+            "driverUsername": m.driver_username,
+            "driverName": m.driver_name,
+            "locked": m.locked,
+        }
         for m in trip_meta_rows
     }
 
@@ -167,6 +173,8 @@ def get_draft_state(db: Session, scenario: str = "S1") -> Dict[str, Any]:
     return {
         "scenario": scenario,
         "draftRevision": draft.draft_revision,
+        "ordersClosed": draft.orders_closed_at is not None,
+        "ordersClosedAt": draft.orders_closed_at.isoformat() if draft.orders_closed_at else None,
         "assignments": assignments,
         "stopSequences": stop_sequences,
         "stopSequenceLocks": stop_sequence_locks,
@@ -426,6 +434,39 @@ def set_trip_departure(
     db.commit()
     return get_draft_state(db, scenario)
 
+def set_trip_driver(
+    db: Session,
+    vehicle_id: str,
+    trip_no: int,
+    driver_username: str,
+    driver_name: Optional[str] = None,
+    scenario: str = "S1",
+    actor: str = "Sarah Jenkins",
+) -> Dict[str, Any]:
+    meta = db.query(DraftTripMeta).filter(
+        DraftTripMeta.scenario == scenario,
+        DraftTripMeta.vehicle_id == vehicle_id,
+        DraftTripMeta.trip_no == trip_no,
+    ).first()
+    if not meta:
+        meta = DraftTripMeta(scenario=scenario, vehicle_id=vehicle_id, trip_no=trip_no)
+        db.add(meta)
+
+    if not driver_name:
+        drv_user = db.query(User).filter(User.username == driver_username).first()
+        driver_name = drv_user.display_name if drv_user else driver_username
+
+    meta.driver_username = driver_username
+    meta.driver_name = driver_name
+
+    draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
+    draft.draft_revision += 1
+    draft.updated_at = datetime.now(timezone.utc)
+    draft.updated_by = actor
+
+    db.commit()
+    return get_draft_state(db, scenario)
+
 def set_vehicle_fuel_input(
     db: Session,
     vehicle_id: str,
@@ -491,6 +532,40 @@ def _structural_deferral_reason(engine: ValidationEngine, order: Order) -> Tuple
         f"({', '.join(v.vehicle_id for v in available_matches)}) but had no remaining weight/volume/time budget "
         f"after higher-priority orders were allocated this run.",
     )
+
+
+def close_orders_and_suggest(
+    db: Session,
+    scenario: str = "S1",
+    actor: str = "Sarah Jenkins",
+) -> Dict[str, Any]:
+    """Booklet Close-orders step: mark the planning window closed for this draft,
+    then auto-generate vehicle/trip/stop assignments from DB constraints.
+
+    New store orders may still be placed (4 PM Asia/Colombo cutoff still decides
+    run_date eligibility); closing records that the dispatcher has taken the
+    confirmed queue into planning and triggered the greedy allocator. Manual
+    overrides remain available on the returned draft.
+    """
+    draft = db.query(DraftPlan).filter(DraftPlan.scenario == scenario).first()
+    if not draft:
+        draft = DraftPlan(scenario=scenario, draft_revision=0, updated_by=actor)
+        db.add(draft)
+        db.flush()
+    now = datetime.now(timezone.utc)
+    draft.orders_closed_at = now
+    draft.updated_at = now
+    draft.updated_by = actor
+    db.commit()
+    record_ledger_entry(
+        db,
+        action="orders_closed",
+        actor=actor,
+        reason_note=f"Orders closed for scenario {scenario}; auto-plan started.",
+        updated_state="closed",
+    )
+    return suggest_plan_greedy(db, scenario=scenario, actor=actor)
+
 
 def suggest_plan_greedy(
     db: Session,
@@ -651,58 +726,114 @@ def suggest_plan_greedy(
                 "reason_note": reason_note,
             }
 
-    # Persist suggestions - only replace rows that are not locked; locked rows
-    # (filtered out of `assignments`/`stop_seqs`/`trip_meta`/`fuel_inputs` above
-    # because they were never re-planned) must survive untouched.
-    db.query(DraftAssignment).filter(
-        DraftAssignment.scenario == scenario,
-        DraftAssignment.locked == False,  # noqa: E712
-    ).delete(synchronize_session=False)
+    # Persist suggestions safely with ORM to avoid StaleDataError / session sync issues
+    existing_das = db.query(DraftAssignment).filter(DraftAssignment.scenario == scenario).all()
+    existing_da_map = {da.order_ref: da for da in existing_das}
+    seen_refs = set()
+
     for ref, a in assignments.items():
         if ref in locked_order_refs:
             continue
-        db.add(DraftAssignment(
-            scenario=scenario,
-            order_ref=ref,
-            decision=a["decision"],
-            vehicle_id=a["vehicle_id"],
-            trip_no=a["trip_no"],
-            reason_code=a["reason_code"],
-            reason_note=a["reason_note"],
-            locked=False,
-        ))
+        seen_refs.add(ref)
+        da = existing_da_map.get(ref)
+        if da:
+            da.decision = a["decision"]
+            da.vehicle_id = a["vehicle_id"]
+            da.trip_no = a["trip_no"]
+            da.reason_code = a["reason_code"]
+            da.reason_note = a["reason_note"]
+            da.locked = False
+        else:
+            db.add(DraftAssignment(
+                scenario=scenario,
+                order_ref=ref,
+                decision=a["decision"],
+                vehicle_id=a["vehicle_id"],
+                trip_no=a["trip_no"],
+                reason_code=a["reason_code"],
+                reason_note=a["reason_note"],
+                locked=False,
+            ))
 
-    db.query(DraftStopSequence).filter(
-        DraftStopSequence.scenario == scenario,
-        DraftStopSequence.locked == False,  # noqa: E712
-    ).delete(synchronize_session=False)
+    for da in existing_das:
+        if not da.locked and da.order_ref not in seen_refs and da.order_ref not in locked_order_refs:
+            db.delete(da)
+
+    available_drivers = db.query(User).filter(User.role == "driver").order_by(User.id).all()
+    outlets_by_id = {o.outlet_id: o for o in db.query(Outlet).all()}
+
+    existing_dss = db.query(DraftStopSequence).filter(DraftStopSequence.scenario == scenario).all()
+    existing_dss_map = {f"{dss.vehicle_id}-{dss.trip_no}": dss for dss in existing_dss}
+    seen_stop_keys = set()
+
     for key, seq in stop_seqs.items():
         vid, tno_str = key.rsplit("-", 1)
+        tno = int(tno_str)
         if key in locked_stop_keys:
             continue
-        db.add(DraftStopSequence(
-            scenario=scenario,
-            vehicle_id=vid,
-            trip_no=int(tno_str),
-            stop_outlet_ids=seq,
-            locked=False,
+        seen_stop_keys.add(key)
+        # Order the physical stop sequence by outlet window constraints
+        sorted_seq = sorted(seq, key=lambda oid: (
+            parse_hhmm(outlets_by_id[oid].window_open_time) if oid in outlets_by_id else 9999,
+            parse_hhmm(outlets_by_id[oid].window_close_time) if oid in outlets_by_id else 9999,
         ))
+        dss = existing_dss_map.get(key)
+        if dss:
+            dss.stop_outlet_ids = sorted_seq
+            dss.locked = False
+        else:
+            db.add(DraftStopSequence(
+                scenario=scenario,
+                vehicle_id=vid,
+                trip_no=tno,
+                stop_outlet_ids=sorted_seq,
+                locked=False,
+            ))
 
-    db.query(DraftTripMeta).filter(
-        DraftTripMeta.scenario == scenario,
-        DraftTripMeta.locked == False,  # noqa: E712
-    ).delete(synchronize_session=False)
+    for dss in existing_dss:
+        dss_key = f"{dss.vehicle_id}-{dss.trip_no}"
+        if not dss.locked and dss_key not in seen_stop_keys and dss_key not in locked_stop_keys:
+            db.delete(dss)
+
+    existing_dtm = db.query(DraftTripMeta).filter(DraftTripMeta.scenario == scenario).all()
+    existing_dtm_map = {f"{dtm.vehicle_id}-{dtm.trip_no}": dtm for dtm in existing_dtm}
+    seen_meta_keys = set()
+
+    drivers_by_vehicle = {d.vehicle_id: d for d in available_drivers if d.vehicle_id}
+    fallback_driver_idx = 0
+
     for key, dep_time in trip_meta.items():
         vid, tno_str = key.rsplit("-", 1)
+        tno = int(tno_str)
         if key in locked_trip_meta_keys:
             continue
-        db.add(DraftTripMeta(
-            scenario=scenario,
-            vehicle_id=vid,
-            trip_no=int(tno_str),
-            planned_departure_time=dep_time,
-            locked=False,
-        ))
+        seen_meta_keys.add(key)
+        driver = drivers_by_vehicle.get(vid)
+        if not driver and available_drivers:
+            driver = available_drivers[fallback_driver_idx % len(available_drivers)]
+            fallback_driver_idx += 1
+
+        dtm = existing_dtm_map.get(key)
+        if dtm:
+            dtm.planned_departure_time = dep_time
+            dtm.driver_username = driver.username if driver else None
+            dtm.driver_name = driver.display_name if driver else None
+            dtm.locked = False
+        else:
+            db.add(DraftTripMeta(
+                scenario=scenario,
+                vehicle_id=vid,
+                trip_no=tno,
+                planned_departure_time=dep_time,
+                driver_username=driver.username if driver else None,
+                driver_name=driver.display_name if driver else None,
+                locked=False,
+            ))
+
+    for dtm in existing_dtm:
+        dtm_key = f"{dtm.vehicle_id}-{dtm.trip_no}"
+        if not dtm.locked and dtm_key not in seen_meta_keys and dtm_key not in locked_trip_meta_keys:
+            db.delete(dtm)
 
     # Fuel inputs are never fabricated: a vehicle used by this run that has no
     # dispatcher-confirmed (locked) fuel figure is left unconfirmed (None),
@@ -828,6 +959,15 @@ def release_plan(
         trip_id_str = f"S1-T{trip_counter:03d}"
         trip_counter += 1
 
+        meta_info = draft_state["tripMeta"].get(key, {})
+        driver_user = meta_info.get("driverUsername")
+        driver_name = meta_info.get("driverName")
+        if not driver_user:
+            default_drv = db.query(User).filter(User.role == "driver").first()
+            if default_drv:
+                driver_user = default_drv.username
+                driver_name = default_drv.display_name
+
         rel_trip = ReleasedTrip(
             manifest_id=manifest.id,
             manifest_version=next_version,
@@ -846,9 +986,16 @@ def release_plan(
             otp_code=otp,
             otp_attempts=0,
             otp_unlocked=False,
+            driver_username=driver_user,
+            driver_name=driver_name,
         )
         db.add(rel_trip)
         db.flush()
+
+        if driver_user:
+            d_u = db.query(User).filter(User.username == driver_user).first()
+            if d_u:
+                d_u.vehicle_id = vid
 
         # Seed order loading states
         for o in trip_orders:
@@ -897,7 +1044,7 @@ def release_plan(
         if not mem:
             mem = DeferralMemory(outlet_id=outlet_id, consecutive_skips=0)
             db.add(mem)
-            existing_mems[o.outlet_id] = mem
+            existing_mems[outlet_id] = mem
 
         if decision["served"]:
             # Any order served for this outlet this run resets its skip streak,

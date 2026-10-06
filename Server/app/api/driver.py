@@ -2,6 +2,7 @@
 
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database.session import get_db
 from app.core.deps import require_role, CurrentUser
@@ -21,6 +22,7 @@ from app.schemas.driver import (
 )
 from app.services.driver_service import (
     get_driver_active_trip,
+    start_driver_trip,
     verify_driver_otp,
     get_driver_run_progress,
     record_driver_delivery,
@@ -28,17 +30,37 @@ from app.services.driver_service import (
     confirm_arrival,
     reject,
 )
+from app.services.loading_service import refresh_trip_readiness
 from app.services.storage_service import storage_service
 
 router = APIRouter(prefix="/driver", tags=["Driver Portal"])
 
+# Driver-visible trip statuses (booklet: trip appears only after loader marks Ready).
+_DRIVER_VISIBLE_STATUSES = frozenset({"ready", "departed", "completed"})
+
 @router.get("/my-run")
 def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
-    """Fetch assigned driver run manifest, stops, and unlock status - for the
-    authenticated driver's own assigned vehicle, never a client-supplied one."""
-    trip = get_driver_active_trip(db, vehicle_id=user.vehicle_id)
+    """Fetch assigned driver run manifest, stops, and unlock status for the authenticated driver."""
+    trip = get_driver_active_trip(db, vehicle_id=user.vehicle_id, username=user.username)
     if not trip:
         return {"hasRun": False, "message": "No active released run found"}
+
+    # Heal a stuck "loading" row if every order is already loaded (same as unlock path).
+    if trip.loading_status in ("planned", "loading"):
+        refresh_trip_readiness(db, trip)
+        db.refresh(trip)
+
+    if trip.loading_status not in _DRIVER_VISIBLE_STATUSES:
+        return {
+            "hasRun": False,
+            "message": (
+                "Your trip is assigned and being loaded at the warehouse. "
+                "It appears here once the loader marks it Ready."
+            ),
+            "loadingStatus": trip.loading_status,
+            "vehicleId": trip.vehicle_id,
+            "tripId": trip.trip_id_str,
+        }
 
     # Get outlet details for each stop
     stops_data = []
@@ -146,6 +168,8 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
         "hasRun": True,
         "tripId": trip.trip_id_str,
         "vehicleId": trip.vehicle_id,
+        "driverUsername": trip.driver_username,
+        "driverName": trip.driver_name,
         "tripNo": trip.trip_no,
         "brand": trip.brand,
         "district": trip.district,
@@ -157,6 +181,18 @@ def get_my_run(db: Session = Depends(get_db), user: CurrentUser = Depends(requir
         "loadingStatus": trip.loading_status,
         "stops": stops_data,
     }
+
+
+class StartTripRequest(BaseModel):
+    trip_id: str
+    otp_code: Optional[str] = None
+
+
+@router.post("/start-trip")
+def api_start_trip(req: StartTripRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
+    """Start trip after loader has marked it ready."""
+    return start_driver_trip(db, user, req.trip_id, req.otp_code)
+
 
 @router.post("/otp/verify")
 def api_verify_otp(req: OTPVerifyRequest, db: Session = Depends(get_db), user: CurrentUser = Depends(require_role("driver"))):
